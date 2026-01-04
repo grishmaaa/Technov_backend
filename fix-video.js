@@ -1,0 +1,1 @@
+import prisma from './src/config/database.js'; async function fix() { await prisma.project.updateMany({ where: { status: 'completed' }, data: { finalVideoUrl: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4' } }); console.log('Fixed video URLs to Google Storage Source'); } fix();

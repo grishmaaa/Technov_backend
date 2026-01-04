@@ -35,12 +35,22 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+
 model Project {
   id          String   @id @default(uuid())
   userId      String   @map("user_id")
   title       String
   description String?
   status      String   @default("draft")
+  heroImageId String?  @map("hero_image_id")
+  styleSeed   Int?     @map("style_seed")
+  
+  // Observability & Resilience
+  totalTokenCost Decimal @default(0)
+  errorLog       String? // Text to store debug info
+  retryCount     Int     @default(0)
+  traceId        String?
+  
   finalVideoUrl String? @map("final_video_url")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -53,20 +63,24 @@ model Project {
 }
 
 model Scene {
-  id          String   @id @default(uuid())
-  projectId   String   @map("project_id")
-  orderIndex  Int      @map("order_index")
-  promptText  String   @map("prompt_text")
-  duration    Int      @default(5)
-  status      String   @default("pending")
-  videoUrl    String?  @map("video_url")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  projectId        String   @map("project_id")
+  orderIndex       Int      @map("order_index")
+  promptText       String   @map("prompt_text")
+  actionDescription String? @map("action_description")
+  motionComplexity Int?     @map("motion_complexity")
+  audioDirective   String?  @map("audio_directive")
+  duration         Int      @default(5)
+  status           String   @default("pending")
+  videoUrl         String?  @map("video_url")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("scenes")
 }
+
 
 model GenerationJob {
   id         String   @id @default(uuid())

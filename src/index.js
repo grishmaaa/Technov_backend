@@ -12,6 +12,7 @@ import sceneRoutes from './routes/sceneRoutes.js';
 import jobRoutes from './routes/jobRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -62,12 +63,14 @@ app.get('/health', (req, res) => {
 });
 
 // API routes
-app.use('/auth', authRoutes);
-app.use('/projects', projectRoutes);
+// API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
 app.use('/api', sceneRoutes); // /api/projects/:id/scenes
 app.use('/api', jobRoutes);   // /api/projects/:id/generate
 app.use('/api/payments', paymentRoutes); // /api/payments/*
-app.use('/admin', adminRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // 404 handler
 app.use((req, res) => {

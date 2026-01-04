@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      String   @default("user")
+  plan      String   @default("basic")
+  credits   Int      @default(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  projects Project[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  title       String
+  description String?
+  status      String   @default("draft")
+  finalVideoUrl String? @map("final_video_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scenes Scene[]
+  jobs   GenerationJob[]
+
+  @@map("projects")
+}
+
+model Scene {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  orderIndex  Int      @map("order_index")
+  promptText  String   @map("prompt_text")
+  duration    Int      @default(5)
+  status      String   @default("pending")
+  videoUrl    String?  @map("video_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("scenes")
+}
+
+model GenerationJob {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  status     String   @default("queued")
+  progress   Int      @default(0)
+  outputUrl  String?  @map("output_url")
+  errorMessage String? @map("error_message")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("generation_jobs")
+}

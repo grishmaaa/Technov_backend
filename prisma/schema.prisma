@@ -16,6 +16,15 @@ model User {
   credits   Int      @default(100)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Credit reset tracking
+  billingCycleStart DateTime? @map("billing_cycle_start")
+  lastCreditReset   DateTime? @map("last_credit_reset")
+  
+  // TODO: Add email verification fields
+  // verificationToken String?  @map("verification_token")
+  // isVerified        Boolean  @default(false) @map("is_verified")
+  // verifiedAt        DateTime? @map("verified_at")
 
   projects Project[]
   refreshTokens RefreshToken[]

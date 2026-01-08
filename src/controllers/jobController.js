@@ -5,10 +5,22 @@ import { processGenerationJob } from '../workers/renderWorker.js';
 export const generateScriptController = async (req, res) => {
     try {
         const { story, title } = req.body;
-        const userId = req.user.id; // Assumes authMiddleware is used
+        const userId = req.user.id;
 
         if (!story) {
             return res.status(400).json({ error: 'Story text is required' });
+        }
+
+        // Check if user has enough credits (minimum 10 credits for script generation)
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        const SCRIPT_GENERATION_COST = 5; // 5 credits per script
+
+        if (user.credits < SCRIPT_GENERATION_COST) {
+            return res.status(402).json({
+                error: 'Insufficient credits',
+                required: SCRIPT_GENERATION_COST,
+                available: user.credits
+            });
         }
 
         // 1. Create Project
@@ -24,13 +36,23 @@ export const generateScriptController = async (req, res) => {
         // 2. Generate Script (JSON) with Observability
         const { scenes: scenesData, usage } = await generateScript(story);
 
-        // Calculate Cost (Gemini 1.5 Flash Pricing Estimate)
-        // Input: $0.075 / 1M => 0.000000075
-        // Output: $0.30 / 1M => 0.00000030
-        const inputCost = (usage?.promptTokenCount || 0) * 0.000000075;
-        const outputCost = (usage?.candidatesTokenCount || 0) * 0.00000030;
+        // Calculate Cost (OpenAI GPT-4 Pricing)
+        // Input: ~$0.01 / 1K tokens, Output: ~$0.03 / 1K tokens
+        const inputCost = (usage?.promptTokenCount || 0) / 1000 * 0.01;
+        const outputCost = (usage?.candidatesTokenCount || 0) / 1000 * 0.03;
         const totalCost = inputCost + outputCost;
         const traceId = `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log(`[Credits] Script generation cost: $${totalCost.toFixed(4)} (${SCRIPT_GENERATION_COST} credits)`);
+
+        // Deduct credits from user
+        await prisma.user.update({
+            where: { id: userId },
+            data: { credits: { decrement: SCRIPT_GENERATION_COST } }
+        });
+
+        console.log(`[Credits] Deducted ${SCRIPT_GENERATION_COST} credits from user ${userId}. Remaining: ${user.credits - SCRIPT_GENERATION_COST}`);
+
 
         // 3. Save Scenes to DB
         const createdScenes = [];
@@ -94,13 +116,12 @@ export const createGenerationJob = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        if (project.status !== 'draft') {
-            return res.status(400).json({ error: 'Project must be in draft status' });
-        }
-
         if (project.scenes.length === 0) {
             return res.status(400).json({ error: 'Project must have at least one scene' });
         }
+
+        // Allow regeneration on any status (draft, generating, completed, failed)
+        // This enables "Resume Generation" and "Generate Again" functionality
 
         // Check credits (example: 10 credits per scene)
         const requiredCredits = project.scenes.length * 10;

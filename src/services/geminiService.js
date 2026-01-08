@@ -1,9 +1,12 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Initialize OpenAI client
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -31,58 +34,98 @@ async function callWithRetry(fn, maxRetries = 3) {
     }
 }
 
-export async function attemptJsonRepair(malformedText, errorMsg) {
-    console.warn("[SafetyNet] JSON Parse failed. Attempting self-correction with Gemini...");
-    const repairPrompt = `
-    The following JSON is malformed and caused this error: ${errorMsg}.
-    
-    BAD JSON:
-    ${malformedText}
-
-    Please fix the JSON syntax and return ONLY the valid JSON array.
-    `;
-
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-    const result = await model.generateContent(repairPrompt);
-    const response = textFromResponse(result);
-    return JSON.parse(cleanMarkdown(response));
-}
-
 const cleanMarkdown = (text) => text.replace(/```json/g, '').replace(/```/g, '').trim();
-const textFromResponse = (result) => result.response.text();
 
 export const generateScript = async (storyText) => {
     // Wrap the core logic to allow for retries of the *Generation* step
     return await callWithRetry(async () => {
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
         const prompt = `
-        You are a professional film director and screenwriter. 
-        Transform the following story into a detailed Scene Breakdown for a cinematic video.
-        
-        STORY:
-        "${storyText}"
-        
-        Output strictly as a JSON array of objects. Each object must have:
-        - scene_id: integer (1, 2, 3...)
-        - action_description: detailed visual description of what happens.
-        - shot_type: camera angle (Wide, Close-up, Drone, Tracking, etc.)
-        - motion_complexity: integer (1-10, where 10 is high action).
-        - audio_directive: description of sound effects or mood music.
-        - duration: integer (seconds, default 8).
+            You are an expert film director, screenwriter, cinematographer, and editor combined.
 
-        Example:
-        [
-            { "scene_id": 1, "action_description": "...", "shot_type": "Wide", "motion_complexity": 5, "audio_directive": "...", "duration": 8 }
-        ]
+            You think visually, not textually.
+            You design scenes as if they will be shot by a real camera, edited into a real film, and rendered by a high-end AI video engine (Kling 2.6 / Sora-class).
+
+            Your task is to transform the provided story into a cinematic Scene Breakdown suitable for professional video generation.
+
+            STORY INPUT:
+            "${storyText}"
+
+            GLOBAL DIRECTIVES (STRICT):
+            - Output MUST be valid JSON only (no markdown, no comments, no explanations)
+            - Each scene must be visually distinct and progress the narrative
+            - Avoid vague language; describe concrete, observable actions
+            - Use professional cinematic camera language
+            - Do NOT repeat phrasing across scenes
+            - Do NOT break JSON formatting
+            - Do NOT include anything outside the JSON array
+
+            SCENE DESIGN RULES:
+            - Each scene represents a clear cinematic beat
+            - Focus on what is physically visible on screen
+            - Include environment, lighting, character movement, and atmosphere
+            - Scene flow should feel continuous and film-like
+            - Escalate or de-escalate intensity based on story beats
+
+            SHOT & CAMERA GUIDELINES:
+            - Vary shot types intentionally (Wide, Medium, Close-up, Tracking, Drone, Handheld, POV)
+            - Camera choice must support emotion and storytelling
+            - Avoid repetitive shot patterns
+
+            MOTION COMPLEXITY SCALE (1-10):
+            1-2: Static or near-static (stillness, tension, atmosphere)
+            3-5: Controlled motion (walking, gestures, slow camera movement)
+            6-8: Dynamic motion (running, fast tracking, multiple actors)
+            9-10: High-intensity action (combat, chaos, rapid movement)
+
+            AUDIO DESIGN REQUIREMENTS:
+            - Describe specific sound elements (ambient, Foley, score)
+            - Audio must reinforce mood, tension, or emotional shift
+            - Avoid generic phrases like "background music"
+
+            OUTPUT FORMAT (STRICT):
+            Return ONLY a JSON array of objects.
+
+            Each object MUST contain:
+            - scene_id: integer starting from 1
+            - action_description: highly detailed visual description of what is seen on screen
+            - shot_type: cinematic camera angle or movement
+            - motion_complexity: integer (1-10)
+            - audio_directive: specific sound or music description
+            - duration: integer (seconds, default 8 unless context demands otherwise)
+
+            JSON EXAMPLE STRUCTURE:
+            [
+            {
+                "scene_id": 1,
+                "action_description": "A dimly lit alley glistens with rain as a lone figure steps into frame, steam rising from the ground under flickering neon lights.",
+                "shot_type": "Wide Tracking Shot",
+                "motion_complexity": 4,
+                "audio_directive": "Distant traffic hum layered with low atmospheric synth pulses",
+                "duration": 8
+            }
+            ]
         `;
 
-        const result = await model.generateContent(prompt);
-        const text = textFromResponse(result);
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4o", // or "gpt-4" or "gpt-3.5-turbo"
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a professional film director and screenwriter. You respond ONLY with valid JSON."
+                },
+                {
+                    role: "user",
+                    content: prompt
+                }
+            ],
+            temperature: 0.7,
+        });
+
+        const text = completion.choices[0].message.content;
 
         // Log token usage (Observability)
-        const usage = result.response.usageMetadata;
-        console.log(`[Monitor] Input Tokens: ${usage?.promptTokenCount}, Output Tokens: ${usage?.candidatesTokenCount}`);
+        const usage = completion.usage;
+        console.log(`[Monitor] Input Tokens: ${usage?.prompt_tokens}, Output Tokens: ${usage?.completion_tokens}, Total: ${usage?.total_tokens}`);
 
         // Try Parsing
         let scenes;
@@ -91,17 +134,23 @@ export const generateScript = async (storyText) => {
         try {
             scenes = JSON.parse(cleanedText);
         } catch (parseError) {
-            // "Safety Net": JSON Repair
-            try {
-                scenes = await attemptJsonRepair(cleanedText, parseError.message);
-                console.log("[SafetyNet] JSON successfully repaired.");
-            } catch (repairError) {
-                console.error("[SafetyNet] Repair failed.");
-                throw new Error("Failed to generate valid JSON script even after repair.");
-            }
+            console.error("[SafetyNet] JSON parsing failed:", parseError.message);
+            console.log("Raw response:", text.substring(0, 500));
+            throw new Error(`Failed to parse scene JSON: ${parseError.message}`);
         }
 
-        return { scenes, usage };
+        if (!Array.isArray(scenes) || scenes.length === 0) {
+            throw new Error('Invalid scene data: Expected non-empty array');
+        }
+
+        return {
+            scenes,
+            usage: {
+                promptTokenCount: usage?.prompt_tokens || 0,
+                candidatesTokenCount: usage?.completion_tokens || 0,
+                totalTokenCount: usage?.total_tokens || 0
+            }
+        };
     });
 };
 
@@ -123,40 +172,95 @@ export const generateHeroImage = async (actionDescription) => {
     }
 };
 
+/**
+ * Generate Video for a Scene using Kling AI 2.6
+ * @param {string} sceneContext - Text description of the scene
+ * @param {string} heroImageUrl - Optional hero character image URL for consistency
+ * @returns {Promise<{video_url: string, status: string}>}
+ */
 export const generateVideo = async (sceneContext, heroImageUrl) => {
-    console.log(`[Veo] Generating video for scene: ${sceneContext.substring(0, 30)}...`);
+    const KLING_API_KEY = process.env.KLING_API_KEY;
 
-    // Mission 4: The Anchor - Veo 3.1 Orchestration
-    // Model: veo-3.1-generate-001
+    if (!KLING_API_KEY) {
+        throw new Error('KLING_API_KEY not configured in environment variables');
+    }
 
-    // Since we don't have direct access to the 'veo' model namespace in this specific SDK setup yet,
-    // We implement the "Architecture" (Polling, Params) using a simulation for the verification phase.
+    console.log(`[Video] Generating video with Kling AI for scene: ${sceneContext.substring(0, 50)}...`);
 
-    // In production, this would be:
-    /*
-    const response = await fetch('https://.../models/veo-3.1-generate-001:generateContent', {
-        method: 'POST',
-        body: JSON.stringify({
-            contents: { ... },
-            generationConfig: {
-                aspect_ratio: "16:9",
-                motion_bucket_id: 7,
-                native_audio: true,
-                duration_seconds: 8
+    try {
+        // 1. Submit video generation job to Kling AI (via fal.ai)
+        console.log('[Video] Submitting job to Kling AI...');
+        const submitResponse = await fetch('https://fal.run/fal-ai/kling-video/v2.6/pro/text-to-video', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Key ${KLING_API_KEY}`,
+                'Content-Type': 'application/json'
             },
-            input_images: [heroImageUrl] // The Identity Lock
-        })
-    });
-    */
+            body: JSON.stringify({
+                prompt: sceneContext,
+                duration: "5",  // 5 seconds per clip
+                aspect_ratio: "16:9"
+            })
+        });
 
-    // SIMULATED POLLING LOOP (To verify Worker Logic)
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            // Return a realistic 'Completed' response with a reliable Google Storage video URL
-            resolve({
-                video_url: "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-                status: "completed"
-            });
-        }, 5000); // Simulate 5s render time (in real life 1-3 mins)
-    });
+        if (!submitResponse.ok) {
+            const errorText = await submitResponse.text();
+            throw new Error(`Failed to submit Kling job: ${submitResponse.status} - ${errorText}`);
+        }
+
+        const submitData = await submitResponse.json();
+        const requestId = submitData.request_id;
+
+        console.log(`[Video] Job submitted. Request ID: ${requestId}`);
+        console.log('[Video] Polling for completion (max 5 minutes)...');
+
+        // 2. Poll for job completion
+        const maxAttempts = 60; // 60 * 5s = 5 minutes
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s
+
+            const statusResponse = await fetch(
+                `https://fal.run/fal-ai/kling-video/v2.6/pro/text-to-video/requests/${requestId}/status`,
+                {
+                    headers: {
+                        'Authorization': `Key ${KLING_API_KEY}`
+                    }
+                }
+            );
+
+            if (!statusResponse.ok) {
+                console.warn(`[Video] Status check failed (attempt ${attempt}/${maxAttempts})`);
+                continue;
+            }
+
+            const statusData = await statusResponse.json();
+            console.log(`[Video] Attempt ${attempt}/${maxAttempts}: ${statusData.status}`);
+
+            if (statusData.status === 'COMPLETED') {
+                const videoUrl = statusData.video?.url;
+
+                if (!videoUrl) {
+                    throw new Error('Video completed but no URL returned');
+                }
+
+                console.log(`[Video] ✅ Generation complete! URL: ${videoUrl}`);
+                return {
+                    video_url: videoUrl,
+                    status: "completed"
+                };
+            }
+
+            if (statusData.status === 'FAILED') {
+                const errorMsg = statusData.error || 'Unknown error';
+                throw new Error(`Kling video generation failed: ${errorMsg}`);
+            }
+        }
+
+        throw new Error('Video generation timed out after 5 minutes');
+
+    } catch (error) {
+        console.error('[Video] Error during video generation:', error);
+        throw error;
+    }
 };
+

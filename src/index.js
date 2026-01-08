@@ -14,6 +14,9 @@ import adminRoutes from './routes/adminRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 
+// Import jobs
+import { startCreditResetJob } from './jobs/creditResetJob.js';
+
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -85,6 +88,9 @@ app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔒 CORS Origin: ${process.env.CORS_ORIGIN || '*'}`);
+
+    // Start credit reset cron job
+    startCreditResetJob();
 });
 
 export default app;

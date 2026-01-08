@@ -2,6 +2,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database.js';
 
+// TODO: Add email verification functionality
+// - Implement resendVerificationEmail(req, res) function
+// - Implement verifyEmail(req, res) function  
+// - Add verificationToken field to User model in schema.prisma
+// - Set up email service (e.g., nodemailer with SMTP or SendGrid)
+// - Create email templates for verification emails
+
 export const register = async (req, res) => {
     try {
         const { email, password } = req.body;

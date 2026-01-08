@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { generateScriptAndImagePrompt } from '../services/aiService.js';
 
 export const createProject = async (req, res) => {
     try {
@@ -98,5 +99,21 @@ export const deleteProject = async (req, res) => {
         res.json({ message: 'Project deleted successfully' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to delete project' });
+    }
+};
+
+export const generateScenesFromStory = async (req, res) => {
+    try {
+        const { story, visualStyle } = req.body;
+
+        if (!story) {
+            return res.status(400).json({ error: 'Story is required' });
+        }
+
+        const result = await generateScriptAndImagePrompt(story, visualStyle);
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to generate scenes', details: error.message });
     }
 };

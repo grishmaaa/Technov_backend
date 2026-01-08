@@ -1,7 +1,7 @@
 {
-    "name": "ai-cinema-backend",
+    "name": "technovai-backend",
     "version": "1.0.0",
-    "description": "AI Cinema Engine Backend - Node.js + Express + PostgreSQL",
+    "description": "TechNovAI Engine Backend - Node.js + Express + PostgreSQL",
     "main": "src/index.js",
     "type": "module",
     "scripts": {
@@ -21,8 +21,10 @@
     "author": "",
     "license": "MIT",
     "dependencies": {
+        "@google-cloud/vertexai": "^1.10.0",
         "@google/generative-ai": "^0.24.1",
         "@prisma/client": "^5.8.0",
+        "axios": "^1.7.9",
         "bcryptjs": "^2.4.3",
         "cors": "^2.8.5",
         "crypto": "^1.0.1",
@@ -32,6 +34,8 @@
         "helmet": "^7.1.0",
         "jsonwebtoken": "^9.0.2",
         "morgan": "^1.10.0",
+        "node-cron": "^4.2.1",
+        "openai": "^6.15.0",
         "razorpay": "^2.9.6"
     },
     "devDependencies": {

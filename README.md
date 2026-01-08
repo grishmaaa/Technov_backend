@@ -1,4 +1,4 @@
-# AI Cinema Engine Backend
+# TechNovAI Engine Backend
 
 Complete Node.js + Express + PostgreSQL backend for AI video generation SaaS.
 

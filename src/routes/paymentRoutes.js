@@ -1,42 +1,68 @@
 import express from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import prisma from '../config/database.js';
+import { getDefaultCreditsForPlan } from '../services/creditResetService.js';
 
 const router = express.Router();
 
-// Mock Charge Endpoint (for Dev Mode)
-router.post('/mock-charge', authMiddleware, async (req, res) => {
+// Mock Payment Provider (Simulating Stripe/Razorpay)
+// POST /api/payments/create-checkout-session
+router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     try {
-        const { amount, credits } = req.body;
+        const { planId } = req.body;
         const userId = req.user.id;
 
-        // In a real app, verify Stripe/Razorpay signature here.
-        // For Mission 5 "The Hollywood Polish", we simulate the transaction.
+        // In a real app, this would call Stripe.checkout.sessions.create()
+        // Here, we just return a fake session ID and a success URL
 
-        // Update User Credits
-        const updatedUser = await prisma.user.update({
-            where: { id: userId },
-            data: {
-                credits: { increment: credits }
-            }
-        });
+        console.log(`[Payment] Creating session for User ${userId}, Plan ${planId}`);
 
-        // Log the transaction (Optional, for tracking)
-        console.log(`[Payment] User ${userId} bought ${credits} credits for $${amount}`);
-
+        // Return a mock session
         res.json({
-            success: true,
-            message: 'Payment simulated successfully',
-            user: {
-                id: updatedUser.id,
-                credits: updatedUser.credits,
-                plan: updatedUser.plan
-            }
+            id: `sess_mock_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            url: `/dashboard/subscription?success=true&plan=${planId}`
+            // The frontend will redirect here, triggering the "Success" toast
         });
 
     } catch (error) {
-        console.error("Payment Error:", error);
-        res.status(500).json({ error: 'Payment processing failed' });
+        console.error("Payment Session Error:", error);
+        res.status(500).json({ error: "Failed to create checkout session" });
+    }
+});
+
+// Mock Webhook / Verification (Called by Frontend on success for this demo)
+// POST /api/payments/verify
+router.post('/verify', authMiddleware, async (req, res) => {
+    try {
+        const { planId } = req.body;
+        const userId = req.user.id;
+
+        // Get default credits for the plan
+        const defaultCredits = getDefaultCreditsForPlan(planId);
+        const now = new Date();
+
+        console.log(`[Payment] Verifying purchase. Setting ${defaultCredits} credits for User ${userId}, Plan ${planId}`);
+
+        // Update User: Set plan, reset credits to default, and initialize billing cycle
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: {
+                credits: defaultCredits,
+                plan: planId,
+                billingCycleStart: now,
+                lastCreditReset: now
+            }
+        });
+
+        res.json({
+            success: true,
+            newCredits: updatedUser.credits,
+            plan: updatedUser.plan
+        });
+
+    } catch (error) {
+        console.error("Payment Verification Error:", error);
+        res.status(500).json({ error: "Failed to verify payment" });
     }
 });
 

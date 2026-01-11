@@ -4,10 +4,20 @@ import { logger } from '../logger.js';
 
 dotenv.config();
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+// Lazy-load OpenAI client - only initialize when needed
+let _openaiInstance = null;
+const getOpenAI = () => {
+    if (!_openaiInstance) {
+        if (!process.env.OPENAI_API_KEY) {
+            logger.warn('OPENAI_API_KEY not set - AI features disabled');
+            throw new Error('OpenAI API key not configured');
+        }
+        _openaiInstance = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY
+        });
+    }
+    return _openaiInstance;
+};
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -107,6 +117,7 @@ export const generateScript = async (storyText) => {
             ]
         `;
 
+        const openai = getOpenAI(); // Get OpenAI client
         const completion = await openai.chat.completions.create({
             model: "gpt-4o", // or "gpt-4" or "gpt-3.5-turbo"
             messages: [

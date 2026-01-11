@@ -4,9 +4,20 @@ import { logger } from '../logger.js';
 
 dotenv.config();
 
-export const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+// Lazy-load OpenAI client - only initialize when actually needed
+let _openaiInstance = null;
+const getOpenAI = () => {
+    if (!_openaiInstance) {
+        if (!process.env.OPENAI_API_KEY) {
+            logger.warn('OPENAI_API_KEY not set - AI features will be disabled');
+            throw new Error('OpenAI API key not configured');
+        }
+        _openaiInstance = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY
+        });
+    }
+    return _openaiInstance;
+};
 
 const cleanMarkdown = (text) => text.replace(/```json/g, '').replace(/```/g, '').trim();
 
@@ -45,6 +56,7 @@ Visual Style:
 "${visualStyle || 'cinematic realism'}"
 `.trim();
 
+    const openai = getOpenAI(); // Get OpenAI client
     const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [

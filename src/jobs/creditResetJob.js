@@ -6,11 +6,12 @@
 import cron from 'node-cron';
 import prisma from '../config/database.js';
 import { shouldResetCredits, resetUserCredits } from '../services/creditResetService.js';
+import { logger } from '../logger.js';
 
 export function startCreditResetJob() {
     // Run every day at midnight (00:00)
     cron.schedule('0 0 * * *', async () => {
-        console.log('[CreditResetJob] Starting daily credit reset check...');
+        logger.info('Credit reset job started');
 
         try {
             // Get all users with active billing cycles
@@ -37,17 +38,17 @@ export function startCreditResetJob() {
                         await resetUserCredits(user.id, prisma);
                         resetCount++;
                     } catch (error) {
-                        console.error(`[CreditResetJob] Failed to reset credits for user ${user.id}:`, error);
+                        logger.error({ userId: user.id, err: error }, 'Credit reset failed for user');
                     }
                 }
             }
 
-            console.log(`[CreditResetJob] Completed. Reset credits for ${resetCount} users.`);
+            logger.info({ resetCount }, 'Credit reset job completed');
 
         } catch (error) {
-            console.error('[CreditResetJob] Error during credit reset job:', error);
+            logger.error({ err: error }, 'Credit reset job error');
         }
     });
 
-    console.log('[CreditResetJob] Cron job scheduled to run daily at midnight');
+    logger.info('Credit reset cron scheduled');
 }

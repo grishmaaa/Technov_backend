@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
+import prisma from './config/database.js';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 
@@ -13,12 +13,16 @@ import jobRoutes from './routes/jobRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import clipScoreRoutes from './routes/clipScoreRoutes.js';
+import storageRoutes from './routes/storageRoutes.js';
 
 // Import jobs
 import { startCreditResetJob } from './jobs/creditResetJob.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
+import { httpLogger, logger } from './logger.js';
+import { connection as redis } from './queue/connection.js';
 
 // Load environment variables
 dotenv.config();
@@ -46,23 +50,34 @@ app.use('/auth', rateLimit({
 app.use(limiter);
 
 // Logging middleware
-if (process.env.NODE_ENV !== 'production') {
-    app.use(morgan('dev'));
-} else {
-    app.use(morgan('combined'));
-}
+app.use(httpLogger);
 
 // Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV
-    });
+app.get('/health', async (req, res) => {
+    const timestamp = new Date().toISOString();
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        if (process.env.REDIS_URL) {
+            await redis.ping();
+        }
+        res.json({
+            status: 'ok',
+            timestamp,
+            environment: process.env.NODE_ENV
+        });
+    } catch (error) {
+        logger.error({ err: error }, 'Health check failed');
+        res.status(503).json({
+            status: 'degraded',
+            timestamp,
+            environment: process.env.NODE_ENV,
+            error: error.message
+        });
+    }
 });
 
 // API routes
@@ -74,6 +89,8 @@ app.use('/api', jobRoutes);   // /api/projects/:id/generate
 app.use('/api/payments', paymentRoutes); // /api/payments/*
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api', clipScoreRoutes);
+app.use('/api', storageRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -85,9 +102,9 @@ app.use(errorHandler);
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔒 CORS Origin: ${process.env.CORS_ORIGIN || '*'}`);
+    logger.info({ port: PORT }, 'Server started');
+    logger.info({ environment: process.env.NODE_ENV || 'development' }, 'Environment');
+    logger.info({ corsOrigin: process.env.CORS_ORIGIN || '*' }, 'CORS origin');
 
     // Start credit reset cron job
     startCreditResetJob();

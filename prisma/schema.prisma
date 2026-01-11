@@ -50,12 +50,22 @@ model Project {
   userId      String   @map("user_id")
   title       String
   description String?
-  status      String   @default("draft")
+  state       String   @default("CREATED") @map("status")
   heroImageId String?  @map("hero_image_id")
+  imagePrompt String?  @map("image_prompt")
   styleSeed   Int?     @map("style_seed")
+  qualityTier String   @default("cinematic") @map("quality_tier")
+  aspectRatio String   @default("16:9") @map("aspect_ratio")
+  fps         Int      @default(24)
+  requiresHeroAssets Boolean? @map("requires_hero_assets")
+  visualIdentityReason String? @map("visual_identity_reason")
+  stateVersion Int @default(0) @map("state_version")
+  stateUpdatedAt DateTime @default(now()) @map("state_updated_at")
   
   // Observability & Resilience
   totalTokenCost Decimal @default(0)
+  totalApiCost   Decimal @default(0) @map("total_api_cost")
+  apiCallCount   Int     @default(0) @map("api_call_count")
   errorLog       String? // Text to store debug info
   retryCount     Int     @default(0)
   traceId        String?
@@ -67,6 +77,8 @@ model Project {
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   scenes Scene[]
   jobs   GenerationJob[]
+  assets Asset[]
+  stateEvents ProjectStateEvent[]
 
   @@map("projects")
 }
@@ -80,24 +92,104 @@ model Scene {
   motionComplexity Int?     @map("motion_complexity")
   audioDirective   String?  @map("audio_directive")
   duration         Int      @default(5)
-  status           String   @default("pending")
+  state            String   @default("DRAFT") @map("status")
   videoUrl         String?  @map("video_url")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shots   Shot[]
 
   @@map("scenes")
 }
 
+model Shot {
+  id          String   @id @default(uuid())
+  sceneId     String   @map("scene_id")
+  orderIndex  Int      @map("order_index")
+  duration    Int      @default(4)
+  prompt      String
+  state       String   @default("PENDING") @map("status")
+  selectedVariantId String? @map("selected_variant_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  scene    Scene         @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  variants ShotVariant[]
+  assets   Asset[]
+
+  @@map("shots")
+}
+
+model ShotVariant {
+  id           String   @id @default(uuid())
+  shotId       String   @map("shot_id")
+  variantIndex Int      @map("variant_index")
+  prompt       String
+  status       String   @default("pending")
+  videoUrl     String?  @map("video_url")
+  clipScore    Float?   @map("clip_score")
+  motionScore  Float?   @map("motion_score")
+  artifactScore Float?  @map("artifact_score")
+  totalScore   Float?   @map("total_score")
+  errorMessage String?  @map("error_message")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  shot Shot @relation(fields: [shotId], references: [id], onDelete: Cascade)
+
+  @@map("shot_variants")
+}
+
+model Asset {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  shotId      String?  @map("shot_id")
+  type        String
+  state       String   @default("PENDING")
+  url         String?
+  metadata    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shot    Shot?   @relation(fields: [shotId], references: [id], onDelete: SetNull)
+
+  @@map("assets")
+}
+
+model ProjectStateEvent {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  fromState      String   @map("from_state")
+  toState        String   @map("to_state")
+  actorType      String   @map("actor_type")
+  actorId        String?  @map("actor_id")
+  reason         String?
+  idempotencyKey String?  @map("idempotency_key")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, idempotencyKey])
+  @@map("project_state_events")
+}
 
 model GenerationJob {
   id         String   @id @default(uuid())
   projectId  String   @map("project_id")
-  status     String   @default("queued")
+  status     String   @default("QUEUED")
   progress   Int      @default(0)
   outputUrl  String?  @map("output_url")
   errorMessage String? @map("error_message")
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  lockedAt   DateTime? @map("locked_at")
+  lockedBy   String?   @map("locked_by")
+  attemptCount Int     @default(0) @map("attempt_count")
+  maxAttempts Int      @default(1) @map("max_attempts")
+  apiCallCount Int     @default(0) @map("api_call_count")
+  apiCost     Decimal @default(0) @map("api_cost")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 

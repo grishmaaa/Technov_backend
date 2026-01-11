@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database.js';
 import { shouldResetCredits, resetUserCredits } from '../services/creditResetService.js';
+import { logger } from '../logger.js';
 
 export const authMiddleware = async (req, res, next) => {
     try {
@@ -30,7 +31,7 @@ export const authMiddleware = async (req, res, next) => {
 
         // Check if credits need reset (30-day cycle check)
         if (shouldResetCredits(user)) {
-            console.log(`[Auth] Credits need reset for user ${user.id}`);
+            logger.info({ userId: user.id }, 'Credits need reset');
             await resetUserCredits(user.id, prisma);
 
             // Refresh user data after reset

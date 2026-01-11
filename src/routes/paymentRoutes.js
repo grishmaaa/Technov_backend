@@ -2,6 +2,7 @@ import express from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import prisma from '../config/database.js';
 import { getDefaultCreditsForPlan } from '../services/creditResetService.js';
+import { logger } from '../logger.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
         // In a real app, this would call Stripe.checkout.sessions.create()
         // Here, we just return a fake session ID and a success URL
 
-        console.log(`[Payment] Creating session for User ${userId}, Plan ${planId}`);
+        logger.info({ userId, planId }, 'Creating mock payment session');
 
         // Return a mock session
         res.json({
@@ -25,7 +26,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Payment Session Error:", error);
+        logger.error({ err: error }, 'Mock payment session failed');
         res.status(500).json({ error: "Failed to create checkout session" });
     }
 });
@@ -41,7 +42,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
         const defaultCredits = getDefaultCreditsForPlan(planId);
         const now = new Date();
 
-        console.log(`[Payment] Verifying purchase. Setting ${defaultCredits} credits for User ${userId}, Plan ${planId}`);
+        logger.info({ userId, planId, defaultCredits }, 'Mock payment verification');
 
         // Update User: Set plan, reset credits to default, and initialize billing cycle
         const updatedUser = await prisma.user.update({
@@ -61,7 +62,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Payment Verification Error:", error);
+        logger.error({ err: error }, 'Mock payment verification failed');
         res.status(500).json({ error: "Failed to verify payment" });
     }
 });

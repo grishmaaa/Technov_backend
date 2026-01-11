@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { logger } from '../logger.js';
 
 dotenv.config();
 
@@ -60,7 +61,7 @@ Visual Style:
     try {
         parsed = JSON.parse(cleanedText);
     } catch (error) {
-        console.error('[AI] Failed to parse JSON response:', error.message);
+        logger.error({ err: error }, 'Failed to parse AI JSON response');
         throw new Error('Failed to parse AI response');
     }
 

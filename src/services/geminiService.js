@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { logger } from '../logger.js';
 
 dotenv.config();
 
@@ -22,13 +23,13 @@ async function callWithRetry(fn, maxRetries = 3) {
             const isRetryable = error.message.includes('429') || error.message.includes('503') || error.message.includes('OVER_QUERY_LIMIT');
 
             if (!isRetryable || attempt >= maxRetries) {
-                console.error(`[SafetyNet] API Call failed definitively after ${attempt} attempts.`);
+                logger.error({ attempt }, 'API call failed after retries');
                 throw error;
             }
 
             // Exponential Backoff: 1s, 2s, 4s...
             const delay = Math.pow(2, attempt - 1) * 1000;
-            console.warn(`[SafetyNet] API Error (${error.message}). Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
+            logger.warn({ err: error, delay, attempt, maxRetries }, 'API error, retrying');
             await sleep(delay);
         }
     }
@@ -125,7 +126,11 @@ export const generateScript = async (storyText) => {
 
         // Log token usage (Observability)
         const usage = completion.usage;
-        console.log(`[Monitor] Input Tokens: ${usage?.prompt_tokens}, Output Tokens: ${usage?.completion_tokens}, Total: ${usage?.total_tokens}`);
+        logger.info({
+            promptTokens: usage?.prompt_tokens,
+            completionTokens: usage?.completion_tokens,
+            totalTokens: usage?.total_tokens
+        }, 'Token usage');
 
         // Try Parsing
         let scenes;
@@ -134,8 +139,7 @@ export const generateScript = async (storyText) => {
         try {
             scenes = JSON.parse(cleanedText);
         } catch (parseError) {
-            console.error("[SafetyNet] JSON parsing failed:", parseError.message);
-            console.log("Raw response:", text.substring(0, 500));
+            logger.error({ err: parseError, responseSnippet: text.substring(0, 500) }, 'JSON parsing failed');
             throw new Error(`Failed to parse scene JSON: ${parseError.message}`);
         }
 
@@ -166,7 +170,7 @@ export const generateHeroImage = async (actionDescription) => {
         // to ensure the "Identity Lock" pipeline functionality can be tested.
         throw new Error("Quota exceeded");
     } catch (e) {
-        console.warn("[HeroImage] Falling back to placeholder due to API constraints.");
+        logger.warn('Hero image fallback due to API constraints');
         // Return a consistent, high-quality Unsplash image to act as the "Identity Anchor"
         return "https://images.unsplash.com/photo-1620553140510-4813587b12d3?auto=format&fit=crop&w=800&q=80";
     }
@@ -178,18 +182,27 @@ export const generateHeroImage = async (actionDescription) => {
  * @param {string} heroImageUrl - Optional hero character image URL for consistency
  * @returns {Promise<{video_url: string, status: string}>}
  */
-export const generateVideo = async (sceneContext, heroImageUrl) => {
+export const generateVideo = async (sceneContext, heroImageUrl, options = {}) => {
     const KLING_API_KEY = process.env.KLING_API_KEY;
+    const normalizeDuration = (seconds) => {
+        const value = Number(seconds);
+        if (!Number.isFinite(value)) {
+            return 5;
+        }
+        return value <= 5 ? 5 : 10;
+    };
+    const duration = String(normalizeDuration(options.durationSeconds));
+    const aspectRatio = options.aspectRatio || '16:9';
 
     if (!KLING_API_KEY) {
         throw new Error('KLING_API_KEY not configured in environment variables');
     }
 
-    console.log(`[Video] Generating video with Kling AI for scene: ${sceneContext.substring(0, 50)}...`);
+    logger.info({ promptSnippet: sceneContext.substring(0, 50), duration, aspectRatio }, 'Generating video with Kling AI');
 
     try {
         // 1. Submit video generation job to Kling AI (via fal.ai)
-        console.log('[Video] Submitting job to Kling AI...');
+        logger.info('Submitting Kling AI job');
         const submitResponse = await fetch('https://fal.run/fal-ai/kling-video/v2.6/pro/text-to-video', {
             method: 'POST',
             headers: {
@@ -198,8 +211,8 @@ export const generateVideo = async (sceneContext, heroImageUrl) => {
             },
             body: JSON.stringify({
                 prompt: sceneContext,
-                duration: "5",  // 5 seconds per clip
-                aspect_ratio: "16:9"
+                duration,
+                aspect_ratio: aspectRatio
             })
         });
 
@@ -209,10 +222,18 @@ export const generateVideo = async (sceneContext, heroImageUrl) => {
         }
 
         const submitData = await submitResponse.json();
-        const requestId = submitData.request_id;
+        if (submitData?.video?.url) {
+            logger.info('Instant result returned from Kling');
+            return { video_url: submitData.video.url, status: 'completed' };
+        }
 
-        console.log(`[Video] Job submitted. Request ID: ${requestId}`);
-        console.log('[Video] Polling for completion (max 5 minutes)...');
+        const requestId = submitData.request_id || submitData.requestId || submitData.id;
+        if (!requestId) {
+            throw new Error(`Kling submit response missing request id: ${JSON.stringify(submitData)}`);
+        }
+
+        logger.info({ requestId }, 'Kling job submitted');
+        logger.info('Polling for completion');
 
         // 2. Poll for job completion
         const maxAttempts = 60; // 60 * 5s = 5 minutes
@@ -229,12 +250,12 @@ export const generateVideo = async (sceneContext, heroImageUrl) => {
             );
 
             if (!statusResponse.ok) {
-                console.warn(`[Video] Status check failed (attempt ${attempt}/${maxAttempts})`);
+                logger.warn({ attempt, maxAttempts }, 'Kling status check failed');
                 continue;
             }
 
             const statusData = await statusResponse.json();
-            console.log(`[Video] Attempt ${attempt}/${maxAttempts}: ${statusData.status}`);
+            logger.info({ attempt, maxAttempts, status: statusData.status }, 'Kling status update');
 
             if (statusData.status === 'COMPLETED') {
                 const videoUrl = statusData.video?.url;
@@ -243,7 +264,7 @@ export const generateVideo = async (sceneContext, heroImageUrl) => {
                     throw new Error('Video completed but no URL returned');
                 }
 
-                console.log(`[Video] ✅ Generation complete! URL: ${videoUrl}`);
+                logger.info({ videoUrl }, 'Kling generation complete');
                 return {
                     video_url: videoUrl,
                     status: "completed"
@@ -259,8 +280,7 @@ export const generateVideo = async (sceneContext, heroImageUrl) => {
         throw new Error('Video generation timed out after 5 minutes');
 
     } catch (error) {
-        console.error('[Video] Error during video generation:', error);
+        logger.error({ err: error }, 'Kling video generation failed');
         throw error;
     }
 };
-

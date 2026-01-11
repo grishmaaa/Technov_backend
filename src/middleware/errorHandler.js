@@ -1,5 +1,7 @@
+import { logger } from '../logger.js';
+
 export const errorHandler = (err, req, res, next) => {
-    console.error('Error:', err);
+    logger.error({ err }, 'Request error');
 
     if (err.name === 'PrismaClientKnownRequestError') {
         return res.status(400).json({

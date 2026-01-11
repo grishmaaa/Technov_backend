@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { logger } from '../logger.js';
 
 export const getAllUsers = async (req, res) => {
     try {
@@ -116,7 +117,7 @@ export const updateUser = async (req, res) => {
 
         res.json(user);
     } catch (error) {
-        console.error('Failed to update user:', error);
+        logger.error({ err: error }, 'Failed to update user');
         if (error.code === 'P2025') {
             return res.status(404).json({ error: 'User not found' });
         }

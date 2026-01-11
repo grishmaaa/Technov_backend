@@ -3,9 +3,14 @@ import {
     createProject,
     getProjects,
     getProject,
+    getProjectFactory,
     updateProject,
     deleteProject,
-    generateScenesFromStory
+    generateScenesFromStory,
+    startSceneReview,
+    approveScenes,
+    decideVisualIdentity,
+    generateHeroAssets
 } from '../controllers/projectController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -15,7 +20,12 @@ router.use(authMiddleware);
 
 router.post('/', createProject);
 router.post('/generate-scenes', generateScenesFromStory);
+router.post('/:id/review/start', startSceneReview);
+router.post('/:id/review/approve', approveScenes);
+router.post('/:id/visual-identity/decide', decideVisualIdentity);
+router.post('/:id/hero-assets/generate', generateHeroAssets);
 router.get('/', getProjects);
+router.get('/:id/factory', getProjectFactory);
 router.get('/:id', getProject);
 router.put('/:id', updateProject);
 router.delete('/:id', deleteProject);

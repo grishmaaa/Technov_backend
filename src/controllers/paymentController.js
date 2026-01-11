@@ -1,6 +1,7 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import prisma from '../config/database.js';
+import { logger } from '../logger.js';
 
 // Initialize Razorpay
 const razorpay = new Razorpay({
@@ -28,8 +29,7 @@ export const createOrder = async (req, res) => {
     try {
         const { plan } = req.body;
 
-        console.log('Creating order for plan:', plan);
-        console.log('User ID:', req.user?.id);
+        logger.info({ plan, userId: req.user?.id }, 'Creating Razorpay order');
 
         if (!PLANS[plan]) {
             return res.status(400).json({ error: 'Invalid plan selected' });
@@ -49,11 +49,11 @@ export const createOrder = async (req, res) => {
             }
         };
 
-        console.log('Creating Razorpay order with options:', JSON.stringify(options, null, 2));
+        logger.info({ options }, 'Razorpay order options');
 
         const order = await razorpay.orders.create(options);
 
-        console.log('Order created successfully:', order.id);
+        logger.info({ orderId: order.id }, 'Razorpay order created');
 
         res.json({
             orderId: order.id,
@@ -62,8 +62,7 @@ export const createOrder = async (req, res) => {
             keyId: process.env.RAZORPAY_KEY_ID,
         });
     } catch (error) {
-        console.error('Create order error:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
+        logger.error({ err: error }, 'Create order failed');
         res.status(500).json({
             error: 'Failed to create payment order',
             details: error.error?.description || error.message
@@ -112,7 +111,7 @@ export const verifyPayment = async (req, res) => {
             user: updatedUser
         });
     } catch (error) {
-        console.error('Verify payment error:', error);
+        logger.error({ err: error }, 'Verify payment failed');
         res.status(500).json({ error: 'Payment verification failed', details: error.message });
     }
 };
@@ -134,13 +133,13 @@ export const handleWebhook = async (req, res) => {
 
             if (event === 'payment.captured') {
                 // Payment successful - handled in verifyPayment
-                console.log('Payment captured:', payload.id);
+                logger.info({ paymentId: payload.id }, 'Payment captured');
             }
         }
 
         res.json({ status: 'ok' });
     } catch (error) {
-        console.error('Webhook error:', error);
+        logger.error({ err: error }, 'Razorpay webhook error');
         res.status(500).json({ error: 'Webhook processing failed' });
     }
 };

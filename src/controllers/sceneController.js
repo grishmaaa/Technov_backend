@@ -18,8 +18,8 @@ export const createScene = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        if (project.status !== 'draft') {
-            return res.status(400).json({ error: 'Can only add scenes to draft projects' });
+        if (!['SCENES_GENERATED', 'USER_REVIEW'].includes(project.state)) {
+            return res.status(400).json({ error: 'Can only add scenes during review' });
         }
 
         // Auto-calculate order index if not provided
@@ -67,7 +67,7 @@ export const getScenes = async (req, res) => {
 export const updateScene = async (req, res) => {
     try {
         const { sceneId } = req.params;
-        const { promptText, duration, orderIndex, status } = req.body;
+        const { promptText, duration, orderIndex } = req.body;
 
         const scene = await prisma.scene.findUnique({
             where: { id: sceneId },
@@ -78,13 +78,14 @@ export const updateScene = async (req, res) => {
             return res.status(404).json({ error: 'Scene not found' });
         }
 
-        if (scene.project.status !== 'draft' && (promptText || duration !== undefined || orderIndex !== undefined)) {
-            return res.status(400).json({ error: 'Can only edit scenes in draft projects' });
+        if (!['SCENES_GENERATED', 'USER_REVIEW'].includes(scene.project.state) &&
+            (promptText || duration !== undefined || orderIndex !== undefined)) {
+            return res.status(400).json({ error: 'Can only edit scenes during review' });
         }
 
         const updatedScene = await prisma.scene.update({
             where: { id: sceneId },
-            data: { promptText, duration, orderIndex, status }
+            data: { promptText, duration, orderIndex }
         });
 
         res.json(updatedScene);
@@ -106,8 +107,8 @@ export const deleteScene = async (req, res) => {
             return res.status(404).json({ error: 'Scene not found' });
         }
 
-        if (scene.project.status !== 'draft') {
-            return res.status(400).json({ error: 'Can only delete scenes from draft projects' });
+        if (!['SCENES_GENERATED', 'USER_REVIEW'].includes(scene.project.state)) {
+            return res.status(400).json({ error: 'Can only delete scenes during review' });
         }
 
         await prisma.scene.delete({ where: { id: sceneId } });

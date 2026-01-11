@@ -1,3 +1,5 @@
+import { logger } from '../logger.js';
+
 export const validateStoryInput = (req, res, next) => {
     const { story } = req.body;
 
@@ -27,7 +29,7 @@ export const validateStoryInput = (req, res, next) => {
 
     for (const pattern of forbiddenPatterns) {
         if (pattern.test(story)) {
-            console.warn(`[Shield] Blocked malicious input attempting pattern: ${pattern}`);
+            logger.warn({ pattern: String(pattern) }, 'Blocked malicious input');
             return res.status(400).json({ error: 'Input blocked by safety filters.' });
         }
     }

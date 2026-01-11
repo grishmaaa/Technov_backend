@@ -2,6 +2,7 @@
  * Credit Reset Service
  * Handles automatic credit resets based on 30-day billing cycles
  */
+import { logger } from '../logger.js';
 
 const BILLING_CYCLE_DAYS = 30;
 
@@ -51,7 +52,7 @@ export async function resetUserCredits(userId, prisma) {
         }
     });
 
-    console.log(`[CreditReset] Reset credits for user ${userId} (${user.email}) to ${defaultCredits}`);
+    logger.info({ userId, email: user.email, credits: defaultCredits }, 'Credits reset');
 
     return {
         userId,
@@ -81,5 +82,5 @@ export async function initializeBillingCycle(userId, prisma) {
         }
     });
 
-    console.log(`[CreditReset] Initialized billing cycle for user ${userId}`);
+    logger.info({ userId }, 'Billing cycle initialized');
 }

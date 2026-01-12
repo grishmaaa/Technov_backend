@@ -325,8 +325,12 @@ export const generateHeroAssets = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        if (project.state !== 'VISUAL_IDENTITY_DECISION') {
-            return res.status(400).json({ error: 'Project not ready for hero assets' });
+        if (!['SCENES_GENERATED', 'VISUAL_IDENTITY_DECISION'].includes(project.state)) {
+            return res.status(400).json({
+                error: 'Project not ready for hero assets',
+                currentState: project.state,
+                hint: 'Generate scenes first'
+            });
         }
 
         if (!project.requiresHeroAssets) {

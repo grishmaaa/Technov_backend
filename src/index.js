@@ -83,6 +83,20 @@ app.get('/health', async (req, res) => {
     }
 });
 
+// TEMPORARY admin endpoint to add credits (NO AUTH - FOR TESTING ONLY)
+app.post('/admin/add-credits', async (req, res) => {
+    try {
+        const { email, credits } = req.body;
+        const user = await prisma.user.update({
+            where: { email },
+            data: { credits: { increment: credits } }
+        });
+        res.json({ success: true, newBalance: user.credits, email: user.email });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // API routes
 // API routes
 app.use('/api/auth', authRoutes);
@@ -94,20 +108,6 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', clipScoreRoutes);
 app.use('/api', storageRoutes);
-
-// Quick admin endpoint to add credits (TEMPORARY FOR TESTING)
-app.post('/api/admin/add-credits', async (req, res) => {
-    try {
-        const { email, credits } = req.body;
-        const user = await prisma.user.update({
-            where: { email },
-            data: { credits: { increment: credits } }
-        });
-        res.json({ success: true, newBalance: user.credits });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 
 // 404 handler
 app.use((req, res) => {

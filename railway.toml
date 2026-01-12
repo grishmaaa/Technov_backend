@@ -5,3 +5,7 @@ restartPolicyMaxRetries = 10
 
 [build]
 builder = "NIXPACKS"
+
+[build.nixpacksPlan]
+phases.install.cmds = ["npm ci"]
+phases.build.cmds = ["npm run db:generate"]

@@ -7,9 +7,5 @@ export const logger = pino({
 });
 
 export const httpLogger = pinoHttp({
-    logger,
-    customProps: (req) => ({
-        requestId: req.headers['x-request-id'] || null,
-        userId: req.user?.id || null
-    })
+    logger
 });

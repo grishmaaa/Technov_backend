@@ -171,14 +171,8 @@ export const generateScript = async (storyText) => {
 
 export const generateHeroImage = async (actionDescription) => {
     try {
-        // Ensure OpenAI client is initialized
-        if (!openai) {
-            openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        }
-
-        if (!process.env.OPENAI_API_KEY) {
-            throw new Error('OPENAI_API_KEY not configured');
-        }
+        // Get OpenAI client instance
+        const openai = getOpenAI();
 
         // Generate character/hero image using DALL-E
         const prompt = `Professional character portrait for: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality, detailed facial features.`;

@@ -1,11 +1,14 @@
 #!/bin/bash
 set -e
 
-echo "Running database migrations..."
-npx prisma db push --accept-data-loss --skip-generate
-
-echo "Generating Prisma Client..."
-npx prisma generate
-
-echo "Starting server..."
-npm start
+# Check if this is the worker service
+if [ "$SERVICE_TYPE" = "worker" ]; then
+    echo "Starting worker service..."
+    npm run db:generate
+    npm run worker
+else
+    echo "Starting backend server..."
+    npx prisma db push --accept-data-loss --skip-generate
+    npx prisma generate
+    node src/index.js
+fi

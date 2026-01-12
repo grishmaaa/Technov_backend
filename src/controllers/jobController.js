@@ -6,7 +6,7 @@ import { logger } from '../logger.js';
 
 export const generateScriptController = async (req, res) => {
     try {
-        const { story, title } = req.body;
+        const { story, title, quality, qualityTier, aspectRatio, fps } = req.body;
         const userId = req.user.id;
 
         if (!story) {
@@ -26,12 +26,18 @@ export const generateScriptController = async (req, res) => {
         }
 
         // 1. Create Project
+        const normalizedQuality = (qualityTier || quality || '').toString().toLowerCase();
+        const normalizedFps = Number.isFinite(Number(fps)) ? Number(fps) : undefined;
+
         const project = await prisma.project.create({
             data: {
                 userId,
                 title: title || `Project ${new Date().toISOString().split('T')[0]}`,
                 description: story.substring(0, 200),
-                state: 'CREATED'
+                state: 'CREATED',
+                qualityTier: normalizedQuality || undefined,
+                aspectRatio: aspectRatio || undefined,
+                fps: normalizedFps
             }
         });
 

@@ -127,10 +127,11 @@ export const createGenerationJob = async (req, res) => {
             return res.status(400).json({ error: 'Project must have at least one scene' });
         }
 
-        if (project.state !== 'ASSETS_READY') {
+        if (!['SCENES_GENERATED', 'ASSETS_READY'].includes(project.state)) {
             return res.status(400).json({
                 error: 'Project not ready for video generation',
-                state: project.state
+                state: project.state,
+                hint: 'Generate scenes first'
             });
         }
 

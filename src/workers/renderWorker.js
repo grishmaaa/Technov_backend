@@ -398,7 +398,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
             await prisma.scene.update({
                 where: { id: scene.id },
-                data: { videoUrl: scenePublicUrl }
+                data: { videoUrl: sceneUrlString }
             });
 
             sceneVideoPaths.push(sceneOutputPath);

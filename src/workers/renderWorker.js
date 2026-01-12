@@ -181,13 +181,19 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
         await validateClip({ filePath: processedPath, targetDurationSeconds: shot.duration });
 
         const publicUrl = await uploadFile(processedPath);
+        const urlString = String(publicUrl || '');
+        if (!urlString || urlString === 'undefined' || urlString.includes('Function')) {
+            throw new Error(`Invalid URL returned from uploadFile: ${urlString}`);
+        }
+        logger.info({ url: urlString }, 'Shot video uploaded successfully');
+
         await prisma.asset.create({
             data: {
                 projectId: project.id,
                 shotId: shot.id,
                 type: 'SHOT_VIDEO',
                 state: 'READY',
-                url: publicUrl,
+                url: urlString,
                 metadata: JSON.stringify({
                     duration: shot.duration,
                     fps: options.fps,
@@ -375,12 +381,17 @@ export const processGenerationJob = async (jobId, context = {}) => {
             const sceneOutputPath = path.join(jobDir, `scene-${scene.orderIndex}.mp4`);
             await concatVideos({ inputPaths: shotVideoPaths, outputPath: sceneOutputPath });
             const scenePublicUrl = await uploadFile(sceneOutputPath);
+            const sceneUrlString = String(scenePublicUrl || '');
+            if (!sceneUrlString || sceneUrlString === 'undefined' || sceneUrlString.includes('Function')) {
+                throw new Error(`Invalid scene URL: ${sceneUrlString}`);
+            }
+
             await prisma.asset.create({
                 data: {
                     projectId: project.id,
                     type: 'SCENE_VIDEO',
                     state: 'READY',
-                    url: scenePublicUrl,
+                    url: sceneUrlString,
                     metadata: JSON.stringify({ sceneId: scene.id })
                 }
             });
@@ -411,17 +422,22 @@ export const processGenerationJob = async (jobId, context = {}) => {
             const finalOutputPath = path.join(jobDir, 'final.mp4');
             await concatVideos({ inputPaths: sceneVideoPaths, outputPath: finalOutputPath });
             const finalPublicUrl = await uploadFile(finalOutputPath);
+            const finalUrlString = String(finalPublicUrl || '');
+            if (!finalUrlString || finalUrlString === 'undefined' || finalUrlString.includes('Function')) {
+                throw new Error(`Invalid final video URL: ${finalUrlString}`);
+            }
+            logger.info({ url: finalUrlString }, 'Final video uploaded successfully');
 
             await prisma.project.update({
                 where: { id: project.id },
-                data: { finalVideoUrl: finalPublicUrl }
+                data: { finalVideoUrl: finalUrlString }
             });
             await prisma.asset.create({
                 data: {
                     projectId: project.id,
                     type: 'FINAL_VIDEO',
                     state: 'READY',
-                    url: finalPublicUrl
+                    url: finalUrlString
                 }
             });
 

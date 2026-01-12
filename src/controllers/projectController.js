@@ -333,8 +333,19 @@ export const generateHeroAssets = async (req, res) => {
             });
         }
 
+        // Hero assets are optional - if not required, auto-transition to ASSETS_READY
         if (!project.requiresHeroAssets) {
-            return res.status(400).json({ error: 'Hero assets not required for this project' });
+            await transitionProjectState({
+                projectId: id,
+                toState: 'ASSETS_READY',
+                actorType: 'system',
+                actorId: req.user.id,
+                reason: 'Hero assets not required'
+            });
+            return res.json({
+                message: 'Hero assets not required for this project',
+                skipped: true
+            });
         }
 
         const existing = project.assets.find((asset) => asset.type === 'HERO_IMAGE' && asset.state === 'READY');

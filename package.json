@@ -6,7 +6,7 @@
     "type": "module",
     "scripts": {
         "dev": "nodemon src/index.js",
-        "start": "node src/index.js",
+        "start": "npx prisma db push --accept-data-loss --skip-generate && npx prisma generate && node src/index.js",
         "worker": "node src/worker.js",
         "test": "node --test",
         "db:generate": "prisma generate",

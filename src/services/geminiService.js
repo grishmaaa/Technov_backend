@@ -170,20 +170,41 @@ export const generateScript = async (storyText) => {
 };
 
 export const generateHeroImage = async (actionDescription) => {
-    // Attempt Real Image Generation via Gemini 2.0 Flash Exp (if available)
     try {
-        // const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        // const prompt = `Character Design: ${actionDescription}. Photorealistic, 8k.`;
-        // const result = await model.generateContent(prompt);
-        // ... parse result ... 
+        // Ensure OpenAI client is initialized
+        if (!openai) {
+            openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        }
 
-        // Due to Rate Limits (Quota 0) observed in tests, we fallback to a high-quality consistent placeholder
-        // to ensure the "Identity Lock" pipeline functionality can be tested.
-        throw new Error("Quota exceeded");
-    } catch (e) {
-        logger.warn('Hero image fallback due to API constraints');
-        // Return a consistent, high-quality Unsplash image to act as the "Identity Anchor"
-        return "https://images.unsplash.com/photo-1620553140510-4813587b12d3?auto=format&fit=crop&w=800&q=80";
+        if (!process.env.OPENAI_API_KEY) {
+            throw new Error('OPENAI_API_KEY not configured');
+        }
+
+        // Generate character/hero image using DALL-E
+        const prompt = `Professional character portrait for: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality, detailed facial features.`;
+
+        logger.info({ prompt }, 'Generating hero image with DALL-E');
+
+        const response = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: prompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "standard"
+        });
+
+        const imageUrl = response.data[0].url;
+
+        if (!imageUrl) {
+            throw new Error('No image URL returned from DALL-E');
+        }
+
+        logger.info({ imageUrl }, 'Hero image generated successfully');
+        return imageUrl;
+
+    } catch (error) {
+        logger.error({ err: error }, 'Failed to generate hero image');
+        throw new Error(`Hero image generation failed: ${error.message}`);
     }
 };
 

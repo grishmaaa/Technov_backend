@@ -100,6 +100,21 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
+// Quick admin endpoint to add credits (TEMPORARY FOR TESTING)
+app.post('/api/admin/add-credits', async (req, res) => {
+    try {
+        const { email, credits } = req.body;
+        const user = await prisma.user.update({
+            where: { email },
+            data: { credits: { increment: credits } }
+        });
+        res.json({ success: true, newBalance: user.credits });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 // Error handling middleware (must be last)
 app.use(errorHandler);
 

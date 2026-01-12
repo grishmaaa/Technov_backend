@@ -178,9 +178,14 @@ export const createGenerationJob = async (req, res) => {
                 progress: 0
             }
         });
+
+        logger.info({ jobId: job.id, projectId, userId: req.user.id }, 'Adding job to render queue');
+
         try {
-            await renderQueue.add('render', { jobId: job.id, projectId, userId: req.user.id });
+            const bullJob = await renderQueue.add('render', { jobId: job.id, projectId, userId: req.user.id });
+            logger.info({ jobId: job.id, bullJobId: bullJob.id }, 'Job successfully added to render queue');
         } catch (error) {
+            logger.error({ err: error, jobId: job.id }, 'Failed to add job to render queue');
             await prisma.generationJob.update({
                 where: { id: job.id },
                 data: { status: 'FAILED', errorMessage: 'Queue enqueue failed' }

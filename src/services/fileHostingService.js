@@ -159,10 +159,15 @@ export const uploadFile = async (filePath, options = {}) => {
     }
 
     const response = await axios.post('https://file.io', form, { headers });
-    const publicUrl = response?.data?.link || response?.data?.url;
 
-    if (!publicUrl) {
-        throw new Error('File upload failed: missing public URL');
+    // file.io returns link as a property, ensure we get the string value
+    let publicUrl = null;
+    if (response?.data) {
+        publicUrl = String(response.data.link || response.data.url || '');
+    }
+
+    if (!publicUrl || publicUrl === 'undefined' || publicUrl.includes('function')) {
+        throw new Error(`File upload failed: invalid URL returned: ${publicUrl}`);
     }
 
     return publicUrl;

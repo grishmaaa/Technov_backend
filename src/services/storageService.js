@@ -51,11 +51,24 @@ export const getStorageConfig = () => {
 };
 
 const getS3Client = () => {
-    const { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
-    const config = {
+    const { region, endpoint, accessKeyId, secretAccessKey, bucket } = getStorageConfig();
+
+    // Railway uses 'auto' region, but S3Client needs a valid region
+    const effectiveRegion = (region === 'auto' || !region) ? 'us-east-1' : region;
+
+    console.log('S3 Config:', {
+        bucket,
         region,
+        effectiveRegion,
+        endpoint,
+        hasAccessKey: !!accessKeyId,
+        hasSecretKey: !!secretAccessKey
+    });
+
+    const config = {
+        region: effectiveRegion,
         endpoint: endpoint || undefined,
-        forcePathStyle: Boolean(endpoint)
+        forcePathStyle: Boolean(endpoint) // Required for Railway's S3-compatible storage
     };
     if (accessKeyId && secretAccessKey) {
         config.credentials = { accessKeyId, secretAccessKey };
@@ -64,8 +77,10 @@ const getS3Client = () => {
 };
 
 export const isStorageConfigured = () => {
-    const { bucket, region } = getStorageConfig();
-    return Boolean(bucket && region);
+    const { bucket, region, accessKeyId, secretAccessKey } = getStorageConfig();
+    const configured = Boolean(bucket && (region || accessKeyId));
+    console.log('Storage configured check:', { bucket, region, hasAccessKey: !!accessKeyId, configured });
+    return configured;
 };
 
 export const buildObjectKey = ({ userId, prefix = 'generated', extension = '' }) => {

@@ -125,6 +125,7 @@ const uploadToSupabase = async (filePath) => {
 
 export const uploadFile = async (filePath, options = {}) => {
     if (isStorageConfigured()) {
+        logger.info('Using Railway/S3 bucket for upload');
         const prefix = getObjectPrefix();
         const ext = path.extname(filePath);
         const key = options.objectKey || `${prefix}/${crypto.randomUUID()}${ext}`;
@@ -134,6 +135,8 @@ export const uploadFile = async (filePath, options = {}) => {
             contentType: getMimeType(filePath)
         });
     }
+
+    logger.warn('Railway bucket NOT configured, falling back to external services');
 
     const uploadToSupabaseFn = options.uploadToSupabase || uploadToSupabase;
     let supabaseUrl = null;
@@ -160,14 +163,21 @@ export const uploadFile = async (filePath, options = {}) => {
 
     const response = await axios.post('https://file.io', form, { headers });
 
-    // file.io returns link as a property, ensure we get the string value
+    // file.io returns the URL - prioritize .url over .link as .link can be a function reference
     let publicUrl = null;
     if (response?.data) {
-        publicUrl = String(response.data.link || response.data.url || '');
+        // Check for url first (safer), then link as fallback
+        const rawUrl = response.data.url || response.data.link;
+        if (typeof rawUrl === 'string') {
+            publicUrl = rawUrl;
+        } else if (rawUrl) {
+            logger.error({ rawUrl: String(rawUrl) }, 'file.io returned non-string URL');
+        }
     }
 
-    if (!publicUrl || publicUrl === 'undefined' || publicUrl.includes('function')) {
-        throw new Error(`File upload failed: invalid URL returned: ${publicUrl}`);
+    if (!publicUrl) {
+        logger.error({ responseData: JSON.stringify(response?.data) }, 'file.io response missing URL');
+        throw new Error(`File upload failed: no valid URL in response`);
     }
 
     return publicUrl;

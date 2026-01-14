@@ -454,7 +454,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 data: {
                     status: 'COMPLETED',
                     progress: 100,
-                    outputUrl: finalPublicUrl
+                    outputUrl: finalUrlString
                 }
             });
 

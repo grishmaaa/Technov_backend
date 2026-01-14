@@ -13,19 +13,17 @@ const getEnvValue = (keys) => {
 };
 
 export const getStorageConfig = () => {
-    const bucket = getEnvValue(['STORAGE_BUCKET', 'RAILWAY_BUCKET_NAME', 'BUCKET', 'S3_BUCKET']);
-    const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'REGION', 'S3_REGION', 'AWS_REGION']);
-    const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'ENDPOINT', 'S3_ENDPOINT']);
+    const bucket = getEnvValue(['STORAGE_BUCKET', 'RAILWAY_BUCKET_NAME', 'S3_BUCKET']);
+    const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION']);
+    const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'S3_ENDPOINT']);
     const accessKeyId = getEnvValue([
         'STORAGE_ACCESS_KEY_ID',
         'RAILWAY_BUCKET_ACCESS_KEY_ID',
-        'ACCESS_KEY_ID',
         'AWS_ACCESS_KEY_ID'
     ]);
     const secretAccessKey = getEnvValue([
         'STORAGE_SECRET_ACCESS_KEY',
         'RAILWAY_BUCKET_SECRET_ACCESS_KEY',
-        'SECRET_ACCESS_KEY',
         'AWS_SECRET_ACCESS_KEY'
     ]);
     const publicBaseUrl = getEnvValue([
@@ -51,24 +49,11 @@ export const getStorageConfig = () => {
 };
 
 const getS3Client = () => {
-    const { region, endpoint, accessKeyId, secretAccessKey, bucket } = getStorageConfig();
-
-    // Railway uses 'auto' region, but S3Client needs a valid region
-    const effectiveRegion = (region === 'auto' || !region) ? 'us-east-1' : region;
-
-    console.log('S3 Config:', {
-        bucket,
-        region,
-        effectiveRegion,
-        endpoint,
-        hasAccessKey: !!accessKeyId,
-        hasSecretKey: !!secretAccessKey
-    });
-
+    const { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
     const config = {
-        region: effectiveRegion,
+        region,
         endpoint: endpoint || undefined,
-        forcePathStyle: Boolean(endpoint) // Required for Railway's S3-compatible storage
+        forcePathStyle: Boolean(endpoint)
     };
     if (accessKeyId && secretAccessKey) {
         config.credentials = { accessKeyId, secretAccessKey };
@@ -77,10 +62,8 @@ const getS3Client = () => {
 };
 
 export const isStorageConfigured = () => {
-    const { bucket, region, accessKeyId, secretAccessKey } = getStorageConfig();
-    const configured = Boolean(bucket && (region || accessKeyId));
-    console.log('Storage configured check:', { bucket, region, hasAccessKey: !!accessKeyId, configured });
-    return configured;
+    const { bucket, region } = getStorageConfig();
+    return Boolean(bucket && region);
 };
 
 export const buildObjectKey = ({ userId, prefix = 'generated', extension = '' }) => {

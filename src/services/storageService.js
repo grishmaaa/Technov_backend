@@ -13,18 +13,20 @@ const getEnvValue = (keys) => {
 };
 
 export const getStorageConfig = () => {
-    const bucket = getEnvValue(['STORAGE_BUCKET', 'RAILWAY_BUCKET_NAME', 'S3_BUCKET']);
-    const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION']);
-    const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'S3_ENDPOINT']);
+    const bucket = getEnvValue(['STORAGE_BUCKET', 'RAILWAY_BUCKET_NAME', 'S3_BUCKET', 'BUCKET']);
+    const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION', 'REGION']);
+    const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'S3_ENDPOINT', 'ENDPOINT']);
     const accessKeyId = getEnvValue([
         'STORAGE_ACCESS_KEY_ID',
         'RAILWAY_BUCKET_ACCESS_KEY_ID',
-        'AWS_ACCESS_KEY_ID'
+        'AWS_ACCESS_KEY_ID',
+        'ACCESS_KEY_ID'
     ]);
     const secretAccessKey = getEnvValue([
         'STORAGE_SECRET_ACCESS_KEY',
         'RAILWAY_BUCKET_SECRET_ACCESS_KEY',
-        'AWS_SECRET_ACCESS_KEY'
+        'AWS_SECRET_ACCESS_KEY',
+        'SECRET_ACCESS_KEY'
     ]);
     const publicBaseUrl = getEnvValue([
         'STORAGE_PUBLIC_BASE_URL',

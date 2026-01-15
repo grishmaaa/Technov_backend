@@ -62,8 +62,21 @@ const getS3Client = () => {
 };
 
 export const isStorageConfigured = () => {
-    const { bucket, region } = getStorageConfig();
-    return Boolean(bucket && region);
+    const { bucket, region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
+    const configured = Boolean(bucket && region);
+
+    // Log storage config status on first check
+    if (!isStorageConfigured._logged) {
+        console.log('[StorageConfig] bucket:', bucket ? 'SET' : 'MISSING');
+        console.log('[StorageConfig] region:', region ? 'SET' : 'MISSING');
+        console.log('[StorageConfig] endpoint:', endpoint ? 'SET' : 'MISSING');
+        console.log('[StorageConfig] accessKeyId:', accessKeyId ? 'SET' : 'MISSING');
+        console.log('[StorageConfig] secretAccessKey:', secretAccessKey ? 'SET' : 'MISSING');
+        console.log('[StorageConfig] configured:', configured);
+        isStorageConfigured._logged = true;
+    }
+
+    return configured;
 };
 
 export const buildObjectKey = ({ userId, prefix = 'generated', extension = '' }) => {

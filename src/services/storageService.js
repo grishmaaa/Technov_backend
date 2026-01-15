@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
-import { createReadStream } from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 
 const getEnvValue = (keys) => {
@@ -96,12 +96,16 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     if (!bucket) {
         throw new Error('Storage bucket is not configured');
     }
+
+    // Read file as buffer to avoid streaming errors
+    const fileBuffer = await fs.readFile(filePath);
+
     const client = getS3Client();
     const command = new PutObjectCommand({
         Bucket: bucket,
         Key: key,
         ContentType: contentType || 'application/octet-stream',
-        Body: createReadStream(filePath)
+        Body: fileBuffer
     });
     await client.send(command);
 

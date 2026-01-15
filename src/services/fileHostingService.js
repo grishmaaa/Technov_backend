@@ -159,10 +159,27 @@ export const uploadFile = async (filePath, options = {}) => {
     }
 
     const response = await axios.post('https://file.io', form, { headers });
-    const publicUrl = response?.data?.link || response?.data?.url;
 
-    if (!publicUrl) {
-        throw new Error('File upload failed: missing public URL');
+    // Extract URL and validate it's a string, not a function
+    let publicUrl = response?.data?.link || response?.data?.url;
+
+    // Log the response for debugging
+    logger.info({
+        responseData: response?.data,
+        linkType: typeof publicUrl,
+        linkValue: String(publicUrl).substring(0, 100)
+    }, 'File.io upload response');
+
+    // Convert to string if it's a function (defensive)
+    if (typeof publicUrl === 'function') {
+        logger.warn('file.io returned a function instead of URL, attempting to call it');
+        publicUrl = publicUrl();
+    }
+
+    publicUrl = String(publicUrl || '');
+
+    if (!publicUrl || publicUrl === 'undefined' || publicUrl.includes('function')) {
+        throw new Error(`File upload failed: invalid public URL: ${publicUrl}`);
     }
 
     return publicUrl;

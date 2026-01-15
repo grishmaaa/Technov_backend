@@ -56,32 +56,55 @@ Visual Style:
 "${visualStyle || 'cinematic realism'}"
 `.trim();
 
-    const openai = getOpenAI(); // Get OpenAI client
-    const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7
-    });
+    const openai = getOpenAI();
 
-    const rawText = completion.choices?.[0]?.message?.content || '';
-    const cleanedText = cleanMarkdown(rawText);
-    let parsed;
+    // Retry logic for rate limiting (429)
+    const maxRetries = 3;
+    let lastError;
 
-    try {
-        parsed = JSON.parse(cleanedText);
-    } catch (error) {
-        logger.error({ err: error }, 'Failed to parse AI JSON response');
-        throw new Error('Failed to parse AI response');
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const completion = await openai.chat.completions.create({
+                model: 'gpt-4o',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.7
+            });
+
+            const rawText = completion.choices?.[0]?.message?.content || '';
+            const cleanedText = cleanMarkdown(rawText);
+            let parsed;
+
+            try {
+                parsed = JSON.parse(cleanedText);
+            } catch (error) {
+                logger.error({ err: error }, 'Failed to parse AI JSON response');
+                throw new Error('Failed to parse AI response');
+            }
+
+            const { imagePrompt, scenes } = parsed || {};
+
+            if (!imagePrompt || !Array.isArray(scenes)) {
+                throw new Error('Invalid AI response format');
+            }
+
+            return { imagePrompt, scenes };
+        } catch (error) {
+            lastError = error;
+            const status = error?.status || error?.response?.status;
+
+            if (status === 429 && attempt < maxRetries) {
+                const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+                logger.warn({ attempt, waitTime }, 'OpenAI rate limited, retrying...');
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+            }
+
+            throw error;
+        }
     }
 
-    const { imagePrompt, scenes } = parsed || {};
-
-    if (!imagePrompt || !Array.isArray(scenes)) {
-        throw new Error('Invalid AI response format');
-    }
-
-    return { imagePrompt, scenes };
+    throw lastError;
 };

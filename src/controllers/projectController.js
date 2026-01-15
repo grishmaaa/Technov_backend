@@ -333,19 +333,20 @@ export const generateHeroAssets = async (req, res) => {
             });
         }
 
-        // TEMPORARILY skip all hero assets to avoid OpenAI rate limits
-        // Hero image generation can be re-enabled later when rate limits are resolved
-        await transitionProjectState({
-            projectId: id,
-            toState: 'ASSETS_READY',
-            actorType: 'system',
-            actorId: req.user.id,
-            reason: 'Hero assets temporarily disabled'
-        });
-        return res.json({
-            message: 'Hero assets skipped to avoid rate limits',
-            skipped: true
-        });
+        // Hero assets are optional - if not required, auto-transition to ASSETS_READY
+        if (!project.requiresHeroAssets) {
+            await transitionProjectState({
+                projectId: id,
+                toState: 'ASSETS_READY',
+                actorType: 'system',
+                actorId: req.user.id,
+                reason: 'Hero assets not required'
+            });
+            return res.json({
+                message: 'Hero assets not required for this project',
+                skipped: true
+            });
+        }
 
         const existing = project.assets.find((asset) => asset.type === 'HERO_IMAGE' && asset.state === 'READY');
         if (existing) {

@@ -115,7 +115,8 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     const command = new PutObjectCommand({
         Bucket: bucket,
         Key: key,
-        ContentType: contentType || 'application/octet-stream',
+        // Force video/mp4 if it's an mp4 file
+        ContentType: key.endsWith('.mp4') ? 'video/mp4' : (contentType || 'application/octet-stream'),
         Body: fileBuffer
     });
     await client.send(command);

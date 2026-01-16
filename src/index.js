@@ -48,7 +48,7 @@ const limiter = rateLimit({
 });
 app.use('/auth', rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5 // stricter limit for auth routes
+    max: 20 // allow more attempts during development/testing
 }));
 app.use(limiter);
 

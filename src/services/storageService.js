@@ -51,11 +51,18 @@ export const getStorageConfig = () => {
 };
 
 const getS3Client = () => {
-    const { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
+    let { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
+
+    // Railway uses 'auto' region - default to 'us-east-1' for S3 SDK compatibility
+    if (!region || region === 'auto') {
+        region = 'us-east-1';
+    }
+
     const config = {
         region,
         endpoint: endpoint || undefined,
-        forcePathStyle: Boolean(endpoint)
+        // Railway requires virtual-hosted-style URLs, NOT path-style
+        forcePathStyle: false
     };
     if (accessKeyId && secretAccessKey) {
         config.credentials = { accessKeyId, secretAccessKey };

@@ -51,18 +51,26 @@ export const getStorageConfig = () => {
 };
 
 const getS3Client = () => {
-    let { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
+    let { region, endpoint, accessKeyId, secretAccessKey, bucket } = getStorageConfig();
 
     // Railway uses 'auto' region - default to 'us-east-1' for S3 SDK compatibility
     if (!region || region === 'auto') {
         region = 'us-east-1';
     }
 
+    // Railway virtual-hosted style: prepend bucket to endpoint domain
+    // e.g., https://storage.railway.app -> https://indexed-foodbox-6g-1e0hl1.storage.railway.app
+    let virtualHostedEndpoint = endpoint;
+    if (endpoint && bucket && endpoint.includes('storage.railway.app')) {
+        virtualHostedEndpoint = endpoint.replace('https://storage.railway.app', `https://${bucket}.storage.railway.app`);
+        console.log('[S3Client] Using virtual-hosted endpoint:', virtualHostedEndpoint);
+    }
+
     const config = {
         region,
-        endpoint: endpoint || undefined,
-        // Railway requires virtual-hosted-style URLs, NOT path-style
-        forcePathStyle: false
+        endpoint: virtualHostedEndpoint || undefined,
+        // With virtual-hosted endpoint, we still use path-style internally since bucket is in endpoint
+        forcePathStyle: true
     };
     if (accessKeyId && secretAccessKey) {
         config.credentials = { accessKeyId, secretAccessKey };

@@ -13,7 +13,8 @@ const getEnvValue = (keys) => {
 };
 
 export const getStorageConfig = () => {
-    const bucket = getEnvValue(['STORAGE_BUCKET', 'RAILWAY_BUCKET_NAME', 'S3_BUCKET', 'BUCKET']);
+    // BUCKET contains the actual S3 API bucket name (with hash suffix), check it first
+    const bucket = getEnvValue(['BUCKET', 'STORAGE_BUCKET', 'S3_BUCKET', 'RAILWAY_BUCKET_NAME']);
     const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION', 'REGION']);
     const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'S3_ENDPOINT', 'ENDPOINT']);
     const accessKeyId = getEnvValue([

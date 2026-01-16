@@ -48,7 +48,7 @@ const limiter = rateLimit({
 });
 app.use('/auth', rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 20 // allow more attempts during development/testing
+    max: 100 // increased for better UX during testing
 }));
 app.use(limiter);
 

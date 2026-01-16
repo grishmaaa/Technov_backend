@@ -13,8 +13,9 @@ const getEnvValue = (keys) => {
 };
 
 export const getStorageConfig = () => {
-    // BUCKET contains the actual S3 API bucket name (with hash suffix), check it first
-    const bucket = getEnvValue(['BUCKET', 'STORAGE_BUCKET', 'S3_BUCKET', 'RAILWAY_BUCKET_NAME']);
+    // BUCKET contains the actual S3 API bucket name, check it first
+    // Ignore RAILWAY_BUCKET_NAME as it is often just a UI display name
+    const bucket = getEnvValue(['BUCKET', 'STORAGE_BUCKET', 'S3_BUCKET']);
     const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION', 'REGION']);
     const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'S3_ENDPOINT', 'ENDPOINT']);
     const accessKeyId = getEnvValue([
@@ -52,25 +53,19 @@ export const getStorageConfig = () => {
 };
 
 const getS3Client = () => {
-    let { region, endpoint, accessKeyId, secretAccessKey, bucket } = getStorageConfig();
+    let { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
 
     // Railway uses 'auto' region - default to 'us-east-1' for S3 SDK compatibility
     if (!region || region === 'auto') {
         region = 'us-east-1';
     }
 
-    // Railway virtual-hosted style: prepend bucket to endpoint domain
-    // e.g., https://storage.railway.app -> https://indexed-foodbox-6g-1e0hl1.storage.railway.app
-    let virtualHostedEndpoint = endpoint;
-    if (endpoint && bucket && endpoint.includes('storage.railway.app')) {
-        virtualHostedEndpoint = endpoint.replace('https://storage.railway.app', `https://${bucket}.storage.railway.app`);
-        console.log('[S3Client] Using virtual-hosted endpoint:', virtualHostedEndpoint);
-    }
+    console.log('[S3Client] Using endpoint:', endpoint, 'region:', region);
 
     const config = {
         region,
-        endpoint: virtualHostedEndpoint || undefined,
-        // With virtual-hosted endpoint, we still use path-style internally since bucket is in endpoint
+        endpoint: endpoint || undefined,
+        // Railway S3 buckets prefer path-style access
         forcePathStyle: true
     };
     if (accessKeyId && secretAccessKey) {

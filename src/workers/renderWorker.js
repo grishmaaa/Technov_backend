@@ -121,10 +121,14 @@ const validateClip = async ({ filePath, targetDurationSeconds }) => {
     if (!Number.isFinite(duration)) {
         throw new Error('Validation failed: duration unavailable');
     }
-    const target = Number(targetDurationSeconds);
-    if (Number.isFinite(target) && Math.abs(duration - target) > 0.75) {
-        throw new Error(`Validation failed: duration ${duration.toFixed(2)}s != ${target}s`);
+
+    // Only reject if video is too short (less than 1s = likely corrupt)
+    // AI models like Kling have max 10s limit, so accept whatever they return
+    if (duration < 1) {
+        throw new Error(`Validation failed: Video is too short (${duration.toFixed(2)}s)`);
     }
+
+    console.log(`[Validation] Accepted clip: ${duration.toFixed(2)}s (Target was ${targetDurationSeconds}s)`);
 };
 
 const getLatestShotAsset = async (shotId) => {

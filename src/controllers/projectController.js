@@ -13,9 +13,11 @@ const signUrl = async (rawUrl) => {
         const urlObj = new URL(rawUrl);
         const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
 
+        console.log("[Signer] Signing key:", key);
+
         return await getPresignedDownloadUrl({ key, expiresIn: 3600 });
     } catch (err) {
-        console.error("Signing failed for URL:", rawUrl, err);
+        console.error("[Signer] Signing failed for URL:", rawUrl, err);
         return rawUrl;
     }
 };

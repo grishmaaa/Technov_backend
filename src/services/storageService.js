@@ -115,8 +115,10 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     const command = new PutObjectCommand({
         Bucket: bucket,
         Key: key,
-        // Force video/mp4 if it's an mp4 file
-        ContentType: key.endsWith('.mp4') ? 'video/mp4' : (contentType || 'application/octet-stream'),
+        // FORCE video/mp4 - without this Railway defaults to octet-stream which browsers can't play
+        ContentType: 'video/mp4',
+        // Tell browser to play inline, not download
+        ContentDisposition: 'inline',
         Body: fileBuffer
     });
     await client.send(command);

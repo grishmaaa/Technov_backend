@@ -2,31 +2,6 @@ import prisma from '../config/database.js';
 import { generateScriptAndImagePrompt } from '../services/aiService.js';
 import { generateHeroImage } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
-import { getPresignedDownloadUrl, isStorageConfigured } from '../services/storageService.js';
-import { logger } from '../logger.js';
-
-// Helper to generate presigned URL for private Railway storage
-const getSignedVideoUrl = async (videoUrl) => {
-    if (!videoUrl || !isStorageConfigured()) return videoUrl;
-
-    // Check if it's a Railway storage URL that needs signing
-    if (videoUrl.includes('storage.railway.app') || videoUrl.includes('s3.')) {
-        try {
-            // Extract the key from the URL
-            const url = new URL(videoUrl);
-            const key = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
-
-            // Generate presigned URL valid for 1 hour
-            const signedUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
-            return signedUrl;
-        } catch (error) {
-            logger.warn({ err: error, videoUrl }, 'Failed to generate presigned URL, using original');
-            return videoUrl;
-        }
-    }
-
-    return videoUrl;
-};
 
 export const createProject = async (req, res) => {
     try {
@@ -81,18 +56,6 @@ export const getProject = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Generate presigned URL for video playback
-        if (project.finalVideoUrl) {
-            project.finalVideoUrl = await getSignedVideoUrl(project.finalVideoUrl);
-        }
-
-        // Also sign scene video URLs
-        for (const scene of project.scenes) {
-            if (scene.videoUrl) {
-                scene.videoUrl = await getSignedVideoUrl(scene.videoUrl);
-            }
-        }
-
         res.json(project);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch project' });
@@ -122,18 +85,6 @@ export const getProjectFactory = async (req, res) => {
 
         if (!project) {
             return res.status(404).json({ error: 'Project not found' });
-        }
-
-        // Generate presigned URL for video playback
-        if (project.finalVideoUrl) {
-            project.finalVideoUrl = await getSignedVideoUrl(project.finalVideoUrl);
-        }
-
-        // Also sign scene video URLs
-        for (const scene of project.scenes) {
-            if (scene.videoUrl) {
-                scene.videoUrl = await getSignedVideoUrl(scene.videoUrl);
-            }
         }
 
         res.json({ project, scenes: project.scenes });
@@ -374,27 +325,12 @@ export const generateHeroAssets = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        if (!['SCENES_GENERATED', 'VISUAL_IDENTITY_DECISION'].includes(project.state)) {
-            return res.status(400).json({
-                error: 'Project not ready for hero assets',
-                currentState: project.state,
-                hint: 'Generate scenes first'
-            });
+        if (project.state !== 'VISUAL_IDENTITY_DECISION') {
+            return res.status(400).json({ error: 'Project not ready for hero assets' });
         }
 
-        // Hero assets are optional - if not required, auto-transition to ASSETS_READY
         if (!project.requiresHeroAssets) {
-            await transitionProjectState({
-                projectId: id,
-                toState: 'ASSETS_READY',
-                actorType: 'system',
-                actorId: req.user.id,
-                reason: 'Hero assets not required'
-            });
-            return res.json({
-                message: 'Hero assets not required for this project',
-                skipped: true
-            });
+            return res.status(400).json({ error: 'Hero assets not required for this project' });
         }
 
         const existing = project.assets.find((asset) => asset.type === 'HERO_IMAGE' && asset.state === 'READY');

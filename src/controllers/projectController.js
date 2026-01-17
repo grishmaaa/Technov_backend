@@ -2,6 +2,23 @@ import prisma from '../config/database.js';
 import { generateScriptAndImagePrompt } from '../services/aiService.js';
 import { generateHeroImage } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
+import { getPresignedDownloadUrl } from '../services/storageService.js';
+
+// Helper to turn a raw DB URL into a Signed Playable URL
+const signUrl = async (rawUrl) => {
+    if (!rawUrl || !rawUrl.includes('railway.app')) return rawUrl;
+    try {
+        // Example rawUrl: https://storage.railway.app/generated/user-id/file.mp4
+        // We need to extract: generated/user-id/file.mp4
+        const urlObj = new URL(rawUrl);
+        const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+
+        return await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+    } catch (err) {
+        console.error("Signing failed for URL:", rawUrl, err);
+        return rawUrl;
+    }
+};
 
 export const createProject = async (req, res) => {
     try {
@@ -56,6 +73,18 @@ export const getProject = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
+        // SIGN THE FINAL VIDEO
+        if (project.finalVideoUrl) {
+            project.finalVideoUrl = await signUrl(project.finalVideoUrl);
+        }
+
+        // SIGN THE SCENE VIDEOS
+        for (let scene of project.scenes) {
+            if (scene.videoUrl) {
+                scene.videoUrl = await signUrl(scene.videoUrl);
+            }
+        }
+
         res.json(project);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch project' });
@@ -85,6 +114,18 @@ export const getProjectFactory = async (req, res) => {
 
         if (!project) {
             return res.status(404).json({ error: 'Project not found' });
+        }
+
+        // SIGN THE FINAL VIDEO
+        if (project.finalVideoUrl) {
+            project.finalVideoUrl = await signUrl(project.finalVideoUrl);
+        }
+
+        // SIGN THE SCENE VIDEOS
+        for (let scene of project.scenes) {
+            if (scene.videoUrl) {
+                scene.videoUrl = await signUrl(scene.videoUrl);
+            }
         }
 
         res.json({ project, scenes: project.scenes });

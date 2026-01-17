@@ -103,7 +103,7 @@ export const getObjectPrefix = () => {
 };
 
 export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
-    const { bucket, publicBaseUrl, region } = getStorageConfig();
+    const { bucket, endpoint, publicBaseUrl } = getStorageConfig();
     if (!bucket) {
         throw new Error('Storage bucket is not configured');
     }
@@ -123,8 +123,21 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     });
     await client.send(command);
 
-    const baseUrl = publicBaseUrl || `https://${bucket}.s3.${region}.amazonaws.com`;
-    return `${baseUrl}/${key}`;
+    // FIX: Build correct Railway URL structure
+    // Correct format: https://bucket-id.storage.railway.app/key
+    if (publicBaseUrl) {
+        return `${publicBaseUrl}/${key}`;
+    }
+
+    // Railway endpoint is https://storage.railway.app
+    // We need https://bucket-id.storage.railway.app/key
+    if (endpoint && endpoint.includes('railway.app')) {
+        const cleanEndpoint = endpoint.replace('https://', '');
+        return `https://${bucket}.${cleanEndpoint}/${key}`;
+    }
+
+    // Fallback for standard S3
+    return `https://${bucket}.s3.amazonaws.com/${key}`;
 };
 
 export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 }) => {

@@ -2,7 +2,8 @@ import prisma from '../config/database.js';
 import { generateScriptAndImagePrompt } from '../services/aiService.js';
 import { generateHeroImage } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
-import { getPresignedDownloadUrl } from '../services/storageService.js';
+import { getPresignedDownloadUrl, getS3Client, getStorageConfig } from '../services/storageService.js';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 
 // Helper to turn a raw DB URL into a Signed Playable URL
 const signUrl = async (rawUrl) => {
@@ -454,5 +455,51 @@ export const getProjectMediaLinks = async (req, res) => {
     } catch (error) {
         console.error('[MediaLinks] Error:', error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+// Video streaming proxy - bypasses CORS and MIME issues completely
+export const streamProjectVideo = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const project = await prisma.project.findFirst({
+            where: { id, userId: req.user.id }
+        });
+
+        if (!project || !project.finalVideoUrl) {
+            return res.status(404).json({ error: "Video not found" });
+        }
+
+        // Extract the REAL key from the stored URL
+        const urlObj = new URL(project.finalVideoUrl);
+        // This handles URLs like https://storage.railway.app/generated/...
+        const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+
+        console.log('[VideoStream] Streaming key:', key);
+
+        // Get the file from S3
+        const { bucket } = getStorageConfig();
+        const client = getS3Client();
+        const command = new GetObjectCommand({
+            Bucket: bucket,
+            Key: key
+        });
+
+        const response = await client.send(command);
+
+        // FORCE the headers so the browser HAS to play it
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Accept-Ranges', 'bytes');
+
+        if (response.ContentLength) {
+            res.setHeader('Content-Length', response.ContentLength);
+        }
+
+        // Pipe the stream directly to the browser
+        response.Body.pipe(res);
+    } catch (error) {
+        console.error("[VideoStream] Error:", error);
+        res.status(500).json({ error: "Error streaming video" });
     }
 };

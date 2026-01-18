@@ -36,12 +36,28 @@ app.set('trust proxy', 1);
 // Security middleware
 app.use(helmet());
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+
+        // Allow all origins during launch - can restrict later
+        // Allowed: technov.ai, localhost, railway.app
+        const allowedOrigins = ['https://technov.ai', 'http://localhost:8080', 'http://localhost:5173'];
+        if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.technov.ai') || origin.endsWith('.railway.app')) {
+            callback(null, true);
+        } else {
+            // During launch, allow everything
+            callback(null, true);
+        }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
     exposedHeaders: ['Content-Length', 'Content-Type', 'Accept-Ranges']
 }));
+
+// Handle OPTIONS preflight requests
+app.options('*', cors());
 
 // Rate limiting
 const limiter = rateLimit({

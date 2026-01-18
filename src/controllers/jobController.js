@@ -6,16 +6,48 @@ import { logger } from '../logger.js';
 
 export const generateScriptController = async (req, res) => {
     try {
-        const { story, title, quality, qualityTier, aspectRatio, fps } = req.body;
+        const {
+            story,
+            title,
+            quality,
+            qualityTier,
+            aspectRatio,
+            fps,
+            // New Pro tier parameters (optional, with defaults)
+            productionStyle = 'standard',
+            artisticAtmosphere = 'photorealistic',
+            dialogueFocus = 'balanced',
+            length = 'standard'
+        } = req.body;
         const userId = req.user.id;
+        const userPlan = req.user.plan || 'basic';
 
         if (!story) {
             return res.status(400).json({ error: 'Story text is required' });
         }
 
-        // Check if user has enough credits (minimum 10 credits for script generation)
+        // --- TIER VALIDATION (Only restrict Pro features for basic users) ---
+        if (userPlan === 'basic') {
+            if (length === 'extended') {
+                return res.status(403).json({ error: "Upgrade to Elite for 65s videos." });
+            }
+            if (productionStyle === 'cinematic' || productionStyle === 'performance') {
+                return res.status(403).json({ error: "Cinematic & Performance styles are Elite features." });
+            }
+            if (dialogueFocus === 'performance') {
+                return res.status(403).json({ error: "Dialogue Focus is an Elite feature." });
+            }
+        }
+
+        // --- DYNAMIC CREDIT COST (Pro features cost more) ---
+        let scriptCreditCost = 5; // Base cost
+        if (length === 'extended') scriptCreditCost += 10;
+        if (productionStyle === 'cinematic' || productionStyle === 'performance') scriptCreditCost += 5;
+        if (dialogueFocus === 'performance') scriptCreditCost += 5;
+
+        // Check if user has enough credits
         const user = await prisma.user.findUnique({ where: { id: userId } });
-        const SCRIPT_GENERATION_COST = 5; // 5 credits per script
+        const SCRIPT_GENERATION_COST = scriptCreditCost;
 
         if (user.credits < SCRIPT_GENERATION_COST) {
             return res.status(402).json({
@@ -41,8 +73,13 @@ export const generateScriptController = async (req, res) => {
             }
         });
 
-        // 2. Generate Script (JSON) with Observability
-        const { scenes: scenesData, usage } = await generateScript(story);
+        // 2. Generate Script (JSON) with tier options - backward compatible
+        const { scenes: scenesData, usage } = await generateScript(story, {
+            plan: userPlan,
+            productionStyle,
+            artisticAtmosphere,
+            length
+        });
 
         // Calculate Cost (OpenAI GPT-4 Pricing)
         // Input: ~$0.01 / 1K tokens, Output: ~$0.03 / 1K tokens

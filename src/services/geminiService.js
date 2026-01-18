@@ -47,14 +47,74 @@ async function callWithRetry(fn, maxRetries = 3) {
 
 const cleanMarkdown = (text) => text.replace(/```json/g, '').replace(/```/g, '').trim();
 
-export const generateScript = async (storyText) => {
+// Tiered Director Personas for Pro vs Basic plans
+const getDirectorPersona = (plan) => {
+    if (plan === 'elite' || plan === 'pro') {
+        return `You are an Oscar-winning Cinematographer with 30 years of experience.
+Your shot descriptions must be poetic and use advanced cinematic terms (e.g., 'chiaroscuro lighting', 'anamorphic lens flare').
+Add visual subtext and emotional layers to every scene.`;
+    }
+    return `You are an expert film director, screenwriter, cinematographer, and editor combined.`;
+};
+
+// Production style maps for different tiers
+const PRODUCTION_STYLES = {
+    vlog: "Filming Style: Handheld, authentic vlog feel with natural lighting.",
+    standard: "Filming Style: Stable tripod, professional corporate lighting.",
+    cinematic: "Filming Style: Sweeping gimbal movements, dramatic lighting, epic scale.",
+    performance: "Filming Style: Macro lens on face, focus on lip-sync and micro-expressions."
+};
+
+const ARTISTIC_ATMOSPHERES = {
+    photorealistic: "Aesthetic: Hyper-realistic, 8K textures, natural colors.",
+    cyberpunk: "Aesthetic: Neon pink and cyan, rainy streets, high-tech grit.",
+    noir: "Aesthetic: High-contrast black and white, deep shadows.",
+    anime: "Aesthetic: Modern Japanese animation style, vibrant cel-shading.",
+    vintage: "Aesthetic: 35mm film grain, faded colors, warm tones.",
+    sketch: "Aesthetic: Animated charcoal sketch style."
+};
+
+/**
+ * Generate a cinematic script from story text
+ * @param {string} storyText - The story to transform
+ * @param {object} options - Optional tier parameters (backward compatible)
+ * @param {string} options.plan - 'basic' | 'elite' | 'pro'
+ * @param {string} options.productionStyle - 'vlog' | 'standard' | 'cinematic' | 'performance'
+ * @param {string} options.artisticAtmosphere - 'photorealistic' | 'cyberpunk' | 'noir' | etc.
+ * @param {string} options.length - 'standard' | 'extended'
+ */
+export const generateScript = async (storyText, options = {}) => {
+    // Backward compatibility: if options is a string (old API), treat as plan
+    const tierOptions = typeof options === 'string'
+        ? { plan: options }
+        : options;
+
+    const {
+        plan = 'basic',
+        productionStyle = 'standard',
+        artisticAtmosphere = 'photorealistic',
+        length = 'standard'
+    } = tierOptions;
+
+    const directorPersona = getDirectorPersona(plan);
+    const styleDirective = PRODUCTION_STYLES[productionStyle] || PRODUCTION_STYLES.standard;
+    const aestheticDirective = ARTISTIC_ATMOSPHERES[artisticAtmosphere] || ARTISTIC_ATMOSPHERES.photorealistic;
+    const durationConstraint = length === 'extended'
+        ? "Total duration must be between 60-65 seconds across all scenes."
+        : "Total duration must be between 10-12 seconds across all scenes.";
+
     // Wrap the core logic to allow for retries of the *Generation* step
     return await callWithRetry(async () => {
         const prompt = `
-            You are an expert film director, screenwriter, cinematographer, and editor combined.
+            ${directorPersona}
 
             You think visually, not textually.
             You design scenes as if they will be shot by a real camera, edited into a real film, and rendered by a high-end AI video engine (Kling 2.6 / Sora-class).
+
+            --- DIRECTOR'S BRIEF ---
+            1. Technical Style: ${styleDirective}
+            2. Artistic Mood: ${aestheticDirective}
+            3. Duration Target: ${durationConstraint}
 
             Your task is to transform the provided story into a cinematic Scene Breakdown suitable for professional video generation.
 

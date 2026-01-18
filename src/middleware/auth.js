@@ -5,7 +5,9 @@ import { logger } from '../logger.js';
 
 export const authMiddleware = async (req, res, next) => {
     try {
-        const token = req.headers.authorization?.replace('Bearer ', '');
+        // Accept token from Authorization header OR query string (?token=...)
+        // Query string is needed for video streaming since browsers can't send headers with <video> tags
+        const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
 
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });

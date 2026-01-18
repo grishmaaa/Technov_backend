@@ -462,23 +462,41 @@ export const getProjectMediaLinks = async (req, res) => {
 export const streamProjectVideo = async (req, res) => {
     try {
         const { id } = req.params;
+        console.log('[VideoStream] Request for project:', id);
+
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id }
         });
 
-        if (!project || !project.finalVideoUrl) {
-            return res.status(404).json({ error: "Video not found" });
+        if (!project) {
+            console.log('[VideoStream] Project not found or unauthorized');
+            return res.status(404).json({ error: "Project not found" });
         }
 
-        // Extract the REAL key from the stored URL
-        const urlObj = new URL(project.finalVideoUrl);
-        // This handles URLs like https://storage.railway.app/generated/...
-        const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+        if (!project.finalVideoUrl) {
+            console.log('[VideoStream] No finalVideoUrl in project');
+            return res.status(404).json({ error: "Video not yet available" });
+        }
 
-        console.log('[VideoStream] Streaming key:', key);
+        console.log('[VideoStream] finalVideoUrl:', project.finalVideoUrl);
+
+        // Extract the REAL key from the stored URL
+        let key;
+        try {
+            const urlObj = new URL(project.finalVideoUrl);
+            key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+        } catch (urlError) {
+            // If it's not a valid URL, assume it's already a key
+            console.log('[VideoStream] URL parsing failed, using as key directly');
+            key = project.finalVideoUrl;
+        }
+
+        console.log('[VideoStream] Extracted key:', key);
 
         // Get the file from S3
         const { bucket } = getStorageConfig();
+        console.log('[VideoStream] Using bucket:', bucket);
+
         const client = getS3Client();
         const command = new GetObjectCommand({
             Bucket: bucket,
@@ -486,11 +504,13 @@ export const streamProjectVideo = async (req, res) => {
         });
 
         const response = await client.send(command);
+        console.log('[VideoStream] S3 response received, ContentLength:', response.ContentLength);
 
         // FORCE the headers so the browser HAS to play it
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Content-Disposition', 'inline');
         res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
 
         if (response.ContentLength) {
             res.setHeader('Content-Length', response.ContentLength);
@@ -499,7 +519,8 @@ export const streamProjectVideo = async (req, res) => {
         // Pipe the stream directly to the browser
         response.Body.pipe(res);
     } catch (error) {
-        console.error("[VideoStream] Error:", error);
-        res.status(500).json({ error: "Error streaming video" });
+        console.error("[VideoStream] Error:", error.message);
+        console.error("[VideoStream] Stack:", error.stack);
+        res.status(500).json({ error: "Error streaming video", details: error.message });
     }
 };

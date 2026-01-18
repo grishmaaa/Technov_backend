@@ -12,12 +12,20 @@ import {
     decideVisualIdentity,
     generateHeroAssets,
     getProjectMediaLinks,
-    streamProjectVideo
+    streamProjectVideo,
+    getPublicProject,
+    streamPublicVideo
 } from '../controllers/projectController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// --- PUBLIC ROUTES (No Auth Required) ---
+// These must be BEFORE router.use(authMiddleware)
+router.get('/:id/public', getPublicProject);
+router.get('/:id/public-stream', streamPublicVideo);
+
+// --- PROTECTED ROUTES (Auth Required) ---
 router.use(authMiddleware);
 
 router.post('/', createProject);

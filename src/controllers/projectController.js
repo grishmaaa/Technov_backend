@@ -537,3 +537,113 @@ export const streamProjectVideo = async (req, res) => {
         res.status(500).json({ error: "Streaming failed", details: error.message });
     }
 };
+
+// --- PUBLIC ROUTES (No Auth Required) ---
+
+// Get public project info for viral sharing
+export const getPublicProject = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const project = await prisma.project.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                title: true,
+                state: true,
+                qualityTier: true,
+                createdAt: true,
+                description: true
+            }
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: "Film not found" });
+        }
+
+        // Only expose completed films publicly
+        if (project.state !== 'COMPLETE') {
+            return res.status(404).json({ error: "Film not found or still processing" });
+        }
+
+        res.json(project);
+    } catch (error) {
+        console.error('[PublicProject] Error:', error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+};
+
+// Stream video for public shares (no auth required, only completed films)
+export const streamPublicVideo = async (req, res) => {
+    const { id } = req.params;
+    try {
+        console.log('[PublicStream] Request for project:', id);
+
+        // Find project without user check
+        const project = await prisma.project.findUnique({
+            where: { id }
+        });
+
+        if (!project) {
+            console.error('[PublicStream] Project not found:', id);
+            return res.status(404).json({ error: "Film not found" });
+        }
+
+        // Security: Only allow streaming of COMPLETE films publicly
+        if (project.state !== 'COMPLETE') {
+            console.log('[PublicStream] Film not complete, denying access');
+            return res.status(401).json({ error: "This film is not yet available for public viewing" });
+        }
+
+        if (!project.finalVideoUrl) {
+            return res.status(404).json({ error: "Video not yet available" });
+        }
+
+        console.log('[PublicStream] Streaming public film:', project.title);
+
+        // Extract key from URL
+        let key;
+        try {
+            const urlObj = new URL(project.finalVideoUrl);
+            key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+        } catch (urlError) {
+            key = project.finalVideoUrl;
+        }
+
+        const { bucket } = getStorageConfig();
+        const client = getS3Client();
+        const command = new GetObjectCommand({
+            Bucket: bucket,
+            Key: key
+        });
+
+        const response = await client.send(command);
+        console.log('[PublicStream] S3 response, ContentLength:', response.ContentLength);
+
+        // Set video headers
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+
+        if (response.ContentLength) {
+            res.setHeader('Content-Length', response.ContentLength);
+        }
+
+        response.Body.pipe(res);
+
+        response.Body.on('error', (err) => {
+            console.error("[PublicStream] Stream error:", err);
+            if (!res.headersSent) {
+                res.status(500).json({ error: "Stream failed" });
+            }
+        });
+
+    } catch (error) {
+        console.error("[PublicStream] Error:", error.message);
+        if (error.name === 'NoSuchKey') {
+            return res.status(404).json({ error: "File not found" });
+        }
+        res.status(500).json({ error: "Streaming failed" });
+    }
+};

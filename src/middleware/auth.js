@@ -9,6 +9,9 @@ export const authMiddleware = async (req, res, next) => {
         // Query string is needed for video streaming since browsers can't send headers with <video> tags
         const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
 
+        console.log("[Auth] Token source:", req.headers.authorization ? "Header" : (req.query.token ? "Query" : "None"));
+        console.log("[Auth] Token present:", !!token);
+
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }

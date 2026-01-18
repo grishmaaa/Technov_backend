@@ -13,22 +13,35 @@ const getEnvValue = (keys) => {
 };
 
 export const getStorageConfig = () => {
-    // BUCKET contains the actual S3 API bucket name, check it first
-    // Ignore RAILWAY_BUCKET_NAME as it is often just a UI display name
-    const bucket = getEnvValue(['BUCKET', 'STORAGE_BUCKET', 'S3_BUCKET']);
+    // Railway storage uses various env var names - check all possibilities
+    const bucket = getEnvValue([
+        'BUCKET',
+        'STORAGE_BUCKET',
+        'S3_BUCKET',
+        'RAILWAY_BUCKET_NAME',
+        'BUCKET_NAME'
+    ]);
     const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION', 'REGION']);
-    const endpoint = getEnvValue(['STORAGE_ENDPOINT', 'RAILWAY_BUCKET_ENDPOINT', 'S3_ENDPOINT', 'ENDPOINT']);
+    const endpoint = getEnvValue([
+        'STORAGE_ENDPOINT',
+        'RAILWAY_BUCKET_ENDPOINT',
+        'S3_ENDPOINT',
+        'ENDPOINT',
+        'RAILWAY_STORAGE_ENDPOINT'
+    ]);
     const accessKeyId = getEnvValue([
         'STORAGE_ACCESS_KEY_ID',
         'RAILWAY_BUCKET_ACCESS_KEY_ID',
         'AWS_ACCESS_KEY_ID',
-        'ACCESS_KEY_ID'
+        'ACCESS_KEY_ID',
+        'RAILWAY_STORAGE_ACCESS_KEY_ID'
     ]);
     const secretAccessKey = getEnvValue([
         'STORAGE_SECRET_ACCESS_KEY',
         'RAILWAY_BUCKET_SECRET_ACCESS_KEY',
         'AWS_SECRET_ACCESS_KEY',
-        'SECRET_ACCESS_KEY'
+        'SECRET_ACCESS_KEY',
+        'RAILWAY_STORAGE_SECRET_ACCESS_KEY'
     ]);
     const publicBaseUrl = getEnvValue([
         'STORAGE_PUBLIC_BASE_URL',
@@ -40,6 +53,9 @@ export const getStorageConfig = () => {
         'RAILWAY_BUCKET_OBJECT_PREFIX',
         'S3_OBJECT_PREFIX'
     ]) || 'generated').replace(/\/+$/g, '');
+
+    // Debug log on first call to help diagnose issues
+    console.log('[StorageConfig] bucket:', bucket, 'endpoint:', endpoint, 'hasAccessKey:', !!accessKeyId);
 
     return {
         bucket,

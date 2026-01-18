@@ -460,42 +460,38 @@ export const getProjectMediaLinks = async (req, res) => {
 
 // Video streaming proxy - bypasses CORS and MIME issues completely
 export const streamProjectVideo = async (req, res) => {
+    const { id } = req.params;
     try {
-        const { id } = req.params;
-        console.log('[VideoStream] Request for project:', id);
+        console.log('[Stream] Request for project:', id);
 
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id }
         });
 
         if (!project) {
-            console.log('[VideoStream] Project not found or unauthorized');
+            console.error('[Stream] Project not found for ID:', id);
             return res.status(404).json({ error: "Project not found" });
         }
 
         if (!project.finalVideoUrl) {
-            console.log('[VideoStream] No finalVideoUrl in project');
+            console.error('[Stream] No finalVideoUrl for project:', id);
             return res.status(404).json({ error: "Video not yet available" });
         }
 
-        console.log('[VideoStream] finalVideoUrl:', project.finalVideoUrl);
+        console.log('[Stream] finalVideoUrl:', project.finalVideoUrl);
 
-        // Extract the REAL key from the stored URL
+        // Extract key correctly
         let key;
         try {
             const urlObj = new URL(project.finalVideoUrl);
             key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
         } catch (urlError) {
-            // If it's not a valid URL, assume it's already a key
-            console.log('[VideoStream] URL parsing failed, using as key directly');
+            console.log('[Stream] URL parsing failed, using as key directly');
             key = project.finalVideoUrl;
         }
 
-        console.log('[VideoStream] Extracted key:', key);
-
-        // Get the file from S3
         const { bucket } = getStorageConfig();
-        console.log('[VideoStream] Using bucket:', bucket);
+        console.log('[Stream] Attempting to fetch key:', key, 'from bucket:', bucket);
 
         const client = getS3Client();
         const command = new GetObjectCommand({
@@ -504,23 +500,40 @@ export const streamProjectVideo = async (req, res) => {
         });
 
         const response = await client.send(command);
-        console.log('[VideoStream] S3 response received, ContentLength:', response.ContentLength);
+        console.log('[Stream] S3 response received, ContentLength:', response.ContentLength);
 
-        // FORCE the headers so the browser HAS to play it
+        // Crucial Headers for Chrome/Firefox
         res.setHeader('Content-Type', 'video/mp4');
-        res.setHeader('Content-Disposition', 'inline');
         res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Disposition', 'inline');
         res.setHeader('Cache-Control', 'public, max-age=3600');
 
         if (response.ContentLength) {
             res.setHeader('Content-Length', response.ContentLength);
         }
 
-        // Pipe the stream directly to the browser
+        // AWS SDK v3 response.Body is a readable stream in Node.js
         response.Body.pipe(res);
+
+        response.Body.on('error', (err) => {
+            console.error("[Stream] Stream pipe error:", err);
+            if (!res.headersSent) {
+                res.status(500).json({ error: "Stream failed" });
+            }
+        });
+
     } catch (error) {
-        console.error("[VideoStream] Error:", error.message);
-        console.error("[VideoStream] Stack:", error.stack);
-        res.status(500).json({ error: "Error streaming video", details: error.message });
+        console.error("[Stream] Critical Error:", error.message);
+        console.error("[Stream] Error name:", error.name);
+
+        // If it's a 404 from S3, the key is wrong
+        if (error.name === 'NoSuchKey') {
+            return res.status(404).json({ error: "File does not exist in bucket", key: "check logs" });
+        }
+        if (error.name === 'AccessDenied') {
+            return res.status(403).json({ error: "Access denied to bucket" });
+        }
+
+        res.status(500).json({ error: "Streaming failed", details: error.message });
     }
 };

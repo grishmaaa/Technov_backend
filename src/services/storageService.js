@@ -52,7 +52,7 @@ export const getStorageConfig = () => {
     };
 };
 
-const getS3Client = () => {
+export const getS3Client = () => {
     let { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
 
     // Railway uses 'auto' region - default to 'us-east-1' for S3 SDK compatibility

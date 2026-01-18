@@ -10,7 +10,8 @@ import {
     startSceneReview,
     approveScenes,
     decideVisualIdentity,
-    generateHeroAssets
+    generateHeroAssets,
+    getProjectMediaLinks
 } from '../controllers/projectController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -26,8 +27,10 @@ router.post('/:id/visual-identity/decide', decideVisualIdentity);
 router.post('/:id/hero-assets/generate', generateHeroAssets);
 router.get('/', getProjects);
 router.get('/:id/factory', getProjectFactory);
+router.get('/:id/links', getProjectMediaLinks);
 router.get('/:id', getProject);
 router.put('/:id', updateProject);
 router.delete('/:id', deleteProject);
 
 export default router;
+

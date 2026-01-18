@@ -154,16 +154,27 @@ export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 
     return getSignedUrl(client, command, { expiresIn });
 };
 
-export const getPresignedDownloadUrl = async ({ key, expiresIn = 900 }) => {
+export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download = false }) => {
     const { bucket } = getStorageConfig();
     if (!bucket) {
         throw new Error('Storage bucket is not configured');
     }
     const client = getS3Client();
-    const command = new GetObjectCommand({
+
+    // Build command params - force browser to see it as video/mp4
+    const commandParams = {
         Bucket: bucket,
-        Key: key
-    });
+        Key: key,
+        // FORCE the browser to see it as a video for the player
+        ResponseContentType: 'video/mp4',
+    };
+
+    // If the user clicked "Download", force the browser to save the file
+    if (download) {
+        commandParams.ResponseContentDisposition = `attachment; filename="technov-film-${Date.now()}.mp4"`;
+    }
+
+    const command = new GetObjectCommand(commandParams);
     return getSignedUrl(client, command, { expiresIn });
 };
 

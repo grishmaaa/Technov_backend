@@ -419,3 +419,40 @@ export const generateHeroAssets = async (req, res) => {
         res.status(400).json({ error: error.message });
     }
 };
+
+// Get special media links for view/download/share
+export const getProjectMediaLinks = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.query; // 'view', 'download', or 'share'
+
+        const project = await prisma.project.findFirst({
+            where: { id, userId: req.user.id }
+        });
+
+        if (!project || !project.finalVideoUrl) {
+            return res.status(404).json({ error: 'Video not found' });
+        }
+
+        // Extract key from the stored URL
+        const urlObj = new URL(project.finalVideoUrl);
+        const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+
+        let url;
+        if (action === 'download') {
+            // Link that forces a download (5 minutes)
+            url = await getPresignedDownloadUrl({ key, expiresIn: 300, download: true });
+        } else if (action === 'share') {
+            // Link that lasts 7 days for sharing
+            url = await getPresignedDownloadUrl({ key, expiresIn: 604800 });
+        } else {
+            // Default 1 hour link for the player
+            url = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+        }
+
+        res.json({ url });
+    } catch (error) {
+        console.error('[MediaLinks] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

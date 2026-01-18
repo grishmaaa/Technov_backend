@@ -103,41 +103,28 @@ export const getObjectPrefix = () => {
 };
 
 export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
-    const { bucket, endpoint, publicBaseUrl } = getStorageConfig();
+    const { bucket } = getStorageConfig();
     if (!bucket) {
         throw new Error('Storage bucket is not configured');
     }
 
-    // Read file as buffer to avoid streaming errors
+    // Read file fully into memory to avoid S3 stream reset errors
     const fileBuffer = await fs.readFile(filePath);
 
     const client = getS3Client();
     const command = new PutObjectCommand({
         Bucket: bucket,
         Key: key,
-        // FORCE video/mp4 - without this Railway defaults to octet-stream which browsers can't play
-        ContentType: 'video/mp4',
-        // Tell browser to play inline, not download
-        ContentDisposition: 'inline',
-        Body: fileBuffer
+        Body: fileBuffer,
+        ContentType: 'video/mp4', // FORCE BROWSER TO SEE VIDEO
+        ContentDisposition: 'inline', // TELL BROWSER TO PLAY IT
     });
+
     await client.send(command);
 
-    // FIX: Build correct Railway URL structure
-    // Correct format: https://bucket-id.storage.railway.app/key
-    if (publicBaseUrl) {
-        return `${publicBaseUrl}/${key}`;
-    }
-
-    // Railway endpoint is https://storage.railway.app
-    // We need https://bucket-id.storage.railway.app/key
-    if (endpoint && endpoint.includes('railway.app')) {
-        const cleanEndpoint = endpoint.replace('https://', '');
-        return `https://${bucket}.${cleanEndpoint}/${key}`;
-    }
-
-    // Fallback for standard S3
-    return `https://${bucket}.s3.amazonaws.com/${key}`;
+    // Build the URL based on Railway's virtual-hosted-style
+    // Format: https://bucket-id.storage.railway.app/key
+    return `https://${bucket}.storage.railway.app/${key}`;
 };
 
 export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 }) => {
@@ -167,6 +154,8 @@ export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download 
         Key: key,
         // FORCE the browser to see it as a video for the player
         ResponseContentType: 'video/mp4',
+        // Cache control for better performance
+        ResponseCacheControl: 'max-age=3600',
     };
 
     // If the user clicked "Download", force the browser to save the file

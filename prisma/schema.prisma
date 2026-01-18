@@ -28,6 +28,7 @@ model User {
 
   projects Project[]
   refreshTokens RefreshToken[]
+  creditUsages CreditUsage[]
 
   @@map("users")
 }
@@ -196,4 +197,18 @@ model GenerationJob {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("generation_jobs")
+}
+
+model CreditUsage {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  amount      Int      // Cost in credits (e.g., 5, 10, 20)
+  type        String   // "SCRIPT_GEN", "VIDEO_GEN", "REFUND", "ADMIN_ADD"
+  description String?  // "Generated script for Project X"
+  projectId   String?  @map("project_id") // Optional link to project
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("credit_usage")
 }

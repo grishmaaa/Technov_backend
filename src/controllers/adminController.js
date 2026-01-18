@@ -102,6 +102,16 @@ export const updateUser = async (req, res) => {
             return res.status(400).json({ error: 'No valid fields to update' });
         }
 
+        // Get current user to calculate credit difference
+        const currentUser = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { credits: true, email: true }
+        });
+
+        if (!currentUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
         const user = await prisma.user.update({
             where: { id: userId },
             data: updateData,
@@ -114,6 +124,20 @@ export const updateUser = async (req, res) => {
                 createdAt: true
             }
         });
+
+        // Record credit change in audit trail if credits were updated
+        if (credits !== undefined && credits !== currentUser.credits) {
+            const creditDiff = credits - currentUser.credits;
+            await prisma.creditUsage.create({
+                data: {
+                    userId,
+                    amount: Math.abs(creditDiff),
+                    type: creditDiff > 0 ? 'ADMIN_ADD' : 'ADMIN_DEDUCT',
+                    description: `Admin ${req.user.email} ${creditDiff > 0 ? 'added' : 'deducted'} ${Math.abs(creditDiff)} credits`
+                }
+            });
+            logger.info({ adminId: req.user.id, targetUserId: userId, creditDiff }, 'Admin credit adjustment');
+        }
 
         res.json(user);
     } catch (error) {

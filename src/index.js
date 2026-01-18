@@ -15,6 +15,7 @@ import paymentRoutes from './routes/paymentRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import clipScoreRoutes from './routes/clipScoreRoutes.js';
 import storageRoutes from './routes/storageRoutes.js';
+import usageRoutes from './routes/usageRoutes.js';
 
 // Import jobs
 import { startCreditResetJob } from './jobs/creditResetJob.js';
@@ -127,7 +128,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', clipScoreRoutes);
 app.use('/api', storageRoutes);
-
+app.use('/api/usage', usageRoutes);
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });

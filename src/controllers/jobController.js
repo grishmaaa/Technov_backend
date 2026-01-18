@@ -53,10 +53,30 @@ export const generateScriptController = async (req, res) => {
 
         logger.info({ userId, totalCost, credits: SCRIPT_GENERATION_COST }, 'Script generation cost');
 
-        // Deduct credits from user
-        await prisma.user.update({
-            where: { id: userId },
-            data: { credits: { decrement: SCRIPT_GENERATION_COST } }
+        // Deduct credits using transaction (prevents double-spend) and record usage
+        await prisma.$transaction(async (tx) => {
+            // Double-check credits in transaction
+            const freshUser = await tx.user.findUnique({ where: { id: userId } });
+            if (freshUser.credits < SCRIPT_GENERATION_COST) {
+                throw new Error('Insufficient credits');
+            }
+
+            // Deduct credits
+            await tx.user.update({
+                where: { id: userId },
+                data: { credits: { decrement: SCRIPT_GENERATION_COST } }
+            });
+
+            // Record usage for audit trail
+            await tx.creditUsage.create({
+                data: {
+                    userId,
+                    amount: SCRIPT_GENERATION_COST,
+                    type: 'SCRIPT_GEN',
+                    description: `Generated script for: ${title || project.title}`,
+                    projectId: project.id
+                }
+            });
         });
 
         logger.info({ userId, remainingCredits: user.credits - SCRIPT_GENERATION_COST }, 'Credits deducted for script');
@@ -162,13 +182,31 @@ export const createGenerationJob = async (req, res) => {
             }
         });
 
-        // Deduct credits upfront
-        await prisma.user.update({
-            where: { id: req.user.id },
-            data: { credits: { decrement: requiredCredits } }
-        });
+        // Deduct credits using transaction (prevents double-spend) and record usage
+        await prisma.$transaction(async (tx) => {
+            // Double-check credits in transaction
+            const freshUser = await tx.user.findUnique({ where: { id: req.user.id } });
+            if (freshUser.credits < requiredCredits) {
+                throw new Error('Insufficient credits');
+            }
 
-        // ... (code omitted)
+            // Deduct credits
+            await tx.user.update({
+                where: { id: req.user.id },
+                data: { credits: { decrement: requiredCredits } }
+            });
+
+            // Record usage for audit trail
+            await tx.creditUsage.create({
+                data: {
+                    userId: req.user.id,
+                    amount: requiredCredits,
+                    type: 'VIDEO_GEN',
+                    description: `Rendered ${project.scenes.length} scenes for: ${project.title}`,
+                    projectId
+                }
+            });
+        });
 
         // Create generation job
         const job = await prisma.generationJob.create({

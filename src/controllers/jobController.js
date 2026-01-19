@@ -13,12 +13,32 @@ export const generateScriptController = async (req, res) => {
             qualityTier,
             aspectRatio,
             fps,
-            // New Pro tier parameters (optional, with defaults)
-            productionStyle = 'standard',
+            // Pro tier parameters - accept both old and new field names
+            productionStyle: rawProductionStyle = 'standard',
             artisticAtmosphere = 'photorealistic',
-            dialogueFocus = 'balanced',
-            length = 'standard'
+            dialogueFocus,
+            contentFocus, // Frontend sends contentFocus
+            length = 'standard',
+            visualMood // Future use
         } = req.body;
+
+        // Normalize productionStyle from frontend values
+        const styleMap = {
+            'social-vlog': 'vlog',
+            'standard-clean': 'standard',
+            'cinematic-epic': 'cinematic',
+            'performance-pro': 'performance'
+        };
+        const productionStyle = styleMap[rawProductionStyle] || rawProductionStyle || 'standard';
+
+        // Use contentFocus if dialogueFocus not provided (frontend compatibility)
+        const focusMap = {
+            'pure-visuals': 'visuals',
+            'balanced-narrative': 'balanced',
+            'performance-driven': 'performance'
+        };
+        const focus = dialogueFocus || focusMap[contentFocus] || contentFocus || 'balanced';
+
         const userId = req.user.id;
         const userPlan = req.user.plan || 'basic';
 
@@ -34,7 +54,7 @@ export const generateScriptController = async (req, res) => {
             if (productionStyle === 'cinematic' || productionStyle === 'performance') {
                 return res.status(403).json({ error: "Cinematic & Performance styles are Elite features." });
             }
-            if (dialogueFocus === 'performance') {
+            if (focus === 'performance') {
                 return res.status(403).json({ error: "Dialogue Focus is an Elite feature." });
             }
         }
@@ -43,7 +63,7 @@ export const generateScriptController = async (req, res) => {
         let scriptCreditCost = 5; // Base cost
         if (length === 'extended') scriptCreditCost += 10;
         if (productionStyle === 'cinematic' || productionStyle === 'performance') scriptCreditCost += 5;
-        if (dialogueFocus === 'performance') scriptCreditCost += 5;
+        if (focus === 'performance') scriptCreditCost += 5;
 
         // Check if user has enough credits
         const user = await prisma.user.findUnique({ where: { id: userId } });

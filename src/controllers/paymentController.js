@@ -87,23 +87,44 @@ export const verifyPayment = async (req, res) => {
 
         // Fetch order details to get plan info
         const order = await razorpay.orders.fetch(razorpay_order_id);
-        const { userId, plan, credits } = order.notes;
+        const planName = order.notes.plan;
+        const creditsToAdd = parseInt(order.notes.credits);
+        const userId = order.notes.user_id;
 
-        // Update user plan and add credits
-        const updatedUser = await prisma.user.update({
-            where: { id: userId },
-            data: {
-                plan: plan,
-                credits: { increment: parseInt(credits) }
-            },
-            select: {
-                id: true,
-                email: true,
-                plan: true,
-                credits: true,
-                role: true
-            }
+        // Update user plan and add credits with audit trail
+        const updatedUser = await prisma.$transaction(async (tx) => {
+            // Update user plan and credits
+            const user = await tx.user.update({
+                where: { id: userId },
+                data: {
+                    plan: planName,
+                    credits: { increment: creditsToAdd },
+                    billingCycleStart: new Date(),
+                    lastCreditReset: new Date()
+                },
+                select: {
+                    id: true,
+                    email: true,
+                    plan: true,
+                    credits: true,
+                    role: true
+                }
+            });
+
+            // Log credit addition for audit trail
+            await tx.creditUsage.create({
+                data: {
+                    userId: userId,
+                    amount: creditsToAdd,
+                    type: 'PLAN_PURCHASE',
+                    description: `Purchased ${planName} plan - Payment ID: ${razorpay_payment_id}`
+                }
+            });
+
+            return user;
         });
+
+        logger.info({ userId, plan: planName, credits: creditsToAdd }, 'Payment verified and credits added');
 
         res.json({
             success: true,

@@ -98,7 +98,8 @@ export const generateScriptController = async (req, res) => {
             plan: userPlan,
             productionStyle,
             artisticAtmosphere,
-            length
+            length,
+            visualMood
         });
 
         // Calculate Cost (OpenAI GPT-4 Pricing)

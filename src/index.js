@@ -19,6 +19,7 @@ import usageRoutes from './routes/usageRoutes.js';
 
 // Import jobs
 import { startCreditResetJob } from './jobs/creditResetJob.js';
+import { startJanitorJob } from './jobs/janitorJob.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -144,8 +145,9 @@ app.listen(PORT, () => {
     logger.info({ environment: process.env.NODE_ENV || 'development' }, 'Environment');
     logger.info({ corsOrigin: process.env.CORS_ORIGIN || '*' }, 'CORS origin');
 
-    // Start credit reset cron job
+    // Start cron jobs
     startCreditResetJob();
+    startJanitorJob();
 });
 
 export default app;

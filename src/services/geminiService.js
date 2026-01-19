@@ -74,6 +74,15 @@ const ARTISTIC_ATMOSPHERES = {
     sketch: "Aesthetic: Animated charcoal sketch style."
 };
 
+// Visual Mood - lighting and color grading directives
+const VISUAL_MOODS = {
+    'neutral-auto': "Lighting: Natural, context-appropriate lighting.",
+    'raw-gritty': "Lighting: Harsh, desaturated, raw reality look. Gritty urban aesthetic.",
+    'golden-ethereal': "Lighting: Golden hour warmth, soft lens flares, ethereal glow.",
+    'high-contrast-noir': "Lighting: High contrast, deep blacks, dramatic rim lighting.",
+    'hyper-saturated': "Lighting: Punchy, vibrant colors, high saturation throughout."
+};
+
 /**
  * Generate a cinematic script from story text
  * @param {string} storyText - The story to transform
@@ -82,6 +91,7 @@ const ARTISTIC_ATMOSPHERES = {
  * @param {string} options.productionStyle - 'vlog' | 'standard' | 'cinematic' | 'performance'
  * @param {string} options.artisticAtmosphere - 'photorealistic' | 'cyberpunk' | 'noir' | etc.
  * @param {string} options.length - 'standard' | 'extended'
+ * @param {string} options.visualMood - 'neutral-auto' | 'raw-gritty' | 'golden-ethereal' | etc.
  */
 export const generateScript = async (storyText, options = {}) => {
     // Backward compatibility: if options is a string (old API), treat as plan
@@ -93,12 +103,14 @@ export const generateScript = async (storyText, options = {}) => {
         plan = 'basic',
         productionStyle = 'standard',
         artisticAtmosphere = 'photorealistic',
-        length = 'standard'
+        length = 'standard',
+        visualMood = 'neutral-auto'
     } = tierOptions;
 
     const directorPersona = getDirectorPersona(plan);
     const styleDirective = PRODUCTION_STYLES[productionStyle] || PRODUCTION_STYLES.standard;
     const aestheticDirective = ARTISTIC_ATMOSPHERES[artisticAtmosphere] || ARTISTIC_ATMOSPHERES.photorealistic;
+    const moodDirective = VISUAL_MOODS[visualMood] || VISUAL_MOODS['neutral-auto'];
     const durationConstraint = length === 'extended'
         ? "Total duration must be between 60-65 seconds across all scenes."
         : "Total duration must be between 10-12 seconds across all scenes.";
@@ -114,7 +126,8 @@ export const generateScript = async (storyText, options = {}) => {
             --- DIRECTOR'S BRIEF ---
             1. Technical Style: ${styleDirective}
             2. Artistic Mood: ${aestheticDirective}
-            3. Duration Target: ${durationConstraint}
+            3. Visual Mood: ${moodDirective}
+            4. Duration Target: ${durationConstraint}
 
             Your task is to transform the provided story into a cinematic Scene Breakdown suitable for professional video generation.
 

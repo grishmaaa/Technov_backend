@@ -242,12 +242,18 @@ const ensureShotsForScene = async ({ scene, project }) => {
     });
 
     const desiredDuration = scene.duration || FALLBACK_SHOT_DURATION_SECONDS;
+
+    // This is the core action description from the original script
+    const corePrompt = scene.actionDescription || scene.promptText;
+
+    // Pass the full context to the enhanced prompt compiler
     const singleShotPrompt = compileShotPrompt({
+        project, // Full project with tier settings
         scene,
-        shotIndex: 0,
-        shotCount: 1,
-        project,
-        shotDuration: desiredDuration
+        shot: { // Shot object with core details
+            prompt: corePrompt,
+            duration: desiredDuration
+        }
     });
 
     if (existingShots.length > 0) {

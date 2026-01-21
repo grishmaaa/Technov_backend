@@ -167,27 +167,32 @@ export const generateScript = async (storyText, options = {}) => {
             - Avoid generic phrases like "background music"
 
             OUTPUT FORMAT (STRICT):
-            Return ONLY a JSON array of objects.
+            Return ONLY a single JSON object.
 
-            Each object MUST contain:
-            - scene_id: integer starting from 1
-            - action_description: highly detailed visual description of what is seen on screen
-            - shot_type: cinematic camera angle or movement
-            - motion_complexity: integer (1-10)
-            - audio_directive: specific sound or music description
-            - duration: integer (seconds, default 8 unless context demands otherwise)
+            The object MUST contain:
+            - "suggested_title": A creative, cinematic title for the film based on the story (e.g., "The Last Sunrise", "Echoes in the Chrome", "Shadows on Cobblestone"). Make it evocative and memorable.
+            - "scenes": An array of scene objects where each object contains:
+                - scene_id: integer starting from 1
+                - action_description: highly detailed visual description of what is seen on screen
+                - shot_type: cinematic camera angle or movement
+                - motion_complexity: integer (1-10)
+                - audio_directive: specific sound or music description
+                - duration: integer (seconds, default 8 unless context demands otherwise)
 
             JSON EXAMPLE STRUCTURE:
-            [
             {
-                "scene_id": 1,
-                "action_description": "A dimly lit alley glistens with rain as a lone figure steps into frame, steam rising from the ground under flickering neon lights.",
-                "shot_type": "Wide Tracking Shot",
-                "motion_complexity": 4,
-                "audio_directive": "Distant traffic hum layered with low atmospheric synth pulses",
-                "duration": 8
+                "suggested_title": "Shadows on Cobblestone",
+                "scenes": [
+                    {
+                        "scene_id": 1,
+                        "action_description": "A dimly lit alley glistens with rain as a lone figure steps into frame, steam rising from the ground under flickering neon lights.",
+                        "shot_type": "Wide Tracking Shot",
+                        "motion_complexity": 4,
+                        "audio_directive": "Distant traffic hum layered with low atmospheric synth pulses",
+                        "duration": 8
+                    }
+                ]
             }
-            ]
         `;
 
         const openai = getOpenAI(); // Get OpenAI client
@@ -217,22 +222,27 @@ export const generateScript = async (storyText, options = {}) => {
         }, 'Token usage');
 
         // Try Parsing
-        let scenes;
         const cleanedText = cleanMarkdown(text);
+        let parsedResponse;
 
         try {
-            scenes = JSON.parse(cleanedText);
+            parsedResponse = JSON.parse(cleanedText);
         } catch (parseError) {
             logger.error({ err: parseError, responseSnippet: text.substring(0, 500) }, 'JSON parsing failed');
             throw new Error(`Failed to parse scene JSON: ${parseError.message}`);
         }
 
+        // Handle both new format (object with suggested_title + scenes) and legacy format (array)
+        const suggested_title = parsedResponse.suggested_title || null;
+        const scenes = Array.isArray(parsedResponse) ? parsedResponse : parsedResponse.scenes;
+
         if (!Array.isArray(scenes) || scenes.length === 0) {
-            throw new Error('Invalid scene data: Expected non-empty array');
+            throw new Error('Invalid scene data: Expected non-empty scenes array');
         }
 
         return {
             scenes,
+            suggested_title, // AI-generated creative title
             usage: {
                 promptTokenCount: usage?.prompt_tokens || 0,
                 candidatesTokenCount: usage?.completion_tokens || 0,

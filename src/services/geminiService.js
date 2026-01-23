@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { VertexAI } from '@google-cloud/vertexai';
 import dotenv from 'dotenv';
 import { logger } from '../logger.js';
 
@@ -286,110 +287,84 @@ export const generateHeroImage = async (actionDescription) => {
 };
 
 /**
- * Generate Video for a Scene using Kling AI 2.6
- * @param {string} sceneContext - Text description of the scene
- * @param {string} heroImageUrl - Optional hero character image URL for consistency
+ * Generate Video for a Scene using Google Cloud's Veo model via Vertex AI.
+ * This function is now the primary video generator.
+ * @param {string} prompt - The detailed text prompt for the video.
+ * @param {string} heroImageUrl - Optional URL to a character reference image for consistency.
+ * @param {object} options - Contains duration, aspectRatio, etc.
  * @returns {Promise<{video_url: string, status: string}>}
  */
-export const generateVideo = async (sceneContext, heroImageUrl, options = {}) => {
-    const KLING_API_KEY = process.env.KLING_API_KEY;
-    const normalizeDuration = (seconds) => {
-        const value = Number(seconds);
-        if (!Number.isFinite(value)) {
-            return 5;
+export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
+    // 1. Initialize Vertex AI Client
+    const vertex_ai = new VertexAI({
+        project: process.env.GCP_PROJECT_ID,
+        location: process.env.GCP_LOCATION
+    });
+
+    const model = process.env.VEO_MODEL_ID;
+    if (!model) {
+        throw new Error("VEO_MODEL_ID is not configured in environment variables.");
+    }
+
+    const generativeModel = vertex_ai.getGenerativeModel({ model });
+
+    // 2. Build the Multi-Modal Request Parts
+    const requestParts = [{ text: prompt }];
+
+    // If a character reference image is provided, fetch it and add it to the prompt.
+    if (heroImageUrl) {
+        try {
+            logger.info({ imageUrl: heroImageUrl }, "Fetching character reference image for Veo prompt.");
+            const imageResponse = await fetch(heroImageUrl);
+            if (!imageResponse.ok) throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+
+            const imageBuffer = await imageResponse.arrayBuffer();
+            const base64Image = Buffer.from(imageBuffer).toString('base64');
+
+            requestParts.unshift({ // Add the image BEFORE the text prompt
+                inlineData: {
+                    mimeType: imageResponse.headers.get('content-type') || 'image/jpeg',
+                    data: base64Image,
+                },
+            });
+        } catch (error) {
+            logger.error({ err: error }, "Failed to process character reference image; proceeding with text-only.");
         }
-        return value <= 5 ? 5 : 10;
+    }
+
+    const request = {
+        contents: [{ role: 'user', parts: requestParts }],
+        generationConfig: {
+            // Add any Veo-specific parameters here if needed
+        },
+        safetySettings: [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        ],
     };
-    const duration = String(normalizeDuration(options.durationSeconds));
-    const aspectRatio = options.aspectRatio || '16:9';
 
-    if (!KLING_API_KEY) {
-        throw new Error('KLING_API_KEY not configured in environment variables');
+    logger.info({ promptSnippet: prompt.substring(0, 100) }, "Submitting generation request to Vertex AI (Veo)");
+
+    // 3. Make the API call
+    const result = await generativeModel.generateContent(request);
+    const response = result.response;
+
+    // 4. Extract the Video URL
+    // The response structure might vary slightly, inspect `response.candidates` if this fails.
+    const videoPart = response.candidates[0].content.parts.find(part => part.fileData);
+    const gcsUri = videoPart?.fileData?.fileUri;
+
+    if (!gcsUri) {
+        throw new Error("Vertex AI (Veo) did not return a video file URI.");
     }
 
-    logger.info({ promptSnippet: sceneContext.substring(0, 50), duration, aspectRatio }, 'Generating video with Kling AI');
+    // Convert the private gs:// URI to a public HTTPS URL.
+    const bucketName = gcsUri.split('/')[2];
+    const objectName = gcsUri.split('/').slice(3).join('/');
+    const publicUrl = `https://storage.googleapis.com/${bucketName}/${objectName}`;
 
-    try {
-        // 1. Submit video generation job to Kling AI (via fal.ai)
-        logger.info('Submitting Kling AI job');
-        const submitResponse = await fetch('https://fal.run/fal-ai/kling-video/v2.6/pro/text-to-video', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Key ${KLING_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                prompt: sceneContext,
-                duration,
-                aspect_ratio: aspectRatio
-            })
-        });
-
-        if (!submitResponse.ok) {
-            const errorText = await submitResponse.text();
-            throw new Error(`Failed to submit Kling job: ${submitResponse.status} - ${errorText}`);
-        }
-
-        const submitData = await submitResponse.json();
-        if (submitData?.video?.url) {
-            logger.info('Instant result returned from Kling');
-            return { video_url: submitData.video.url, status: 'completed' };
-        }
-
-        const requestId = submitData.request_id || submitData.requestId || submitData.id;
-        if (!requestId) {
-            throw new Error(`Kling submit response missing request id: ${JSON.stringify(submitData)}`);
-        }
-
-        logger.info({ requestId }, 'Kling job submitted');
-        logger.info('Polling for completion');
-
-        // 2. Poll for job completion
-        const maxAttempts = 60; // 60 * 5s = 5 minutes
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s
-
-            const statusResponse = await fetch(
-                `https://fal.run/fal-ai/kling-video/v2.6/pro/text-to-video/requests/${requestId}/status`,
-                {
-                    headers: {
-                        'Authorization': `Key ${KLING_API_KEY}`
-                    }
-                }
-            );
-
-            if (!statusResponse.ok) {
-                logger.warn({ attempt, maxAttempts }, 'Kling status check failed');
-                continue;
-            }
-
-            const statusData = await statusResponse.json();
-            logger.info({ attempt, maxAttempts, status: statusData.status }, 'Kling status update');
-
-            if (statusData.status === 'COMPLETED') {
-                const videoUrl = statusData.video?.url;
-
-                if (!videoUrl) {
-                    throw new Error('Video completed but no URL returned');
-                }
-
-                logger.info({ videoUrl }, 'Kling generation complete');
-                return {
-                    video_url: videoUrl,
-                    status: "completed"
-                };
-            }
-
-            if (statusData.status === 'FAILED') {
-                const errorMsg = statusData.error || 'Unknown error';
-                throw new Error(`Kling video generation failed: ${errorMsg}`);
-            }
-        }
-
-        throw new Error('Video generation timed out after 5 minutes');
-
-    } catch (error) {
-        logger.error({ err: error }, 'Kling video generation failed');
-        throw error;
-    }
+    logger.info({ gcsUri, publicUrl }, "Vertex AI (Veo) generation complete");
+    return { video_url: publicUrl, status: 'completed' };
 };

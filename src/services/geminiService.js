@@ -296,17 +296,32 @@ export const generateHeroImage = async (actionDescription) => {
  */
 export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
     // 1. Initialize Vertex AI Client
-    const vertex_ai = new VertexAI({
-        project: process.env.GCP_PROJECT_ID,
-        location: process.env.GCP_LOCATION
-    });
+    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+    const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION;
+    const modelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
+    const apiKey = process.env.VERTEX_AI_API_KEY;
 
-    const model = process.env.VEO_MODEL_ID;
-    if (!model) {
-        throw new Error("VEO_MODEL_ID is not configured in environment variables.");
+    if (!project || !location) {
+        throw new Error("Missing GCP_PROJECT_ID or GCP_LOCATION in environment variables.");
     }
 
-    const generativeModel = vertex_ai.getGenerativeModel({ model });
+    const vertexAIConfig = {
+        project: project,
+        location: location
+    };
+
+    // Support API Key auth if provided (User Preference)
+    if (apiKey) {
+        vertexAIConfig.googleAuthOptions = { apiKey };
+    }
+
+    const vertex_ai = new VertexAI(vertexAIConfig);
+
+    if (!modelId) {
+        throw new Error("VEO_MODEL_ID (or VEO_MODEL) is not configured in environment variables.");
+    }
+
+    const generativeModel = vertex_ai.getGenerativeModel({ model: modelId });
 
     // 2. Build the Multi-Modal Request Parts
     const requestParts = [{ text: prompt }];

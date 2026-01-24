@@ -13,6 +13,7 @@ else
     if [ -n "$GCP_SA_KEY" ]; then
         echo "Detected GCP_SA_KEY. Writing to vertex-key.json..."
         echo "$GCP_SA_KEY" > vertex-key.json
+        export GOOGLE_APPLICATION_CREDENTIALS="./vertex-key.json"
     fi
 
     npx prisma db push --accept-data-loss --skip-generate

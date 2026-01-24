@@ -362,24 +362,48 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
     logger.info({ promptSnippet: prompt.substring(0, 100) }, "Submitting generation request to Vertex AI (Veo)");
 
-    // 3. Make the API call
-    const result = await generativeModel.generateContent(request);
-    const response = result.response;
+    try {
+        // 3. Make the API call
+        const result = await generativeModel.generateContent(request);
+        const response = result.response;
 
-    // 4. Extract the Video URL
-    // The response structure might vary slightly, inspect `response.candidates` if this fails.
-    const videoPart = response.candidates[0].content.parts.find(part => part.fileData);
-    const gcsUri = videoPart?.fileData?.fileUri;
+        // Log raw response for debugging (excluding huge base64 data if any)
+        logger.info({
+            candidates: response.candidates?.length,
+            promptFeedback: response.promptFeedback
+        }, "Vertex AI Response Received");
 
-    if (!gcsUri) {
-        throw new Error("Vertex AI (Veo) did not return a video file URI.");
+        // 4. Extract the Video URL
+        if (!response.candidates || response.candidates.length === 0) {
+            const blockReason = response.promptFeedback?.blockReason;
+            const blockMessage = response.promptFeedback?.blockReasonMessage;
+            throw new Error(`Vertex AI blocked generation. Reason: ${blockReason} - ${blockMessage}`);
+        }
+
+        const candidate = response.candidates[0];
+        if (candidate.finishReason !== "STOP" && candidate.finishReason !== "MAX_TOKENS") {
+            logger.warn({ finishReason: candidate.finishReason }, "Vertex AI candidate finished with unexpected reason");
+        }
+
+        const videoPart = candidate.content?.parts?.find(part => part.fileData);
+        const gcsUri = videoPart?.fileData?.fileUri;
+
+        if (!gcsUri) {
+            logger.error({ candidateContent: JSON.stringify(candidate.content) }, "No video file URI found in response");
+            throw new Error("Vertex AI (Veo) response missing video URI. Check logs for safety blocks or model limitations.");
+        }
+
+        // Convert the private gs:// URI to a public HTTPS URL.
+        const bucketName = gcsUri.split('/')[2];
+        const objectName = gcsUri.split('/').slice(3).join('/');
+        const publicUrl = `https://storage.googleapis.com/${bucketName}/${objectName}`;
+
+        logger.info({ gcsUri, publicUrl }, "Vertex AI (Veo) generation complete");
+        return { video_url: publicUrl, status: 'completed' };
+
+    } catch (error) {
+        logger.error({ err: error }, "Vertex AI (Veo) API Call Failed");
+        // Enrich error message if it's a known GoogleError
+        throw new Error(`Veo Generation Failed: ${error.message}`);
     }
-
-    // Convert the private gs:// URI to a public HTTPS URL.
-    const bucketName = gcsUri.split('/')[2];
-    const objectName = gcsUri.split('/').slice(3).join('/');
-    const publicUrl = `https://storage.googleapis.com/${bucketName}/${objectName}`;
-
-    logger.info({ gcsUri, publicUrl }, "Vertex AI (Veo) generation complete");
-    return { video_url: publicUrl, status: 'completed' };
 };

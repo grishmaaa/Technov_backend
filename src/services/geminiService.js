@@ -455,39 +455,71 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             const pollData = await pollResponse.json();
 
             if (pollData.done) {
-                logger.info({ attempt }, "Veo video generation completed");
+                logger.info({ attempt, pollData: JSON.stringify(pollData) }, "Veo video generation completed");
 
                 // Check for errors
                 if (pollData.error) {
                     throw new Error(`Veo generation failed: ${pollData.error.message}`);
                 }
 
-                // Extract video URL from response
-                const predictions = pollData.response?.predictions;
-                if (!predictions || predictions.length === 0) {
-                    throw new Error("Veo response missing predictions");
+                // Try to extract video URL from various possible response formats
+                // Veo response structure varies by model version
+                const response = pollData.response || pollData.result || pollData;
+
+                // Log the response structure for debugging
+                logger.info({ responseKeys: Object.keys(response || {}) }, 'Veo response structure');
+
+                // Try multiple possible paths for video URL
+                let videoUrl = null;
+
+                // Format 1: response.predictions[0].videoUri
+                const predictions = response?.predictions;
+                if (predictions && predictions.length > 0) {
+                    videoUrl = predictions[0]?.videoUri ||
+                        predictions[0]?.video?.uri ||
+                        predictions[0]?.gcsUri ||
+                        predictions[0]?.uri;
                 }
 
-                // The video URL could be in different formats depending on the model version
-                let videoUrl = predictions[0]?.videoUri ||
-                    predictions[0]?.video?.uri ||
-                    predictions[0]?.gcsUri;
+                // Format 2: response.generatedSamples[0].video.uri
+                const samples = response?.generatedSamples;
+                if (!videoUrl && samples && samples.length > 0) {
+                    videoUrl = samples[0]?.video?.uri ||
+                        samples[0]?.uri ||
+                        samples[0]?.gcsUri;
+                }
 
+                // Format 3: response.videos[0].uri
+                const videos = response?.videos;
+                if (!videoUrl && videos && videos.length > 0) {
+                    videoUrl = videos[0]?.uri || videos[0]?.gcsUri;
+                }
+
+                // Format 4: Direct in response
                 if (!videoUrl) {
-                    // Try to find any URL in the predictions
-                    const predictionsStr = JSON.stringify(predictions);
-                    logger.info({ predictions: predictionsStr }, "Searching for video URL in predictions");
+                    videoUrl = response?.videoUri || response?.uri || response?.gcsUri;
+                }
 
-                    // Look for GCS URI pattern
-                    const gcsMatch = predictionsStr.match(/gs:\/\/[^"]+/);
+                // Last resort: search for gs:// pattern anywhere in response
+                if (!videoUrl) {
+                    const fullResponseStr = JSON.stringify(pollData);
+                    logger.info({ pollDataStr: fullResponseStr.substring(0, 500) }, "Searching for video URL in full response");
+
+                    const gcsMatch = fullResponseStr.match(/gs:\/\/[^"\\]+/);
                     if (gcsMatch) {
                         videoUrl = gcsMatch[0];
+                    }
+
+                    // Also try https storage URLs
+                    const httpsMatch = fullResponseStr.match(/https:\/\/storage\.googleapis\.com\/[^"\\]+/);
+                    if (!videoUrl && httpsMatch) {
+                        videoUrl = httpsMatch[0];
                     }
                 }
 
                 if (!videoUrl) {
-                    logger.error({ predictions: JSON.stringify(predictions) }, "No video URL found in Veo response");
-                    throw new Error("Veo response missing video URL");
+                    logger.error({ pollData: JSON.stringify(pollData) }, "No video URL found in Veo response");
+                    throw new Error("Veo response missing video URL - check logs for response structure");
                 }
 
                 // Convert gs:// URI to public HTTPS URL if needed

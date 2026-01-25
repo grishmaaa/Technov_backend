@@ -134,6 +134,7 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
         Body: fileBuffer,
         ContentType: 'video/mp4', // FORCE BROWSER TO SEE VIDEO
         ContentDisposition: 'inline', // TELL BROWSER TO PLAY IT
+        ACL: 'public-read', // Ensure public access for worker download
     });
 
     await client.send(command);
@@ -156,6 +157,7 @@ export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
         Body: buffer,
         ContentType: contentType || 'application/octet-stream',
         ContentDisposition: 'inline',
+        ACL: 'public-read', // Ensure public access
     });
 
     await client.send(command);

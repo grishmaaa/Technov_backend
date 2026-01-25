@@ -10,7 +10,8 @@ export const renderQueue = new Queue('render', {
             delay: Number(process.env.WORKER_BACKOFF_DELAY_MS || 30000)
         },
         removeOnComplete: 1000,
-        removeOnFail: 5000 // Keep failed jobs for longer to debug
+        removeOnFail: 5000, // Keep failed jobs for longer to debug
+        timeout: Number(process.env.WORKER_JOB_TIMEOUT_MS || 300000) // 5 minutes default
     }
 });
 

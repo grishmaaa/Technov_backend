@@ -362,12 +362,15 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
     try {
         // Step 1: Start the long-running operation
-        const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:predictLongRunning`;
+        // Use v1beta1 for Veo models as they are in preview
+        const endpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:predictLongRunning`;
+
+        logger.info({ endpoint }, 'Calling Veo predictLongRunning endpoint');
 
         const startResponse = await fetch(endpoint, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${accessToken.token}`,
+                'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(veoRequest)
@@ -388,10 +391,12 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
         logger.info({ operationName }, "Veo video generation started, polling for completion...");
 
-        // Step 2: Poll for completion
-        const operationUrl = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
+        // Step 2: Poll for completion using v1beta1 to match the create endpoint
+        const operationUrl = `https://${location}-aiplatform.googleapis.com/v1beta1/${operationName}`;
         const maxPollingAttempts = 120; // 10 minutes max (5s intervals)
         const pollingIntervalMs = 5000;
+
+        logger.info({ operationUrl }, 'Will poll this URL for completion');
 
         for (let attempt = 0; attempt < maxPollingAttempts; attempt++) {
             await sleep(pollingIntervalMs);
@@ -399,7 +404,7 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             const pollResponse = await fetch(operationUrl, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${accessToken.token}`
+                    'Authorization': `Bearer ${accessToken}`
                 }
             });
 

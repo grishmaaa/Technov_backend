@@ -394,6 +394,10 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         }
 
         const operationData = await startResponse.json();
+
+        // Log full response to debug operation format
+        logger.info({ operationData: JSON.stringify(operationData) }, 'Veo API response');
+
         const operationName = operationData.name;
 
         if (!operationName) {
@@ -402,22 +406,32 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
         logger.info({ operationName }, "Veo video generation started, polling for completion...");
 
-        // Step 2: Poll for completion using v1beta1 to match the create endpoint
-        const operationUrl = `https://${location}-aiplatform.googleapis.com/v1beta1/${operationName}`;
+        // Step 2: Poll for completion
+        // Try both v1 and v1beta1 as Veo might use different versions
+        const operationUrlV1 = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
+        const operationUrlV1Beta1 = `https://${location}-aiplatform.googleapis.com/v1beta1/${operationName}`;
+
         const maxPollingAttempts = 120; // 10 minutes max (5s intervals)
         const pollingIntervalMs = 5000;
 
-        logger.info({ operationUrl }, 'Will poll this URL for completion');
+        logger.info({ operationUrlV1, operationUrlV1Beta1 }, 'Will poll these URLs for completion');
 
         for (let attempt = 0; attempt < maxPollingAttempts; attempt++) {
             await sleep(pollingIntervalMs);
 
-            const pollResponse = await fetch(operationUrl, {
+            // Try v1 first, then v1beta1
+            let pollResponse = await fetch(operationUrlV1, {
                 method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`
-                }
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             });
+
+            // If v1 gives 404, try v1beta1
+            if (pollResponse.status === 404) {
+                pollResponse = await fetch(operationUrlV1Beta1, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+            }
 
             if (!pollResponse.ok) {
                 logger.warn({ status: pollResponse.status, attempt }, "Polling request failed, retrying...");

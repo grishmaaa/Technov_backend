@@ -407,19 +407,21 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         logger.info({ operationName }, "Veo video generation started, polling for completion...");
 
         // Step 2: Poll for completion
-        // Try both v1 and v1beta1 as Veo might use different versions
+        // Try multiple endpoint formats for Veo operations
         const operationUrlV1 = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
         const operationUrlV1Beta1 = `https://${location}-aiplatform.googleapis.com/v1beta1/${operationName}`;
+        // Also try fetchPredictOperation for media models
+        const fetchOpUrl = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:fetchPredictOperation`;
 
         const maxPollingAttempts = 120; // 10 minutes max (5s intervals)
         const pollingIntervalMs = 5000;
 
-        logger.info({ operationUrlV1, operationUrlV1Beta1 }, 'Will poll these URLs for completion');
+        logger.info({ operationUrlV1, operationUrlV1Beta1, fetchOpUrl }, 'Will poll these URLs for completion');
 
         for (let attempt = 0; attempt < maxPollingAttempts; attempt++) {
             await sleep(pollingIntervalMs);
 
-            // Try v1 first, then v1beta1
+            // Try standard operations endpoints first
             let pollResponse = await fetch(operationUrlV1, {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -430,6 +432,18 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
                 pollResponse = await fetch(operationUrlV1Beta1, {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+            }
+
+            // If still 404, try fetchPredictOperation with operationName in body
+            if (pollResponse.status === 404) {
+                pollResponse = await fetch(fetchOpUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ operationName: operationName })
                 });
             }
 

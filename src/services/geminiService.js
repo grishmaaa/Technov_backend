@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { VertexAI } from '@google-cloud/vertexai';
 import dotenv from 'dotenv';
 import { logger } from '../logger.js';
+import { uploadBufferToStorage, buildObjectKey } from './storageService.js';
 
 dotenv.config();
 
@@ -516,6 +517,33 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
                 // Format 4: Direct in response
                 if (!videoUrl) {
                     videoUrl = response?.videoUri || response?.uri || response?.gcsUri;
+                }
+
+                // Format 5: Base64 bytes in videos array (Veo 3.1 default)
+                if (!videoUrl && response?.videos && response.videos[0]?.bytesBase64Encoded) {
+                    logger.info("Found Base64 video data, uploading to storage...");
+                    const base64Data = response.videos[0].bytesBase64Encoded;
+                    const buffer = Buffer.from(base64Data, 'base64');
+
+                    // Generate a key for the video
+                    const key = buildObjectKey({
+                        userId: 'veo-generated',
+                        prefix: 'generated-videos',
+                        extension: 'mp4'
+                    });
+
+                    try {
+                        const uploadedUrl = await uploadBufferToStorage({
+                            buffer,
+                            key,
+                            contentType: 'video/mp4'
+                        });
+                        videoUrl = uploadedUrl;
+                        logger.info({ videoUrl }, "Successfully uploaded base64 video to storage");
+                    } catch (uploadError) {
+                        logger.error({ err: uploadError }, "Failed to upload generated video");
+                        throw new Error(`Failed to upload generated video: ${uploadError.message}`);
+                    }
                 }
 
                 // Last resort: search for gs:// pattern anywhere in response

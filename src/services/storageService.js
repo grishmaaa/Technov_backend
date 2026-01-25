@@ -143,6 +143,26 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     return `https://${bucket}.storage.railway.app/${key}`;
 };
 
+export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
+    const { bucket } = getStorageConfig();
+    if (!bucket) {
+        throw new Error('Storage bucket is not configured');
+    }
+
+    const client = getS3Client();
+    const command = new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType || 'application/octet-stream',
+        ContentDisposition: 'inline',
+    });
+
+    await client.send(command);
+
+    return `https://${bucket}.storage.railway.app/${key}`;
+};
+
 export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 }) => {
     const { bucket } = getStorageConfig();
     if (!bucket) {

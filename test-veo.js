@@ -15,15 +15,31 @@ async function testVeo() {
     console.log('🚀 Testing Veo Video Generation...\n');
 
     // Setup credentials
+    // Setup credentials
+    let project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+
     if (process.env.GCP_SA_KEY) {
         fs.writeFileSync('vertex-key.json', process.env.GCP_SA_KEY);
         process.env.GOOGLE_APPLICATION_CREDENTIALS = './vertex-key.json';
-    }
+        try {
+            const keyData = JSON.parse(process.env.GCP_SA_KEY);
+            if (!project) project = keyData.project_id;
+        } catch (e) {
+            console.warn("Could not parse GCP_SA_KEY");
+        }
+    } else if (fs.existsSync('vertex-key.json')) {
+        console.log('⚠️ GCP_SA_KEY not found in env, using existing vertex-key.json');
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = './vertex-key.json';
 
-    // Get project info
-    let project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-    if (!project && process.env.GCP_SA_KEY) {
-        project = JSON.parse(process.env.GCP_SA_KEY).project_id;
+        if (!project) {
+            try {
+                const keyFile = fs.readFileSync('vertex-key.json', 'utf8');
+                const keyData = JSON.parse(keyFile);
+                project = keyData.project_id;
+            } catch (e) {
+                console.error("Failed to parse vertex-key.json for project ID", e);
+            }
+        }
     }
 
     const location = process.env.GCP_LOCATION || 'us-central1';
@@ -77,16 +93,23 @@ async function testVeo() {
         return;
     }
 
-    // Poll for result
+    // Poll for result using fetchPredictOperation
     console.log(`\n🔄 Polling operation: ${operationName}`);
-    const pollUrl = `https://${location}-aiplatform.googleapis.com/v1beta1/${operationName}`;
+    const fetchPredictEndpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:fetchPredictOperation`;
 
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
         await sleep(5000);
-        const pollRes = await fetch(pollUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+
+        const pollRes = await fetch(fetchPredictEndpoint, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ operationName: operationName })
+        });
 
         if (!pollRes.ok) {
+            const errBody = await pollRes.text();
             console.log(`  Attempt ${i + 1}: Status ${pollRes.status}`);
+            console.log(`  Error body: ${errBody}`);
             continue;
         }
 
@@ -98,7 +121,7 @@ async function testVeo() {
         }
         console.log(`  Attempt ${i + 1}: Still processing...`);
     }
-    console.log('⏰ Timeout - check Google Cloud Console for status');
+    console.log('⏰ Timeout');
 }
 
 testVeo().catch(console.error);

@@ -1,8 +1,12 @@
 import OpenAI from 'openai';
 import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleAuth } from 'google-auth-library';
 import dotenv from 'dotenv';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
+import { uploadFile } from './fileHostingService.js';
 import { logger } from '../logger.js';
-import { uploadBufferToStorage, buildObjectKey } from './storageService.js';
 
 dotenv.config();
 
@@ -304,7 +308,7 @@ export const generateHeroImage = async (actionDescription) => {
  * @returns {Promise<{video_url: string, status: string}>}
  */
 export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
-    // Try to extract project_id from GCP_SA_KEY as fallback
+    // Authentication and setup logic remains the same
     let projectFromSA = null;
     if (process.env.GCP_SA_KEY) {
         try {
@@ -314,37 +318,23 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             logger.warn('Could not parse GCP_SA_KEY for project_id, using env vars');
         }
     }
-
-    // Rely on Application Default Credentials set by start.sh (GOOGLE_APPLICATION_CREDENTIALS)
     const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || projectFromSA;
     const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
-
-    // Trim the model ID to remove any leading/trailing whitespace
     const rawModelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
     const modelId = rawModelId ? rawModelId.trim() : null;
 
-    if (!project) {
-        throw new Error("Missing GCP_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or project_id in GCP_SA_KEY.");
-    }
-    if (!modelId) {
-        throw new Error("VEO_MODEL_ID (or VEO_MODEL) is not configured in environment variables.");
+    if (!project || !modelId) {
+        throw new Error("Missing GCP Project ID or Veo Model ID.");
     }
 
-    logger.info({ project, location, modelId }, 'Initializing Vertex AI for Veo');
-
-    // --- VEO VIDEO GENERATION VIA REST API (predictLongRunning) ---
-    // The Google SDK automatically uses the GOOGLE_APPLICATION_CREDENTIALS env var set by start.sh
     const { GoogleAuth } = await import('google-auth-library');
-
-    const auth = new GoogleAuth({
-        scopes: ['https://www.googleapis.com/auth/cloud-platform']
-    });
+    const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
     const authClient = await auth.getClient();
     const accessTokenResponse = await authClient.getAccessToken();
     const accessToken = accessTokenResponse.token;
 
     if (!accessToken) {
-        throw new Error("Failed to get Google Cloud access token. Check service account credentials (GOOGLE_APPLICATION_CREDENTIALS).");
+        throw new Error("Failed to get Google Cloud access token.");
     }
 
     // Build the Veo request payload
@@ -378,216 +368,89 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         }
     }
 
-    logger.info({ promptSnippet: prompt.substring(0, 100), model: modelId }, "Submitting video generation request to Veo");
+    logger.info({ project, location, modelId }, 'Initializing Vertex AI for Veo');
 
     try {
-        // Step 1: Start the long-running operation
-        // Use v1beta1 for Veo models as they are in preview
         const endpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:predictLongRunning`;
-
         logger.info({ endpoint }, 'Calling Veo predictLongRunning endpoint');
 
         const startResponse = await fetch(endpoint, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(veoRequest)
         });
 
         if (!startResponse.ok) {
             const errorBody = await startResponse.text();
             logger.error({ status: startResponse.status, body: errorBody }, "Veo API start request failed");
-            throw new Error(`Veo API request failed: ${startResponse.status} - ${errorBody}`);
+            throw new Error(`Veo API start request failed: ${startResponse.status} - ${errorBody}`);
         }
 
         const operationData = await startResponse.json();
-
-        // Helper to safely log objects without massive base64 strings
-        const safeStringify = (obj) => {
-            return JSON.stringify(obj, (key, value) => {
-                if (typeof value === 'string' && value.length > 500) {
-                    return value.substring(0, 100) + '...[TRUNCATED]';
-                }
-                return value;
-            });
-        };
-
-        // Log response (truncated)
-        logger.info({ operationData: safeStringify(operationData) }, 'Veo API response');
-
         const operationName = operationData.name;
-
-        if (!operationName) {
-            throw new Error("Veo API did not return an operation name");
-        }
+        if (!operationName) throw new Error("Veo API did not return an operation name");
 
         logger.info({ operationName }, "Veo video generation started, polling for completion...");
 
-        // Step 2: Poll for completion
-        // Try multiple endpoint formats for Veo operations
-        const operationUrlV1 = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
-        const operationUrlV1Beta1 = `https://${location}-aiplatform.googleapis.com/v1beta1/${operationName}`;
-        // Also try fetchPredictOperation for media models
-        const fetchOpUrl = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:fetchPredictOperation`;
-
-        const maxPollingAttempts = 120; // 10 minutes max (5s intervals)
+        const pollingEndpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:fetchPredictOperation`;
+        const maxPollingAttempts = 120;
         const pollingIntervalMs = 5000;
-
-        logger.info({ operationUrlV1, operationUrlV1Beta1, fetchOpUrl }, 'Will poll these URLs for completion');
 
         for (let attempt = 0; attempt < maxPollingAttempts; attempt++) {
             await sleep(pollingIntervalMs);
 
-            // Try standard operations endpoints first
-            let pollResponse = await fetch(operationUrlV1, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${accessToken}` }
+            const pollResponse = await fetch(pollingEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ operationName })
             });
 
-            // If v1 gives 404, try v1beta1
-            if (pollResponse.status === 404) {
-                pollResponse = await fetch(operationUrlV1Beta1, {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-            }
-
-            // If still 404, try fetchPredictOperation with operationName in body
-            if (pollResponse.status === 404) {
-                pollResponse = await fetch(fetchOpUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ operationName: operationName })
-                });
-            }
-
             if (!pollResponse.ok) {
-                logger.warn({ status: pollResponse.status, attempt }, "Polling request failed, retrying...");
+                const errorBody = await pollResponse.text();
+                logger.error({
+                    status: pollResponse.status,
+                    attempt,
+                    url: pollingEndpoint,
+                    errorBody: errorBody
+                }, "Polling request failed (fetchPredictOperation).");
                 continue;
             }
 
             const pollData = await pollResponse.json();
 
             if (pollData.done) {
-                logger.info({ attempt, pollData: JSON.stringify(pollData) }, "Veo video generation completed");
+                logger.info({ attempt }, "Veo video generation completed");
+                if (pollData.error) throw new Error(`Veo generation failed: ${pollData.error.message}`);
 
-                // Check for errors
-                if (pollData.error) {
-                    throw new Error(`Veo generation failed: ${pollData.error.message}`);
-                }
+                const predictions = pollData.response?.predictions;
+                const base64Data = predictions?.[0]?.videos?.[0]?.bytesBase64Encoded;
 
-                // Try to extract video URL from various possible response formats
-                // Veo response structure varies by model version
-                const response = pollData.response || pollData.result || pollData;
-
-                // Log the response structure for debugging
-                logger.info({ responseKeys: Object.keys(response || {}) }, 'Veo response structure');
-
-                // Try multiple possible paths for video URL
-                let videoUrl = null;
-
-                // Format 1: response.predictions[0].videoUri
-                const predictions = response?.predictions;
-                if (predictions && predictions.length > 0) {
-                    videoUrl = predictions[0]?.videoUri ||
-                        predictions[0]?.video?.uri ||
-                        predictions[0]?.gcsUri ||
-                        predictions[0]?.uri;
-                }
-
-                // Format 2: response.generatedSamples[0].video.uri
-                const samples = response?.generatedSamples;
-                if (!videoUrl && samples && samples.length > 0) {
-                    videoUrl = samples[0]?.video?.uri ||
-                        samples[0]?.uri ||
-                        samples[0]?.gcsUri;
-                }
-
-                // Format 3: response.videos[0].uri
-                const videos = response?.videos;
-                if (!videoUrl && videos && videos.length > 0) {
-                    videoUrl = videos[0]?.uri || videos[0]?.gcsUri;
-                }
-
-                // Format 4: Direct in response
-                if (!videoUrl) {
-                    videoUrl = response?.videoUri || response?.uri || response?.gcsUri;
-                }
-
-                // Format 5: Base64 bytes in videos array (Veo 3.1 default)
-                if (!videoUrl && response?.videos && response.videos[0]?.bytesBase64Encoded) {
-                    logger.info("Found Base64 video data, uploading to storage...");
-                    const base64Data = response.videos[0].bytesBase64Encoded;
-                    const buffer = Buffer.from(base64Data, 'base64');
-
-                    // Generate a key for the video
-                    const key = buildObjectKey({
-                        userId: 'veo-generated',
-                        prefix: 'generated-videos',
-                        extension: 'mp4'
-                    });
-
+                if (base64Data) {
+                    logger.info("Found Base64 video data, processing internally...");
+                    const videoBuffer = Buffer.from(base64Data, 'base64');
+                    const tempFilePath = path.join(os.tmpdir(), `veo-output-${Date.now()}.mp4`);
                     try {
-                        const uploadedUrl = await uploadBufferToStorage({
-                            buffer,
-                            key,
-                            contentType: 'video/mp4'
-                        });
-                        videoUrl = uploadedUrl;
-                        logger.info({ videoUrl }, "Successfully uploaded base64 video to storage");
-                    } catch (uploadError) {
-                        logger.error({ err: uploadError }, "Failed to upload generated video");
-                        throw new Error(`Failed to upload generated video: ${uploadError.message}`);
+                        await fs.writeFile(tempFilePath, videoBuffer);
+                        const publicUrl = await uploadFile(tempFilePath);
+                        return { video_url: publicUrl, status: 'completed' };
+                    } finally {
+                        await fs.rm(tempFilePath, { force: true });
                     }
                 }
 
-                // Last resort: search for gs:// pattern anywhere in response
-                if (!videoUrl) {
-                    const fullResponseStr = JSON.stringify(pollData);
-                    logger.info({ pollDataStr: fullResponseStr.substring(0, 500) }, "Searching for video URL in full response");
-
-                    const gcsMatch = fullResponseStr.match(/gs:\/\/[^"\\]+/);
-                    if (gcsMatch) {
-                        videoUrl = gcsMatch[0];
-                    }
-
-                    // Also try https storage URLs
-                    const httpsMatch = fullResponseStr.match(/https:\/\/storage\.googleapis\.com\/[^"\\]+/);
-                    if (!videoUrl && httpsMatch) {
-                        videoUrl = httpsMatch[0];
-                    }
+                let videoUrl = predictions?.[0]?.videoUri || predictions?.[0]?.gcsUri;
+                if (videoUrl) {
+                    const publicUrl = videoUrl.startsWith('gs://') ? `https://storage.googleapis.com/${videoUrl.substring(5)}` : videoUrl;
+                    return { video_url: publicUrl, status: 'completed' };
                 }
 
-                if (!videoUrl) {
-                    logger.error({ pollData: JSON.stringify(pollData) }, "No video URL found in Veo response");
-                    throw new Error("Veo response missing video URL - check logs for response structure");
-                }
-
-                // Convert gs:// URI to public HTTPS URL if needed
-                let publicUrl = videoUrl;
-                if (videoUrl.startsWith('gs://')) {
-                    const bucketName = videoUrl.split('/')[2];
-                    const objectName = videoUrl.split('/').slice(3).join('/');
-                    publicUrl = `https://storage.googleapis.com/${bucketName}/${objectName}`;
-                }
-
-                logger.info({ videoUrl, publicUrl }, "Veo video generation complete");
-                return { video_url: publicUrl, status: 'completed' };
-            }
-
-            // Log progress periodically
-            if (attempt % 6 === 0) {
-                logger.info({ attempt, maxAttempts: maxPollingAttempts }, "Still waiting for Veo video generation...");
+                throw new Error("No video URL or Base64 data found in Veo response");
             }
         }
-
         throw new Error("Veo video generation timed out after 10 minutes");
-
     } catch (error) {
         logger.error({ err: error }, "Veo video generation failed");
         throw new Error(`Veo Generation Failed: ${error.message}`);

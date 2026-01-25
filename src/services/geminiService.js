@@ -295,8 +295,19 @@ export const generateHeroImage = async (actionDescription) => {
  * @returns {Promise<{video_url: string, status: string}>}
  */
 export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
+    // Try to extract project_id from GCP_SA_KEY as fallback
+    let projectFromSA = null;
+    if (process.env.GCP_SA_KEY) {
+        try {
+            const saKey = JSON.parse(process.env.GCP_SA_KEY);
+            projectFromSA = saKey.project_id;
+        } catch (e) {
+            logger.warn('Could not parse GCP_SA_KEY for project_id, using env vars');
+        }
+    }
+
     // Rely on Application Default Credentials set by start.sh (GOOGLE_APPLICATION_CREDENTIALS)
-    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || projectFromSA;
     const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
     // Trim the model ID to remove any leading/trailing whitespace
@@ -304,7 +315,7 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
     const modelId = rawModelId ? rawModelId.trim() : null;
 
     if (!project) {
-        throw new Error("Missing GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT in environment variables.");
+        throw new Error("Missing GCP_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or project_id in GCP_SA_KEY.");
     }
     if (!modelId) {
         throw new Error("VEO_MODEL_ID (or VEO_MODEL) is not configured in environment variables.");

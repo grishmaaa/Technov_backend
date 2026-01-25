@@ -395,8 +395,18 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
         const operationData = await startResponse.json();
 
-        // Log full response to debug operation format
-        logger.info({ operationData: JSON.stringify(operationData) }, 'Veo API response');
+        // Helper to safely log objects without massive base64 strings
+        const safeStringify = (obj) => {
+            return JSON.stringify(obj, (key, value) => {
+                if (typeof value === 'string' && value.length > 500) {
+                    return value.substring(0, 100) + '...[TRUNCATED]';
+                }
+                return value;
+            });
+        };
+
+        // Log response (truncated)
+        logger.info({ operationData: safeStringify(operationData) }, 'Veo API response');
 
         const operationName = operationData.name;
 

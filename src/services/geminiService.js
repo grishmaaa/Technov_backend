@@ -295,24 +295,51 @@ export const generateHeroImage = async (actionDescription) => {
  * @returns {Promise<{video_url: string, status: string}>}
  */
 export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
-    // 1. Initialize Vertex AI Client
-    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-    const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION;
-    const modelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
+    // 1. Parse GCP_SA_KEY if available to get project and credentials
+    let gcpCredentials = null;
+    let projectFromSA = null;
+
+    if (process.env.GCP_SA_KEY) {
+        try {
+            gcpCredentials = JSON.parse(process.env.GCP_SA_KEY);
+            projectFromSA = gcpCredentials.project_id;
+            logger.info({ project: projectFromSA }, 'Parsed GCP service account credentials');
+        } catch (parseError) {
+            logger.error({ err: parseError }, 'Failed to parse GCP_SA_KEY JSON');
+        }
+    }
+
+    // Use project from SA key, or from explicit env vars
+    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || projectFromSA;
+    const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+
+    // Trim the model ID to remove any leading/trailing whitespace
+    const rawModelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
+    const modelId = rawModelId ? rawModelId.trim() : null;
+
     const apiKey = process.env.VERTEX_AI_API_KEY;
 
-    if (!project || !location) {
-        throw new Error("Missing GCP_PROJECT_ID or GCP_LOCATION in environment variables.");
+    if (!project) {
+        throw new Error("Missing GCP_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCP_SA_KEY with project_id in environment variables.");
     }
+
+    logger.info({ project, location, modelId }, 'Initializing Vertex AI for Veo');
 
     const vertexAIConfig = {
         project: project,
         location: location
     };
 
-    // Support API Key auth if provided (User Preference)
-    if (apiKey) {
+    // Use service account credentials if available
+    if (gcpCredentials) {
+        vertexAIConfig.googleAuthOptions = {
+            credentials: gcpCredentials
+        };
+        logger.info('Using GCP service account credentials for Vertex AI');
+    } else if (apiKey) {
+        // Fallback to API Key auth if provided
         vertexAIConfig.googleAuthOptions = { apiKey };
+        logger.info('Using API key for Vertex AI');
     }
 
     const vertex_ai = new VertexAI(vertexAIConfig);
@@ -323,87 +350,170 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
     const generativeModel = vertex_ai.getGenerativeModel({ model: modelId });
 
-    // 2. Build the Multi-Modal Request Parts
-    const requestParts = [{ text: prompt }];
+    // --- VEO VIDEO GENERATION VIA REST API (predictLongRunning) ---
+    // Veo requires a different API pattern than standard generateContent
 
-    // If a character reference image is provided, fetch it and add it to the prompt.
+    const { GoogleAuth } = await import('google-auth-library');
+
+    // Create auth client from service account credentials
+    let authClient;
+    if (gcpCredentials) {
+        const auth = new GoogleAuth({
+            credentials: gcpCredentials,
+            scopes: ['https://www.googleapis.com/auth/cloud-platform']
+        });
+        authClient = await auth.getClient();
+    } else {
+        // Use Application Default Credentials
+        const auth = new GoogleAuth({
+            scopes: ['https://www.googleapis.com/auth/cloud-platform']
+        });
+        authClient = await auth.getClient();
+    }
+
+    const accessToken = await authClient.getAccessToken();
+
+    // Build the Veo request payload
+    const veoRequest = {
+        instances: [
+            {
+                prompt: prompt
+            }
+        ],
+        parameters: {
+            aspectRatio: options.aspectRatio || '16:9',
+            sampleCount: 1
+            // durationSeconds is not directly supported - Veo generates fixed 8s clips
+        }
+    };
+
+    // If a hero image is provided, add it to the request
     if (heroImageUrl) {
         try {
             logger.info({ imageUrl: heroImageUrl }, "Fetching character reference image for Veo prompt.");
             const imageResponse = await fetch(heroImageUrl);
-            if (!imageResponse.ok) throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
-
-            const imageBuffer = await imageResponse.arrayBuffer();
-            const base64Image = Buffer.from(imageBuffer).toString('base64');
-
-            requestParts.unshift({ // Add the image BEFORE the text prompt
-                inlineData: {
-                    mimeType: imageResponse.headers.get('content-type') || 'image/jpeg',
-                    data: base64Image,
-                },
-            });
+            if (imageResponse.ok) {
+                const imageBuffer = await imageResponse.arrayBuffer();
+                const base64Image = Buffer.from(imageBuffer).toString('base64');
+                veoRequest.instances[0].image = {
+                    bytesBase64Encoded: base64Image
+                };
+            }
         } catch (error) {
             logger.error({ err: error }, "Failed to process character reference image; proceeding with text-only.");
         }
     }
 
-    const request = {
-        contents: [{ role: 'user', parts: requestParts }],
-        generationConfig: {
-            // Add any Veo-specific parameters here if needed
-        },
-        safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        ],
-    };
-
-    logger.info({ promptSnippet: prompt.substring(0, 100) }, "Submitting generation request to Vertex AI (Veo)");
+    logger.info({ promptSnippet: prompt.substring(0, 100), model: modelId }, "Submitting video generation request to Veo");
 
     try {
-        // 3. Make the API call
-        const result = await generativeModel.generateContent(request);
-        const response = result.response;
+        // Step 1: Start the long-running operation
+        const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:predictLongRunning`;
 
-        // Log raw response for debugging (excluding huge base64 data if any)
-        logger.info({
-            candidates: response.candidates?.length,
-            promptFeedback: response.promptFeedback
-        }, "Vertex AI Response Received");
+        const startResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(veoRequest)
+        });
 
-        // 4. Extract the Video URL
-        if (!response.candidates || response.candidates.length === 0) {
-            const blockReason = response.promptFeedback?.blockReason;
-            const blockMessage = response.promptFeedback?.blockReasonMessage;
-            throw new Error(`Vertex AI blocked generation. Reason: ${blockReason} - ${blockMessage}`);
+        if (!startResponse.ok) {
+            const errorBody = await startResponse.text();
+            logger.error({ status: startResponse.status, body: errorBody }, "Veo API start request failed");
+            throw new Error(`Veo API request failed: ${startResponse.status} - ${errorBody}`);
         }
 
-        const candidate = response.candidates[0];
-        if (candidate.finishReason !== "STOP" && candidate.finishReason !== "MAX_TOKENS") {
-            logger.warn({ finishReason: candidate.finishReason }, "Vertex AI candidate finished with unexpected reason");
+        const operationData = await startResponse.json();
+        const operationName = operationData.name;
+
+        if (!operationName) {
+            throw new Error("Veo API did not return an operation name");
         }
 
-        const videoPart = candidate.content?.parts?.find(part => part.fileData);
-        const gcsUri = videoPart?.fileData?.fileUri;
+        logger.info({ operationName }, "Veo video generation started, polling for completion...");
 
-        if (!gcsUri) {
-            logger.error({ candidateContent: JSON.stringify(candidate.content) }, "No video file URI found in response");
-            throw new Error("Vertex AI (Veo) response missing video URI. Check logs for safety blocks or model limitations.");
+        // Step 2: Poll for completion
+        const operationUrl = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
+        const maxPollingAttempts = 120; // 10 minutes max (5s intervals)
+        const pollingIntervalMs = 5000;
+
+        for (let attempt = 0; attempt < maxPollingAttempts; attempt++) {
+            await sleep(pollingIntervalMs);
+
+            const pollResponse = await fetch(operationUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken.token}`
+                }
+            });
+
+            if (!pollResponse.ok) {
+                logger.warn({ status: pollResponse.status, attempt }, "Polling request failed, retrying...");
+                continue;
+            }
+
+            const pollData = await pollResponse.json();
+
+            if (pollData.done) {
+                logger.info({ attempt }, "Veo video generation completed");
+
+                // Check for errors
+                if (pollData.error) {
+                    throw new Error(`Veo generation failed: ${pollData.error.message}`);
+                }
+
+                // Extract video URL from response
+                const predictions = pollData.response?.predictions;
+                if (!predictions || predictions.length === 0) {
+                    throw new Error("Veo response missing predictions");
+                }
+
+                // The video URL could be in different formats depending on the model version
+                let videoUrl = predictions[0]?.videoUri ||
+                    predictions[0]?.video?.uri ||
+                    predictions[0]?.gcsUri;
+
+                if (!videoUrl) {
+                    // Try to find any URL in the predictions
+                    const predictionsStr = JSON.stringify(predictions);
+                    logger.info({ predictions: predictionsStr }, "Searching for video URL in predictions");
+
+                    // Look for GCS URI pattern
+                    const gcsMatch = predictionsStr.match(/gs:\/\/[^"]+/);
+                    if (gcsMatch) {
+                        videoUrl = gcsMatch[0];
+                    }
+                }
+
+                if (!videoUrl) {
+                    logger.error({ predictions: JSON.stringify(predictions) }, "No video URL found in Veo response");
+                    throw new Error("Veo response missing video URL");
+                }
+
+                // Convert gs:// URI to public HTTPS URL if needed
+                let publicUrl = videoUrl;
+                if (videoUrl.startsWith('gs://')) {
+                    const bucketName = videoUrl.split('/')[2];
+                    const objectName = videoUrl.split('/').slice(3).join('/');
+                    publicUrl = `https://storage.googleapis.com/${bucketName}/${objectName}`;
+                }
+
+                logger.info({ videoUrl, publicUrl }, "Veo video generation complete");
+                return { video_url: publicUrl, status: 'completed' };
+            }
+
+            // Log progress periodically
+            if (attempt % 6 === 0) {
+                logger.info({ attempt, maxAttempts: maxPollingAttempts }, "Still waiting for Veo video generation...");
+            }
         }
 
-        // Convert the private gs:// URI to a public HTTPS URL.
-        const bucketName = gcsUri.split('/')[2];
-        const objectName = gcsUri.split('/').slice(3).join('/');
-        const publicUrl = `https://storage.googleapis.com/${bucketName}/${objectName}`;
-
-        logger.info({ gcsUri, publicUrl }, "Vertex AI (Veo) generation complete");
-        return { video_url: publicUrl, status: 'completed' };
+        throw new Error("Veo video generation timed out after 10 minutes");
 
     } catch (error) {
-        logger.error({ err: error }, "Vertex AI (Veo) API Call Failed");
-        // Enrich error message if it's a known GoogleError
+        logger.error({ err: error }, "Veo video generation failed");
         throw new Error(`Veo Generation Failed: ${error.message}`);
     }
 };

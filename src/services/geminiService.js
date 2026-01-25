@@ -255,33 +255,41 @@ export const generateScript = async (storyText, options = {}) => {
 
 export const generateHeroImage = async (actionDescription) => {
     try {
-        // Get OpenAI client instance
         const openai = getOpenAI();
-
-        // Generate character/hero image using DALL-E
-        const prompt = `Professional character portrait for: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality, detailed facial features.`;
+        let prompt = `Professional character portrait for: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality.`;
 
         logger.info({ prompt }, 'Generating hero image with DALL-E');
 
-        const response = await openai.images.generate({
-            model: "dall-e-3",
-            prompt: prompt,
-            n: 1,
-            size: "1024x1024",
-            quality: "standard"
-        });
+        try {
+            const response = await openai.images.generate({
+                model: "dall-e-3",
+                prompt: prompt,
+                n: 1,
+                size: "1024x1024",
+                quality: "standard"
+            });
+            return response.data[0].url;
+        } catch (initialError) {
+            // If safety violation, try a sanitized/simpler prompt
+            if (initialError.message.includes('safety') || initialError.status === 400) {
+                logger.warn({ err: initialError }, 'Initial DALL-E prompt rejected, retrying with simplified prompt');
 
-        const imageUrl = response.data[0].url;
-
-        if (!imageUrl) {
-            throw new Error('No image URL returned from DALL-E');
+                const safePrompt = `A cinematic portrait of a character in a movie scene. High quality, photorealistic.`;
+                const retryResponse = await openai.images.generate({
+                    model: "dall-e-3",
+                    prompt: safePrompt, // Genuine generic fallback to avoid blocking
+                    n: 1,
+                    size: "1024x1024",
+                    quality: "standard"
+                });
+                return retryResponse.data[0].url;
+            }
+            throw initialError;
         }
-
-        logger.info({ imageUrl }, 'Hero image generated successfully');
-        return imageUrl;
-
     } catch (error) {
         logger.error({ err: error }, 'Failed to generate hero image');
+        // Don't crash the whole job, just return null or a placeholder if you want
+        // But for now throwing is okay as long as the user knows why
         throw new Error(`Hero image generation failed: ${error.message}`);
     }
 };

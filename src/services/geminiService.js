@@ -295,83 +295,37 @@ export const generateHeroImage = async (actionDescription) => {
  * @returns {Promise<{video_url: string, status: string}>}
  */
 export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
-    // 1. Parse GCP_SA_KEY if available to get project and credentials
-    let gcpCredentials = null;
-    let projectFromSA = null;
-
-    if (process.env.GCP_SA_KEY) {
-        try {
-            gcpCredentials = JSON.parse(process.env.GCP_SA_KEY);
-            projectFromSA = gcpCredentials.project_id;
-            logger.info({ project: projectFromSA }, 'Parsed GCP service account credentials');
-        } catch (parseError) {
-            logger.error({ err: parseError }, 'Failed to parse GCP_SA_KEY JSON');
-        }
-    }
-
-    // Use project from SA key, or from explicit env vars
-    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || projectFromSA;
+    // Rely on Application Default Credentials set by start.sh (GOOGLE_APPLICATION_CREDENTIALS)
+    const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
     const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
     // Trim the model ID to remove any leading/trailing whitespace
     const rawModelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
     const modelId = rawModelId ? rawModelId.trim() : null;
 
-    const apiKey = process.env.VERTEX_AI_API_KEY;
-
     if (!project) {
-        throw new Error("Missing GCP_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCP_SA_KEY with project_id in environment variables.");
+        throw new Error("Missing GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT in environment variables.");
     }
-
-    logger.info({ project, location, modelId }, 'Initializing Vertex AI for Veo');
-
-    const vertexAIConfig = {
-        project: project,
-        location: location
-    };
-
-    // Use service account credentials if available
-    if (gcpCredentials) {
-        vertexAIConfig.googleAuthOptions = {
-            credentials: gcpCredentials
-        };
-        logger.info('Using GCP service account credentials for Vertex AI');
-    } else if (apiKey) {
-        // Fallback to API Key auth if provided
-        vertexAIConfig.googleAuthOptions = { apiKey };
-        logger.info('Using API key for Vertex AI');
-    }
-
-    const vertex_ai = new VertexAI(vertexAIConfig);
-
     if (!modelId) {
         throw new Error("VEO_MODEL_ID (or VEO_MODEL) is not configured in environment variables.");
     }
 
-    const generativeModel = vertex_ai.getGenerativeModel({ model: modelId });
+    logger.info({ project, location, modelId }, 'Initializing Vertex AI for Veo');
 
     // --- VEO VIDEO GENERATION VIA REST API (predictLongRunning) ---
-    // Veo requires a different API pattern than standard generateContent
-
+    // The Google SDK automatically uses the GOOGLE_APPLICATION_CREDENTIALS env var set by start.sh
     const { GoogleAuth } = await import('google-auth-library');
 
-    // Create auth client from service account credentials
-    let authClient;
-    if (gcpCredentials) {
-        const auth = new GoogleAuth({
-            credentials: gcpCredentials,
-            scopes: ['https://www.googleapis.com/auth/cloud-platform']
-        });
-        authClient = await auth.getClient();
-    } else {
-        // Use Application Default Credentials
-        const auth = new GoogleAuth({
-            scopes: ['https://www.googleapis.com/auth/cloud-platform']
-        });
-        authClient = await auth.getClient();
-    }
+    const auth = new GoogleAuth({
+        scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    const authClient = await auth.getClient();
+    const accessTokenResponse = await authClient.getAccessToken();
+    const accessToken = accessTokenResponse.token;
 
-    const accessToken = await authClient.getAccessToken();
+    if (!accessToken) {
+        throw new Error("Failed to get Google Cloud access token. Check service account credentials (GOOGLE_APPLICATION_CREDENTIALS).");
+    }
 
     // Build the Veo request payload
     const veoRequest = {

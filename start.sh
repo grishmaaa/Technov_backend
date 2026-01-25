@@ -4,6 +4,14 @@ set -e
 # Check if this is the worker service
 if [ "$SERVICE_TYPE" = "worker" ]; then
     echo "Starting worker service..."
+    
+    # Inject Service Account Key for Veo API access
+    if [ -n "$GCP_SA_KEY" ]; then
+        echo "Detected GCP_SA_KEY. Writing to vertex-key.json for worker..."
+        echo "$GCP_SA_KEY" > vertex-key.json
+        export GOOGLE_APPLICATION_CREDENTIALS="./vertex-key.json"
+    fi
+    
     npm run db:generate
     npm run worker
 else

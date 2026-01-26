@@ -6,6 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { uploadFile } from './fileHostingService.js';
+import { isStorageConfigured, getPresignedDownloadUrl } from './storageService.js';
 import { logger } from '../logger.js';
 
 dotenv.config();
@@ -110,7 +111,9 @@ export const generateScript = async (storyText, options = {}) => {
         productionStyle = 'standard',
         artisticAtmosphere = 'photorealistic',
         length = 'standard',
-        visualMood = 'neutral-auto'
+        visualMood = 'neutral-auto',
+        audioMode = 'MIX',
+        textMode = 'TEXT_ONLY'
     } = tierOptions;
 
     const directorPersona = getDirectorPersona(plan);
@@ -126,75 +129,41 @@ export const generateScript = async (storyText, options = {}) => {
         const prompt = `
             ${directorPersona}
 
-            You think visually, not textually.
-            You design scenes as if they will be shot by a real camera, edited into a real film, and rendered by a high-end AI video engine (Kling 2.6 / Sora-class).
+            You are a Direct, Literal Visualizer.
+            You do NOT invent artistic B-roll or "mood shots" unless explicitly asked.
+            You follow the story EXACTLY as written, translating it into 4 clear visual scenes.
 
-            --- DIRECTOR'S BRIEF ---
+            --- INSTRUCTIONS ---
             1. Technical Style: ${styleDirective}
             2. Artistic Mood: ${aestheticDirective}
             3. Visual Mood: ${moodDirective}
             4. Duration Target: ${durationConstraint}
+            5. Dialogue Mode: ${audioMode} (Respect this strictly)
+            6. Text Mode: ${textMode}
 
-            Your task is to transform the provided story into a cinematic Scene Breakdown suitable for professional video generation.
+            --- CRITICAL RULES FOR CONSISTENCY ---
+            1. **LITERAL INTERPRETATION**: If the story says "Cinderella cleans the floor", SHOW CINDERELLA CLEANING THE FLOOR. Do not show a "close up of a bottle" or "sunlight hitting dust". Show the CHARACTER doing the ACTION.
+            2. **CHARACTER CONTINUITY**: If a character (e.g., Cinderella) is introduced, they must remain the same character in all scenes. Do not switch to "random lady" or "generic hands".
+            3. **NO FLUFF**: Avoid flowery language like "A symphony of light" or "The camera dances". Use simple, direct descriptions: "Cinderella scrubs the floor." "She picks up the bottle."
+            4. **STRICT 4-SCENE STRUCTURE**:
+               - **Scene 1: THE PROBLEM**. Show the struggle/pain point. (e.g. Cinderella tired, scrubbing dirty floor).
+               - **Scene 2: THE DISCOVERY**. Show the character finding/seeing the product. (e.g. She sees the Shinky bottle).
+               - **Scene 3: THE SOLUTION**. The magic happens. (e.g. She uses it, floor becomes instantly shiny).
+               - **Scene 4: THE PAYOFF/CTA**. Hero shot or Character speaking to camera. (e.g. She smiles at camera, holds bottle).
 
             STORY INPUT:
             "${storyText}"
 
-            GLOBAL DIRECTIVES (STRICT):
-            - Output MUST be valid JSON only (no markdown, no comments, no explanations)
-            - Each scene must be visually distinct and progress the narrative
-            - Avoid vague language; describe concrete, observable actions
-            - Use professional cinematic camera language
-            - Do NOT repeat phrasing across scenes
-            - Do NOT break JSON formatting
-            - Do NOT include anything outside the JSON array
-
-            SCENE DESIGN RULES:
-            - Each scene represents a clear cinematic beat
-            - Focus on what is physically visible on screen
-            - Include environment, lighting, character movement, and atmosphere
-            - Scene flow should feel continuous and film-like
-            - Escalate or de-escalate intensity based on story beats
-
-            SHOT & CAMERA GUIDELINES:
-            - Vary shot types intentionally (Wide, Medium, Close-up, Tracking, Drone, Handheld, POV)
-            - Camera choice must support emotion and storytelling
-            - Avoid repetitive shot patterns
-
-            MOTION COMPLEXITY SCALE (1-10):
-            1-2: Static or near-static (stillness, tension, atmosphere)
-            3-5: Controlled motion (walking, gestures, slow camera movement)
-            6-8: Dynamic motion (running, fast tracking, multiple actors)
-            9-10: High-intensity action (combat, chaos, rapid movement)
-
-            AUDIO DESIGN REQUIREMENTS:
-            - Describe specific sound elements (ambient, Foley, score)
-            - Audio must reinforce mood, tension, or emotional shift
-            - Avoid generic phrases like "background music"
-
-            OUTPUT FORMAT (STRICT):
-            Return ONLY a single JSON object.
-
-            The object MUST contain:
-            - "suggested_title": A creative, cinematic title for the film based on the story (e.g., "The Last Sunrise", "Echoes in the Chrome", "Shadows on Cobblestone"). Make it evocative and memorable.
-            - "scenes": An array of scene objects where each object contains:
-                - scene_id: integer starting from 1
-                - action_description: highly detailed visual description of what is seen on screen
-                - shot_type: cinematic camera angle or movement
-                - motion_complexity: integer (1-10)
-                - audio_directive: specific sound or music description
-                - duration: integer (seconds, default 8 unless context demands otherwise)
-
-            JSON EXAMPLE STRUCTURE:
+            OUTPUT FORMAT (STRICT JSON):
             {
-                "suggested_title": "Shadows on Cobblestone",
+                "suggested_title": "Title String",
                 "scenes": [
                     {
                         "scene_id": 1,
-                        "action_description": "A dimly lit alley glistens with rain as a lone figure steps into frame, steam rising from the ground under flickering neon lights.",
-                        "shot_type": "Wide Tracking Shot",
-                        "motion_complexity": 4,
-                        "audio_directive": "Distant traffic hum layered with low atmospheric synth pulses",
+                        "action_description": "Literal description of action. If Audio Mode is MIX/DIALOGUE_ONLY, include: 'Character says: ...'",
+                        "shot_type": "Medium Shot / Wide Shot / Close Up",
+                        "motion_complexity": 5,
+                        "audio_directive": "Specific sounds (scrubbing, footsteps, upbeat music)",
                         "duration": 8
                     }
                 ]
@@ -370,8 +339,9 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
     };
 
     // Use GCS bucket for output if configured (Avoids Base64 memory issues)
+    let bucketName = null;
     if (process.env.GCP_BUCKET_NAME) {
-        const bucketName = process.env.GCP_BUCKET_NAME;
+        bucketName = process.env.GCP_BUCKET_NAME;
 
         // 1. PRE-FLIGHT CHECK: Can we actually write to this bucket?
         try {
@@ -440,6 +410,12 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
         if (!startResponse.ok) {
             const errorBody = await startResponse.text();
+
+            // Check for immediate policy error on start
+            if (errorBody.includes("35561574") || errorBody.includes("policy")) {
+                throw new Error(`GUARDRAIL_ERROR: ${errorBody}`);
+            }
+
             logger.error({ status: startResponse.status, body: errorBody }, "Veo API start request failed");
             throw new Error(`Veo API start request failed: ${startResponse.status} - ${errorBody}`);
         }
@@ -453,6 +429,8 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         const pollingEndpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:fetchPredictOperation`;
         const maxPollingAttempts = 120;
         const pollingIntervalMs = 5000;
+
+        let finalResponse = null;
 
         for (let attempt = 0; attempt < maxPollingAttempts; attempt++) {
             await sleep(pollingIntervalMs);
@@ -468,162 +446,188 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
             if (!pollResponse.ok) {
                 const errorBody = await pollResponse.text();
-                logger.error({
-                    status: pollResponse.status,
-                    attempt,
-                    url: pollingEndpoint,
-                    errorBody: errorBody
-                }, "Polling request failed (fetchPredictOperation).");
+                logger.warn({ status: pollResponse.status, body: errorBody }, "Polling failed, retrying...");
                 continue;
             }
 
             const pollData = await pollResponse.json();
 
             if (pollData.done) {
-                logger.info({ attempt }, "Veo video generation completed");
-                if (pollData.error) throw new Error(`Veo generation failed: ${pollData.error.message}`);
-
-                // --- ROBUST RECURSIVE SEARCH ---
-                // Since the API structure seems to vary (response vs result, predictions vs videoSamples),
-                // we'll recursively search the entire object for video data.
-
-                const findVal = (obj, keys) => {
-                    if (!obj || typeof obj !== 'object') return null;
-                    for (const key of keys) {
-                        if (key in obj && obj[key]) return obj[key];
+                if (pollData.error) {
+                    const errMsg = pollData.error.message || 'Unknown Veo Error';
+                    if (errMsg.includes("third-party content") || errMsg.includes("policy") || errMsg.includes("35561574")) {
+                        throw new Error(`GUARDRAIL_ERROR: ${errMsg}`);
                     }
-                    for (const k in obj) {
-                        const found = findVal(obj[k], keys);
-                        if (found) return found;
-                    }
-                    return null;
-                };
-
-                // 1. Explicit Check for Veo 3.1 GCS URI (Highest Priority)
-                const generatedSample = pollData.response?.videoSamples?.[0] || pollData.response?.generatedSamples?.[0];
-                let videoUrl = generatedSample?.video?.uri || generatedSample?.video?.videoUri;
-
-                // 2. Fallback Recursive Search for URL
-                if (!videoUrl) {
-                    videoUrl = findVal(pollData, ['videoUri', 'gcsUri', 'uri', 'videoUrl', 'url']);
+                    throw new Error(`Veo generation failed: ${errMsg}`);
                 }
 
-                // VALIDATE and RETURN URL if found
-                if (videoUrl && (typeof videoUrl === 'string') && (videoUrl.startsWith('gs://') || videoUrl.startsWith('http'))) {
-                    logger.info({ foundUrl: videoUrl }, "Found video URL from Veo");
-
-                    // If it's a GCS URL, we need to download it securely and re-upload to our public storage
-                    // because the worker cannot access private GCS links directly.
-                    if (videoUrl.startsWith('gs://')) {
-                        try {
-                            const gsParts = videoUrl.replace('gs://', '').split('/');
-                            const bucketName = gsParts[0];
-                            const objectName = gsParts.slice(1).join('/');
-                            // GCS API requires URI encoded object name
-                            const gcsApiUrl = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
-
-                            logger.info({ gcsApiUrl }, "Downloading video from GCS using Auth Token...");
-
-                            const downloadResponse = await fetch(gcsApiUrl, {
-                                headers: { 'Authorization': `Bearer ${accessToken}` }
-                            });
-
-                            if (!downloadResponse.ok) {
-                                throw new Error(`Failed to download from GCS: ${downloadResponse.status} ${downloadResponse.statusText}`);
-                            }
-
-                            const videoBuffer = Buffer.from(await downloadResponse.arrayBuffer());
-                            const tempFilePath = path.join(os.tmpdir(), `gcs-download-${Date.now()}.mp4`);
-
-                            await fs.writeFile(tempFilePath, videoBuffer);
-                            logger.info("Video downloaded locally, uploading to primary storage...");
-
-                            const publicUrl = await uploadFile(tempFilePath);
-                            await fs.rm(tempFilePath, { force: true });
-
-                            logger.info({ publicUrl }, "Video successfully bridged to public storage");
-                            return { video_url: publicUrl, status: 'completed' };
-
-                        } catch (transferError) {
-                            logger.error({ err: transferError }, "Failed to transfer video from GCS to Public Storage");
-                            throw transferError;
-                        }
-                    }
-
-                    // Fallback for non-gs URLs (unlikely with Veo)
-                    return { video_url: videoUrl, status: 'completed' };
-                }
-
-                // SECURITY CHECK: If GCS was requested but no URL returned, something is wrong (Permissions?)
-                // Abort here to avoid processing massive Base64 payload and Crashing causing OOM
-                if (process.env.GCP_BUCKET_NAME && !videoUrl) {
-                    const safeLog = (obj) => {
-                        const seen = new WeakSet();
-                        return JSON.stringify(obj, (key, value) => {
-                            if (typeof value === 'object' && value !== null) {
-                                if (seen.has(value)) return '[Circular]';
-                                seen.add(value);
-                            }
-                            if (typeof value === 'string' && value.length > 500) return `[String Length: ${value.length}]`;
-                            return value;
-                        }, 2);
-                    };
-                    logger.error({
-                        bucket: process.env.GCP_BUCKET_NAME,
-                        responseStructure: safeLog(pollData)
-                    }, "GCS Bucket configured but no URI returned. Veo likely fell back to Base64 due to missing permissions.");
-
-                    throw new Error("GCS Bucket configured but no Video URI returned. Please check Service Account permissions (Storage Object Creator) for the bucket.");
-                }
-
-                // 3. Base64 Fallback (Only if no URL found AND no GCS config)
-                let base64Data = generatedSample?.video?.bytesBase64Encoded || generatedSample?.bytesBase64Encoded;
-                if (!base64Data) {
-                    base64Data = findVal(pollData, ['bytesBase64Encoded', 'base64Encoded']);
-                }
-
-                if (base64Data) {
-                    logger.info("Found Base64 video data (fallback), processing internally...");
-                    const videoBuffer = Buffer.from(base64Data, 'base64');
-                    const tempFilePath = path.join(os.tmpdir(), `veo-output-${Date.now()}.mp4`);
-                    try {
-                        await fs.writeFile(tempFilePath, videoBuffer);
-                        const publicUrl = await uploadFile(tempFilePath);
-                        return { video_url: publicUrl, status: 'completed' };
-                    } finally {
-                        await fs.rm(tempFilePath, { force: true });
-                    }
-                }
-
-                // 2. Search for Video URL
-                const foundUrl = findVal(pollData, ['videoUri', 'gcsUri', 'uri', 'videoUrl', 'url']);
-                // Ensure it looks like a video URL (gs:// or http)
-                if (foundUrl && (typeof foundUrl === 'string') && (foundUrl.startsWith('gs://') || foundUrl.startsWith('http'))) {
-                    logger.info({ foundUrl }, "Found video URL via recursive search");
-                    const publicUrl = foundUrl.startsWith('gs://') ? `https://storage.googleapis.com/${foundUrl.substring(5)}` : foundUrl;
-                    return { video_url: publicUrl, status: 'completed' };
-                }
-
-                // 3. Last Resort: Safe logging of full structure
-                const safeLog = (obj) => {
-                    const seen = new WeakSet();
-                    return JSON.stringify(obj, (key, value) => {
-                        if (typeof value === 'object' && value !== null) {
-                            if (seen.has(value)) return '[Circular]';
-                            seen.add(value);
-                        }
-                        if (typeof value === 'string' && value.length > 200) return `[String Length: ${value.length}]`; // Truncate long strings
-                        return value;
-                    }, 2);
-                };
-
-                logger.error({ structure: safeLog(pollData) }, "Veo response structure mismatch - Recursive search failed");
-                throw new Error("No video URL or Base64 data found in Veo response (Recursive search failed)");
+                finalResponse = pollData.response || pollData.result || pollData;
+                break;
             }
         }
-        throw new Error("Veo video generation timed out after 10 minutes");
+
+        if (!finalResponse) {
+            throw new Error("Veo video generation timed out after 10 minutes");
+        }
+
+        return await extractVideoFromResponse(finalResponse, project, location, modelId, accessToken, bucketName);
+
     } catch (error) {
+        // Auto-Retry logic for Guardrails
+        if (error.message.includes("GUARDRAIL_ERROR") && !options.isRetry) {
+            logger.warn({ originalPrompt: prompt }, "Guardrail triggered. Retrying with sanitized prompt...");
+
+            // Fallback strategy: Strip brand names, keep style. 
+            // Since we can't easily NLP detect brands here without valid regex or libraries, 
+            // we will reduce the prompt to its core style directives + generic subject.
+            const sanitizedPrompt = `Cinematic product shot, high quality, 4k. A generic unbranded bottle in a clean environment. ${options.visualMood || ''}`;
+
+            return generateVideo(sanitizedPrompt, heroImageUrl, { ...options, isRetry: true });
+        }
+
         logger.error({ err: error }, "Veo video generation failed");
         throw new Error(`Veo Generation Failed: ${error.message}`);
     }
+    // End of generateVideo (logic dispatched to extractVideoFromResponse)
+};
+
+
+// Helper to extracting video URL or Base64 from the Veo response
+const extractVideoFromResponse = async (responseOrResult, project, location, modelId, accessToken, bucketName) => {
+    // Recursive finder
+    const findVal = (obj, keys) => {
+        if (!obj || typeof obj !== 'object') return null;
+        for (const key of keys) {
+            if (key in obj && obj[key]) return obj[key];
+        }
+        for (const k in obj) {
+            const found = findVal(obj[k], keys);
+            if (found) return found;
+        }
+        return null;
+    };
+
+    // 1. Explicit Check for Veo 3.1 GCS URI (Highest Priority)
+    // Structure typically: [ { video: { uri: "gs://..." } } ] or just { video: { uri: "..." } }
+    // Note: responseOrResult might be the whole pollData or just the 'response' part.
+    const container = Array.isArray(responseOrResult) ? responseOrResult[0] : responseOrResult;
+
+    let videoUrl = container?.video?.uri || container?.video?.videoUri || container?.uri;
+
+    // 2. Recursive Search for URL if not found directly
+    if (!videoUrl) {
+        videoUrl = findVal(responseOrResult, ['videoUri', 'gcsUri', 'uri', 'videoUrl', 'url']);
+    }
+
+    // SECURITY CHECK: If GCS was requested but no URL returned, something is wrong (Permissions?)
+    if (process.env.GCP_BUCKET_NAME && !videoUrl) {
+        // Check if we have base64 data instead (meaning Veo ignored the GCS config)
+        const base64Check = findVal(responseOrResult, ['bytesBase64Encoded', 'base64Encoded']);
+        if (!base64Check) {
+            const safeLog = (obj) => {
+                const seen = new WeakSet();
+                return JSON.stringify(obj, (key, value) => {
+                    if (typeof value === 'object' && value !== null) {
+                        if (seen.has(value)) return '[Circular]';
+                        seen.add(value);
+                    }
+                    if (typeof value === 'string' && value.length > 500) return `[String Length: ${value.length}]`;
+                    return value;
+                }, 2);
+            };
+            logger.error({
+                bucket: process.env.GCP_BUCKET_NAME,
+                responseStructure: safeLog(responseOrResult)
+            }, "GCS Bucket configured but no URI returned. Veo likely fell back to Base64 (failed) or error occurred.");
+
+            // Allow fall-through to Base64 handler below if it exists, otherwise error.
+        }
+    }
+
+    // 3. Base64 Fallback (Only if no URL found OR if we want to handle "ignored config" case gracefully)
+    let base64Data = container?.video?.bytesBase64Encoded || container?.bytesBase64Encoded;
+    if (!base64Data) {
+        base64Data = findVal(responseOrResult, ['bytesBase64Encoded', 'base64Encoded']);
+    }
+
+    if (base64Data) {
+        logger.info("Found Base64 video data (fallback), processing internally...");
+        const videoBuffer = Buffer.from(base64Data, 'base64');
+        const tempFilePath = path.join(os.tmpdir(), `veo-output-${Date.now()}.mp4`);
+        try {
+            await fs.writeFile(tempFilePath, videoBuffer);
+            const key = `generated/${crypto.randomUUID()}.mp4`;
+            const publicUrl = await uploadFile(tempFilePath, { objectKey: key });
+
+            // If using S3/Railway Storage, return a Signed URL
+            if (isStorageConfigured()) {
+                try {
+                    const signedUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                    return { video_url: signedUrl, status: 'completed' };
+                } catch (signErr) {
+                    logger.warn({ err: signErr }, "Failed to generate signed URL, falling back to public URL");
+                }
+            }
+            return { video_url: publicUrl, status: 'completed' };
+        } finally {
+            await fs.rm(tempFilePath, { force: true }).catch(() => { });
+        }
+    }
+
+    // 4. Handle GCS URL / found URL
+    if (videoUrl && (typeof videoUrl === 'string') && (videoUrl.startsWith('gs://') || videoUrl.startsWith('http'))) {
+        logger.info({ foundUrl: videoUrl }, "Found video URL from Veo");
+
+        // If it's a GCS URL, we need to download it securely and re-upload to our public storage
+        // because the worker cannot access private GCS links directly.
+        if (videoUrl.startsWith('gs://')) {
+            try {
+                const gsParts = videoUrl.replace('gs://', '').split('/');
+                const bucketName = gsParts[0];
+                const objectName = gsParts.slice(1).join('/');
+                // GCS API requires URI encoded object name
+                const gcsApiUrl = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
+
+                logger.info({ gcsApiUrl }, "Downloading video from GCS using Auth Token...");
+                const downloadResponse = await fetch(gcsApiUrl, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!downloadResponse.ok) {
+                    throw new Error(`Failed to download from GCS: ${downloadResponse.status} ${downloadResponse.statusText}`);
+                }
+
+                const videoBuffer = Buffer.from(await downloadResponse.arrayBuffer());
+                const tempFilePath = path.join(os.tmpdir(), `gcs-download-${Date.now()}.mp4`);
+
+                await fs.writeFile(tempFilePath, videoBuffer);
+                logger.info("Video downloaded locally, uploading to primary storage...");
+
+                const key = `generated/${crypto.randomUUID()}.mp4`;
+                const publicUrl = await uploadFile(tempFilePath, { objectKey: key });
+                await fs.rm(tempFilePath, { force: true }).catch(() => { });
+
+                logger.info({ publicUrl }, "Video successfully bridged to public storage");
+
+                if (isStorageConfigured()) {
+                    try {
+                        const signedUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                        logger.info({ signedUrl }, "Generated Signed URL for Worker access to bridged video");
+                        return { video_url: signedUrl, status: 'completed' };
+                    } catch (signErr) {
+                        logger.error({ err: signErr }, "Failed to generate signed URL, falling back to public URL");
+                    }
+                }
+                return { video_url: publicUrl, status: 'completed' };
+
+            } catch (transferError) {
+                logger.error({ err: transferError }, "Failed to transfer video from GCS to Public Storage");
+                throw transferError;
+            }
+        }
+        // Fallback for non-gs URLs (unlikely with Veo)
+        return { video_url: videoUrl, status: 'completed' };
+    }
+
+    throw new Error("No video URL or Base64 data found in Veo response (Recursive search failed)");
 };

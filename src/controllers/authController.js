@@ -154,3 +154,43 @@ export const refreshAccessToken = async (req, res) => {
         res.status(401).json({ error: 'Invalid refresh token' });
     }
 };
+
+export const updateProfile = async (req, res) => {
+    try {
+        const { name } = req.body;
+        const userId = req.user.id;
+
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: { name },
+            select: { id: true, email: true, name: true, role: true, plan: true, credits: true }
+        });
+
+        res.json({ message: 'Profile updated', user: updatedUser });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update profile', details: error.message });
+    }
+};
+
+export const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user.id;
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        const isValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isValid) return res.status(401).json({ error: 'Incorrect current password' });
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await prisma.user.update({
+            where: { id: userId },
+            data: { password: hashedPassword }
+        });
+
+        res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to change password', details: error.message });
+    }
+};

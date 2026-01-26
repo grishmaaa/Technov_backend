@@ -5,8 +5,8 @@ import { spawn } from 'child_process';
 import prisma from '../config/database.js';
 import { generateVideo } from '../services/geminiService.js';
 import { uploadFile } from '../services/fileHostingService.js';
-import { compileShotPrompt } from '../services/promptCompiler.js';
 import { transitionProjectState } from '../services/projectStateService.js';
+import { compileVeoPrompt } from '../services/promptCompiler.js';
 import { logger } from '../logger.js';
 
 const DEFAULT_VOLUME_PATH = path.join(os.tmpdir(), 'technov');
@@ -169,7 +169,15 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
         const apiCostUsd = Number(process.env.COST_PER_SHOT_USD || 0);
         await recordApiCall({ jobId, projectId: project.id, costUsd: apiCostUsd });
 
-        const { video_url: videoUrl } = await generateVideo(shot.prompt, '', options);
+        // COMPILE MASTER PROMPT (Veo Optimization)
+        const compiledPrompt = compileVeoPrompt({
+            narrativeBeat: shot.prompt,
+            project: project,
+            options: options
+        });
+
+        // Use compiled prompt instead of raw shot.prompt
+        const { video_url: videoUrl } = await generateVideo(compiledPrompt, '', options);
         if (!videoUrl) {
             throw new Error('Video generation response missing video URL');
         }
@@ -247,6 +255,9 @@ const ensureShotsForScene = async ({ scene, project }) => {
     const corePrompt = scene.actionDescription || scene.promptText;
 
     // Pass the full context to the enhanced prompt compiler
+    const singleShotPrompt = corePrompt;
+    /* 
+    Deprecated: Compilation now happens at render time via compileVeoPrompt
     const singleShotPrompt = compileShotPrompt({
         project, // Full project with tier settings
         scene,
@@ -255,6 +266,7 @@ const ensureShotsForScene = async ({ scene, project }) => {
             duration: desiredDuration
         }
     });
+    */
 
     if (existingShots.length > 0) {
         const primaryShot = existingShots[0];

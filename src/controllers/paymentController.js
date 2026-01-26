@@ -15,13 +15,19 @@ const PLANS = {
         name: 'Basic Plan',
         amount: 2499900, // ₹24,999
         currency: 'INR',
-        credits: 30,
+        credits: 1200, // 20 minutes
     },
     pro: {
         name: 'Pro Plan',
         amount: 6399900, // ₹63,999
         currency: 'INR',
-        credits: 30,
+        credits: 3600, // 60 minutes
+    },
+    elite: {
+        name: 'Elite Plan',
+        amount: 12499900, // ₹1,24,999
+        currency: 'INR',
+        credits: 12000, // ~3.3 hours
     }
 };
 

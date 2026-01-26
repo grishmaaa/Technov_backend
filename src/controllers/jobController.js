@@ -47,15 +47,23 @@ export const generateScriptController = async (req, res) => {
         }
 
         // --- TIER VALIDATION (Only restrict Pro features for basic users) ---
+        // --- TIER VALIDATION ---
+        const PLAN_LIMITS = {
+            basic: { maxScenes: 5, maxDuration: 40, allowFast: false },
+            pro: { maxScenes: 15, maxDuration: 300, allowFast: false }, // Assumed 300s (5m) for Pro
+            elite: { maxScenes: 50, maxDuration: 600, allowFast: true } // Assumed 600s (10m) for Elite
+        };
+        const limits = PLAN_LIMITS[userPlan] || PLAN_LIMITS.basic;
+
         if (userPlan === 'basic') {
             if (length === 'extended') {
-                return res.status(403).json({ error: "Upgrade to Elite for 65s videos." });
+                return res.status(403).json({ error: "Upgrade to Pro/Elite for extended videos." });
             }
             if (productionStyle === 'cinematic' || productionStyle === 'performance') {
-                return res.status(403).json({ error: "Cinematic & Performance styles are Elite features." });
+                return res.status(403).json({ error: "Cinematic & Performance styles are Premium features." });
             }
             if (focus === 'performance') {
-                return res.status(403).json({ error: "Dialogue Focus is an Elite feature." });
+                return res.status(403).json({ error: "Dialogue Focus is a Premium feature." });
             }
         }
 
@@ -229,8 +237,42 @@ export const createGenerationJob = async (req, res) => {
         }
 
         const effectiveQuality = (qualityTier || project.qualityTier || 'cinematic').toLowerCase();
-        const creditsPerScene = effectiveQuality === 'basic' ? 10 : 20;
-        const requiredCredits = project.scenes.length * creditsPerScene;
+
+        // 1. Calculate Total Duration & Credits
+        const totalDuration = project.scenes.reduce((sum, scene) => sum + (scene.duration || 0), 0);
+        const requiredCredits = Math.ceil(totalDuration); // 1 credit = 1 second
+
+        // 2. Enforce Plan Limits
+        const userPlan = req.user.plan || 'basic';
+        const PLAN_LIMITS = {
+            basic: { maxDuration: 40 },
+            pro: { maxDuration: 300 },
+            elite: { maxDuration: 9999 }
+        };
+        const updatedLimit = PLAN_LIMITS[userPlan] || PLAN_LIMITS.basic;
+
+        if (totalDuration > updatedLimit.maxDuration) {
+            return res.status(403).json({
+                error: `Plan limit exceeded. Your plan (${userPlan}) allows max ${updatedLimit.maxDuration}s. Project is ${totalDuration}s.`,
+                required: updatedLimit.maxDuration,
+                current: totalDuration
+            });
+        }
+
+        // Elite: Use Fast Model if requested (via qualityTier 'elite_fast' or similar? Or just strict Elite check)
+        // User request: "Elite Plan: We will use the VEO_MODEL_FAST ... to select the faster model"
+        // We'll tag the project qualityTier as 'elite_fast' if appropriate, or let the worker handle it based on user plan?
+        // Worker only sees 'project.qualityTier'. Let's set it if user is elite.
+
+        let finalQualityTier = effectiveQuality;
+        if (userPlan === 'elite' && process.env.VEO_MODEL_FAST) {
+            // If the user explicitly selected a "Fast" quality in frontend, or we default to it?
+            // Prompt says: "Elite Plan: We will use the VEO_MODEL_FAST ... to select the faster model".
+            // We can map a specific qualityTier to this.
+            if (effectiveQuality === 'fast' || effectiveQuality === 'performance') { // checks logic
+                finalQualityTier = 'veo_fast';
+            }
+        }
         if (req.user.credits < requiredCredits) {
             return res.status(402).json({
                 error: 'Insufficient credits',

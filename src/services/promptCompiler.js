@@ -1,79 +1,115 @@
-// Technov_backend/src/services/promptCompiler.js
+/**
+ * promptCompiler.js
+ * 
+ * Implements the "Master Prompt" strategy to enforce consistency,
+ * visual style, and control across Veo video generations.
+ */
 
-// --- Helper Functions ---
-const normalizeWhitespace = (text) => text.replace(/\s+/g, ' ').trim();
+export const compileVeoPrompt = ({ narrativeBeat, project = {}, options = {} }) => {
+    // 1. DETERMINE SETTINGS
 
-// These maps are consistent with geminiService.js to ensure stylistic continuity
-const PRODUCTION_STYLES = {
-    'social-vlog': "handheld vlog style, natural lighting, first-person POV",
-    'standard-clean': "stable tripod shot, professional lighting, clean corporate look",
-    'cinematic-epic': "cinematic, sweeping gimbal movement, dramatic lighting, epic scale, shallow depth of field, anamorphic bokeh",
-    'performance-pro': "macro lens on face, tight close-up, focus on lip-sync and micro-expressions, high frame rate"
-};
+    // Fallbacks if not present in project/options
+    const style = project.qualityTier || 'cinematic'; // Default style
 
-const ARTISTIC_ATMOSPHERES = {
-    photorealistic: "hyper-realistic 8K textures, shot on ARRI Alexa",
-    'film-noir': "high-contrast black and white, deep shadows, Venetian blinds effect",
-    'vintage-35mm': "35mm film grain, slightly faded colors, warm tones",
-    cyberpunk: "neon-drenched, rainy, high-tech grit, anamorphic lens flares",
-    'modern-anime': "modern Japanese animation style, vibrant cel-shading"
-};
+    // Infer MODE based on project settings or options
+    // Currently defaulting to MIX if not explicitly set, or could be inferred from script content
+    // For now, let's look for explicit overrides or default to MIX for maximum capability
+    let mode = 'MIX';
+    if (options.audioMode) mode = options.audioMode;
 
-const VISUAL_MOODS = {
-    'neutral-auto': "balanced color grading",
-    'raw-gritty': "desaturated, gritty, crushed blacks",
-    'golden-ethereal': "golden hour warmth, soft lens flares, ethereal glow",
-    'high-contrast-noir': "deep blacks, dramatic rim lighting, chiaroscuro",
-    'hyper-saturated': "punchy vibrant colors, high saturation"
-};
+    // Infer TEXT settings
+    let textMode = 'TEXT_ONLY';
+    if (options.textMode) textMode = options.textMode;
 
-// --- The New 20x Prompt Compiler ---
+    // 2. CONSTRUCT MASTER PROMPT
 
-export const compileShotPrompt = ({ project, scene, shot }) => {
+    const masterPrompt = `
+You are generating an **8-second video clip** that is part of a **multi-cut sequence** (sequential prompts). The priority is **consistency, clarity, and controllability** across cuts.
 
-    // === BASE TIER PROMPT ===
-    // Simple, direct, and literal.
-    if (project.qualityTier !== 'cinematic' && project.plan !== 'pro' && project.plan !== 'elite') {
-        const basePrompt = [
-            shot.prompt, // This contains the core action
-            "clear video, standard lighting, 4K"
-        ].join(', ');
-        return normalizeWhitespace(basePrompt);
-    }
+### 1) Continuity & Identity Lock (always)
 
-    // === PRO TIER PROMPT ===
-    // A structured set of "Director's Orders"
+* Treat each clip as a continuation of the same short film.
+* Keep **the same character identities** (faces), **wardrobes**, **hair**, **props**, **locations**, and **time-of-day/lighting** unless the cut prompt explicitly changes them.
+* Keep objects stable between frames: no flicker, no random changes.
+* Prioritize: **stable faces**, **normal hands**, **no extra fingers**, **no warped bodies**, **no sudden age changes**.
 
-    // 1. Master Persona Injection
-    let promptParts = [
-        "Masterpiece, ultra-detailed, 8K cinematic photography.",
-        `Shot on ${ARTISTIC_ATMOSPHERES[project.artisticAtmosphere] || 'ARRI Alexa'}.`
-    ];
+### 2) Visual Style Control
 
-    // 2. Pro-Tier Cinematic DNA
-    promptParts.push(PRODUCTION_STYLES[project.productionStyle] || PRODUCTION_STYLES['standard-clean']);
-    promptParts.push(VISUAL_MOODS[project.visualMood] || VISUAL_MOODS['neutral-auto']);
+* **STYLE = ${style}**
+* Follow STYLE strictly.
+* Use simple, readable compositions.
+* Avoid chaotic camera moves unless explicitly requested.
 
-    // 3. The Core Action (from the script)
-    promptParts.push(shot.prompt);
+### 3) Product / Brand Integration
 
-    // 4. LIP-SYNC PROTOCOL (CRITICAL)
-    // We detect if the script contains dialogue by looking for quotation marks.
-    if (shot.prompt.includes('"')) {
-        promptParts.push(
-            "LIP-SYNC PROTOCOL: This is a dialogue scene. Prioritize perfect, synchronized lip movement for the spoken words. Render facial muscles, mouth shapes, and expressions with extreme precision to match the dialogue."
-        );
-    }
+If the cut prompt includes a product/brand, follow these rules:
+* Show the product **naturally** and keep it **legible**.
+* Never distort the brand name or label.
+* No exaggerated or unsafe claims.
+* Keep it tasteful: avoid forced “salesy” behavior unless requested.
 
-    // 5. Final Technical Specs
-    promptParts.push(`Aspect Ratio: ${project.aspectRatio || '16:9'}.`);
-    promptParts.push('No artifacts, no morphing, stable video.');
+### 4) Dialogue / Voice / Subtitles Control
 
-    return normalizeWhitespace(promptParts.join(' '));
-};
+* **MODE = ${mode}**
 
-// This function remains the same, ensuring we have shots to work with.
-export const splitSceneIntoShots = ({ scene, maxShotDuration }) => {
-    const duration = Math.max(1, scene.duration || maxShotDuration || 5);
-    return { shotCount: 1, shotDurations: [duration] };
+**If MODE = NO_DIALOGUE:**
+* No spoken dialogue, no narrator voiceover.
+* No subtitles.
+* Use ambient audio + foley only.
+
+**If MODE = DIALOGUE_ONLY:**
+* Only character dialogue; **no narrator VO**.
+* Dialogue must be **short**: max **1 line per speaking character**, max **10 words per line**.
+* Must have **clear lip-sync** and clean audio.
+* No subtitles unless explicitly requested.
+
+**If MODE = MIX:**
+* Use dialogue only if it improves clarity; otherwise keep silent.
+* Max **one short dialogue moment per cut**.
+* Narrator VO is allowed **only if the cut prompt explicitly requests it** (1 short line).
+* No subtitles unless explicitly requested.
+
+### 5) On-Screen Text Control
+
+* **TEXT = ${textMode}**
+
+* **NO_TEXT:** no on-screen text and no subtitles.
+* **TEXT_ONLY:** allow on-screen text only when the cut prompt requests it.
+* **TEXT_PLUS_VO:** allow on-screen text when requested plus optional VO when requested.
+
+### 6) Timing & Pacing (always)
+
+* The clip must feel complete within **8 seconds** with a clear beginning-middle-end beat.
+* Keep action simple and visually readable.
+* If the cut prompt requires a “hero shot,” hold it steady for at least **1–2 seconds**.
+
+### 7) Hard Avoids (always)
+
+* No glitchy/garbled text. No warped labels/logos.
+* No sudden character morphing, random props, or unrequested scene changes.
+* No explicit content, no violence/gore, no unsafe behavior.
+* Do not add new characters, brands, or plot elements unless explicitly requested.
+
+### 8) Instruction Hierarchy
+
+1. Safety/Hard Avoids
+2. MODE/TEXT settings
+3. Continuity Lock
+4. Cut prompt story requirements
+5. Style preferences
+
+Now generate the clip using the cut-specific prompt below.
+`;
+
+    // 3. COMBINE WITH SPECIFIC BEAT
+    const finalPrompt = `
+${masterPrompt}
+
+---
+
+**CUT PROMPT:**
+${narrativeBeat}
+`.trim();
+
+    return finalPrompt;
 };

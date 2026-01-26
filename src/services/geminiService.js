@@ -368,13 +368,13 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         }
 
         // 2. Add ALL known variations of storage parameters to ensure Veo sees one
-        veoRequest.parameters.outputConfig = {
-            gcsDestination: {
-                outputUriPrefix: `gs://${bucketName}/outputs/`
-            }
-        };
-        veoRequest.parameters.storage_uri = `gs://${bucketName}/outputs/`; // Legacy/Alternate
-        veoRequest.parameters.storageUri = `gs://${bucketName}/outputs/`; // CamelCase
+        // veoRequest.parameters.outputConfig = {
+        //     gcsDestination: {
+        //         outputUriPrefix: `gs://${bucketName}/outputs/`
+        //     }
+        // };
+        // veoRequest.parameters.storage_uri = `gs://${bucketName}/outputs/`; // Legacy/Alternate
+        // veoRequest.parameters.storageUri = `gs://${bucketName}/outputs/`; // CamelCase
 
         logger.info({ bucket: bucketName }, "Configured Veo to output to GCS bucket (sending variations: outputConfig, storage_uri)");
     }

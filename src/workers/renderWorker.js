@@ -272,6 +272,15 @@ const ensureShotsForScene = async ({ scene, project }) => {
         const primaryShot = existingShots[0];
 
         // Keep only the first shot as the canonical single render
+        // Logic Update: If shot FAILED previously, reset to PENDING to allow retry
+        if (primaryShot.state === 'FAILED') {
+            const updated = await prisma.shot.update({
+                where: { id: primaryShot.id },
+                data: { state: 'PENDING' }
+            });
+            return [updated];
+        }
+
         if (primaryShot.duration !== desiredDuration || primaryShot.prompt !== singleShotPrompt) {
             const updated = await prisma.shot.update({
                 where: { id: primaryShot.id },

@@ -232,7 +232,7 @@ export const createGenerationJob = async (req, res) => {
             return res.status(400).json({ error: 'Project must have at least one scene' });
         }
 
-        if (!['SCENES_GENERATED', 'ASSETS_READY', 'COMPLETE', 'FAILED'].includes(project.state)) {
+        if (!['SCENES_GENERATED', 'ASSETS_READY', 'COMPLETE', 'FAILED', 'VIDEO_GENERATION'].includes(project.state)) {
             return res.status(400).json({
                 error: 'Project not ready for video generation',
                 state: project.state,

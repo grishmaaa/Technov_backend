@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import prisma from '../config/database.js';
 import { generateVideo } from '../services/geminiService.js';
 import { uploadFile } from '../services/fileHostingService.js';
+import { isStorageConfigured, getPresignedDownloadUrl } from '../services/storageService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { compileVeoPrompt } from '../services/promptCompiler.js';
 import { logger } from '../logger.js';
@@ -385,7 +386,23 @@ export const processGenerationJob = async (jobId, context = {}) => {
                         throw new Error(`Shot ${shot.id} missing asset URL`);
                     }
                     const localPath = path.join(jobDir, `shot-${shot.id}-processed.mp4`);
-                    await downloadFile(asset.url, localPath);
+
+                    let downloadUrl = asset.url;
+                    // FIX: If URL is a private Railway Storage URL, sign it before downloading
+                    if (isStorageConfigured() && downloadUrl.includes('.storage.railway.app/')) {
+                        try {
+                            // Extract key from https://bucket.storage.railway.app/key
+                            const key = downloadUrl.split('.storage.railway.app/')[1];
+                            if (key) {
+                                downloadUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                                logger.info({ original: asset.url, signed: downloadUrl }, 'Signed storage URL for shot reuse');
+                            }
+                        } catch (e) {
+                            logger.warn({ err: e }, 'Failed to sign storage URL, trying original');
+                        }
+                    }
+
+                    await downloadFile(downloadUrl, localPath);
                     shotVideoPaths.push(localPath);
                     continue;
                 }

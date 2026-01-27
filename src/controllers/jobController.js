@@ -46,14 +46,18 @@ export const generateScriptController = async (req, res) => {
             return res.status(400).json({ error: 'Story text is required' });
         }
 
-        // --- TIER VALIDATION (Only restrict Pro features for basic users) ---
         // --- TIER VALIDATION ---
         const PLAN_LIMITS = {
+            free: { maxScenes: 0, maxDuration: 0, allowFast: false },
             basic: { maxScenes: 5, maxDuration: 40, allowFast: false },
             pro: { maxScenes: 15, maxDuration: 300, allowFast: false }, // Assumed 300s (5m) for Pro
             elite: { maxScenes: 50, maxDuration: 600, allowFast: true } // Assumed 600s (10m) for Elite
         };
-        const limits = PLAN_LIMITS[userPlan] || PLAN_LIMITS.basic;
+        const limits = PLAN_LIMITS[userPlan] || PLAN_LIMITS.free;
+
+        if (userPlan === 'free') {
+            return res.status(403).json({ error: "Please upgrade to a paid plan to generate scripts.", checkout: true });
+        }
 
         if (userPlan === 'basic') {
             if (length === 'extended') {
@@ -243,8 +247,13 @@ export const createGenerationJob = async (req, res) => {
         const requiredCredits = Math.ceil(totalDuration); // 1 credit = 1 second
 
         // 2. Enforce Plan Limits
-        const userPlan = req.user.plan || 'basic';
+        const userPlan = req.user.plan || 'basic'; // TODO: Change default to 'free' after migration
+        if (userPlan === 'free') {
+            return res.status(403).json({ error: "Please upgrade to a paid plan to generate videos.", checkout: true });
+        }
+
         const PLAN_LIMITS = {
+            free: { maxDuration: 0 },
             basic: { maxDuration: 40 },
             pro: { maxDuration: 300 },
             elite: { maxDuration: 9999 }

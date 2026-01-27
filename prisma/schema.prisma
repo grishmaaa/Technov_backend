@@ -13,8 +13,8 @@ model User {
   name      String?
   password  String
   role      String   @default("user")
-  plan      String   @default("basic")
-  credits   Int      @default(100)
+  plan      String   @default("free")
+  credits   Int      @default(0)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   

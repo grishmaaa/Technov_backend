@@ -13,21 +13,21 @@ const razorpay = new Razorpay({
 const PLANS = {
     basic: {
         name: 'Basic Plan',
-        amount: 2499900, // ₹24,999
+        amount: 100, // ₹1 (Testing)
         currency: 'INR',
-        credits: 1200, // 20 minutes
+        credits: 1200,
     },
     pro: {
         name: 'Pro Plan',
-        amount: 6399900, // ₹63,999
+        amount: 200, // ₹2 (Testing)
         currency: 'INR',
-        credits: 3600, // 60 minutes
+        credits: 3600,
     },
     elite: {
         name: 'Elite Plan',
-        amount: 12499900, // ₹1,24,999
+        amount: 300, // ₹3 (Testing)
         currency: 'INR',
-        credits: 12000, // ~3.3 hours
+        credits: 12000,
     }
 };
 
@@ -43,7 +43,13 @@ export const createOrder = async (req, res) => {
 
         const planDetails = PLANS[plan];
 
-        // Create Razorpay order with simplified format
+        // LOGGING DEBUG INFO
+        logger.info({
+            hasKeyId: !!process.env.RAZORPAY_KEY_ID,
+            hasKeySecret: !!process.env.RAZORPAY_KEY_SECRET
+        }, 'Razorpay Config Check');
+
+        // Standard Checkout: Create Order (Required for Popup)
         const options = {
             amount: planDetails.amount,
             currency: planDetails.currency,
@@ -55,10 +61,7 @@ export const createOrder = async (req, res) => {
             }
         };
 
-        logger.info({ options }, 'Razorpay order options');
-
         const order = await razorpay.orders.create(options);
-
         logger.info({ orderId: order.id }, 'Razorpay order created');
 
         res.json({
@@ -66,12 +69,23 @@ export const createOrder = async (req, res) => {
             amount: order.amount,
             currency: order.currency,
             keyId: process.env.RAZORPAY_KEY_ID,
+            planName: planDetails.name,
+            user: {
+                name: req.user.name || 'Technov User',
+                email: req.user.email
+            }
         });
     } catch (error) {
-        logger.error({ err: error }, 'Create order failed');
+        logger.error({
+            msg: 'Create order failed',
+            error: error.message,
+            razorpayError: error.error // Log full Razorpay error object
+        });
+
         res.status(500).json({
             error: 'Failed to create payment order',
-            details: error.error?.description || error.message
+            details: error.error?.description || error.message,
+            code: error.statusCode
         });
     }
 };

@@ -5,7 +5,7 @@ import { createOrder, verifyPayment, handleWebhook } from '../controllers/paymen
 const router = express.Router();
 
 // --- PROTECTED ROUTES (Require Auth) ---
-// POST /api/payments/create-order - Create a Razorpay order
+// POST /api/payments/create-order - Create a Razorpay Order (Popup)
 router.post('/create-order', authMiddleware, createOrder);
 
 // POST /api/payments/verify - Verify payment after frontend completion

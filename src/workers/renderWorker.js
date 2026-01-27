@@ -339,10 +339,15 @@ export const processGenerationJob = async (jobId, context = {}) => {
             throw new Error(`Project ${project.id} not in VIDEO_GENERATION state`);
         }
 
+        // REMOVED STRICT LOCK CHECK:
+        // We allow processing scenes in any state (e.g. FAILED, SCENES_GENERATED)
+        // as long as the project is in VIDEO_GENERATION.
+        /*
         const hasUnlocked = scenes.some((scene) => scene.state !== 'LOCKED');
         if (hasUnlocked) {
             throw new Error(`Project ${project.id} has scenes that are not locked`);
         }
+        */
 
         await prisma.generationJob.update({
             where: { id: jobId },

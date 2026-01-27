@@ -8,8 +8,8 @@ const ALLOWED_TRANSITIONS = {
     ASSETS_READY: ['VIDEO_GENERATION', 'FAILED'],
     VIDEO_GENERATION: ['POST_PROCESSING', 'FAILED'],
     POST_PROCESSING: ['COMPLETE', 'FAILED'],
-    COMPLETE: [],
-    FAILED: []
+    COMPLETE: ['VIDEO_GENERATION'], // Allow re-generation
+    FAILED: ['VIDEO_GENERATION', 'SCENES_GENERATED'] // Allow retry
 };
 
 export const transitionProjectState = async ({

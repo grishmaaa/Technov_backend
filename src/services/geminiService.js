@@ -338,46 +338,19 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         }
     };
 
-    // Use GCS bucket for output if configured (Avoids Base64 memory issues)
-    let bucketName = null;
+    // FORCE BASE64 MODE: Ignore GCS Buffer configuration to avoid Vertex AI internal errors
+    // (We are bypassing the bucket logic entirely to rely on direct Base64 response)
+    if (process.env.GCP_BUCKET_NAME) {
+        logger.info("NOTE: GCP_BUCKET_NAME is set, but we are enforcing Base64/Direct mode to avoid permission errors.");
+    }
+
+    // GCS Config Removed (Commented out below for reference if needed later)
+    /*
     if (process.env.GCP_BUCKET_NAME) {
         bucketName = process.env.GCP_BUCKET_NAME;
-
-        // 1. PRE-FLIGHT CHECK: Can we actually write to this bucket?
-        try {
-            logger.info({ bucket: bucketName }, "Testing bucket permissions...");
-            const testFileName = `technov-test-${Date.now()}.txt`;
-            await uploadFileToStorage({
-                filePath: null, // Hack: we'll simulate a buffer upload if needed, or just skip if uploadFileToStorage relies on local file
-                key: testFileName,
-                contentType: 'text/plain',
-                contentBuffer: Buffer.from("Permission Check")
-            }).catch(async (e) => {
-                // If the main upload helper is complex, let's try a direct simple fetch/axios/library call if possible. 
-                // Actually, simpler: just rely on the fallback logic or assume if this fails, we catch it.
-                // Let's rely on the logging below.
-                throw e;
-            });
-            // Note: uploadFileToStorage might not support direct buffer. 
-            // Let's implement a quick direct test using the existing authClient if possible, 
-            // or better yet, just blindly add the parameters and trust the error wording.
-            // Actually, the user already verified permissions. The "Fallback" suggests the API ignored it.
-            // Let's focus on the Parameter names.
-        } catch (e) {
-            // logger.warn({ err: e }, "Bucket write test warning (ignoring)");
-        }
-
-        // 2. Add ALL known variations of storage parameters to ensure Veo sees one
-        // veoRequest.parameters.outputConfig = {
-        //     gcsDestination: {
-        //         outputUriPrefix: `gs://${bucketName}/outputs/`
-        //     }
-        // };
-        // veoRequest.parameters.storage_uri = `gs://${bucketName}/outputs/`; // Legacy/Alternate
-        // veoRequest.parameters.storageUri = `gs://${bucketName}/outputs/`; // CamelCase
-
-        logger.info({ bucket: bucketName }, "Configured Veo to output to GCS bucket (sending variations: outputConfig, storage_uri)");
+        // ... (Old Logic Removed)
     }
+    */
 
     // If a hero image is provided, add it to the request
     if (heroImageUrl) {

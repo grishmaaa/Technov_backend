@@ -8,6 +8,7 @@ import os from 'os';
 import { uploadFile } from './fileHostingService.js';
 import { isStorageConfigured, getPresignedDownloadUrl } from './storageService.js';
 import { logger } from '../logger.js';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -90,138 +91,660 @@ const VISUAL_MOODS = {
     'hyper-saturated': "Lighting: Punchy, vibrant colors, high saturation throughout."
 };
 
+// 3-STAGE PIPELINE CONSTANTS & SCHEMAS
+
+// SCENE GENERATION SCHEMA (Stage 2)
+const SCENE_SCHEMA = {
+    type: "json_schema",
+    json_schema: {
+        name: "scenes_output",
+        strict: true,
+        schema: {
+            type: "object",
+            properties: {
+                scenes: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            scene_number: { type: "number" },
+                            timestamp: { type: "string" },
+                            title: { type: "string" },
+                            prompt: { type: "string" },
+                            technical_breakdown: {
+                                type: "object",
+                                properties: {
+                                    cinematography: { type: "string" },
+                                    subject: { type: "string" },
+                                    action: { type: "string" },
+                                    context: { type: "string" },
+                                    style_ambiance: { type: "string" }
+                                },
+                                required: ["cinematography", "subject", "action", "context", "style_ambiance"],
+                                additionalProperties: false
+                            },
+                            audio: {
+                                type: "object",
+                                properties: {
+                                    dialogue: { type: ["string", "null"] },
+                                    sfx: { type: "array", items: { type: "string" } },
+                                    ambient: { type: "string" }
+                                },
+                                required: ["dialogue", "sfx", "ambient"],
+                                additionalProperties: false
+                            },
+                            consistency_check: {
+                                type: "object",
+                                properties: {
+                                    character_ids: { type: "array", items: { type: "string" } },
+                                    object_ids: { type: "array", items: { type: "string" } },
+                                    location_id: { type: "string" }
+                                },
+                                required: ["character_ids", "object_ids", "location_id"],
+                                additionalProperties: false
+                            },
+                            duration: { type: "number" }
+                        },
+                        required: ["scene_number", "timestamp", "title", "prompt", "technical_breakdown", "audio", "consistency_check", "duration"],
+                        additionalProperties: false
+                    }
+                },
+                narrative_flow: { type: "string" },
+                audio_continuity: { type: "string" }
+            },
+            required: ["scenes", "narrative_flow", "audio_continuity"],
+            additionalProperties: false
+        }
+    }
+};
+
+// VALIDATION SCHEMA (Stage 3)
+const VALIDATION_SCHEMA = {
+    type: "json_schema",
+    json_schema: {
+        name: "validation_report",
+        strict: true,
+        schema: {
+            type: "object",
+            properties: {
+                validation_status: { type: "string", enum: ["PASS", "FAIL", "NEEDS_REVISION"] },
+                overall_score: { type: "number" },
+                issues_found: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            severity: { type: "string", enum: ["CRITICAL", "MODERATE", "MINOR"] },
+                            category: { type: "string" },
+                            scene_number: { type: "number" },
+                            issue: { type: "string" },
+                            current_text: { type: "string" },
+                            required_fix: { type: "string" }
+                        },
+                        required: ["severity", "category", "scene_number", "issue", "current_text", "required_fix"],
+                        additionalProperties: false
+                    }
+                },
+                strengths: { type: "array", items: { type: "string" } },
+                revision_needed: { type: "boolean" },
+                revised_scenes: {
+                    type: "array",
+                    items: {
+                        // Replicate Scene Schema structure for revised scenes
+                        type: "object",
+                        properties: {
+                            scene_number: { type: "number" },
+                            timestamp: { type: "string" },
+                            title: { type: "string" },
+                            prompt: { type: "string" },
+                            technical_breakdown: {
+                                type: "object",
+                                properties: {
+                                    cinematography: { type: "string" },
+                                    subject: { type: "string" },
+                                    action: { type: "string" },
+                                    context: { type: "string" },
+                                    style_ambiance: { type: "string" }
+                                },
+                                required: ["cinematography", "subject", "action", "context", "style_ambiance"],
+                                additionalProperties: false
+                            },
+                            audio: {
+                                type: "object",
+                                properties: {
+                                    dialogue: { type: ["string", "null"] },
+                                    sfx: { type: "array", items: { type: "string" } },
+                                    ambient: { type: "string" }
+                                },
+                                required: ["dialogue", "sfx", "ambient"],
+                                additionalProperties: false
+                            },
+                            consistency_check: {
+                                type: "object",
+                                properties: {
+                                    character_ids: { type: "array", items: { type: "string" } },
+                                    object_ids: { type: "array", items: { type: "string" } },
+                                    location_id: { type: "string" }
+                                },
+                                required: ["character_ids", "object_ids", "location_id"],
+                                additionalProperties: false
+                            },
+                            duration: { type: "number" }
+                        },
+                        required: ["scene_number", "timestamp", "title", "prompt", "technical_breakdown", "audio", "consistency_check", "duration"],
+                        additionalProperties: false
+                    }
+                }
+            },
+            required: ["validation_status", "overall_score", "issues_found", "strengths", "revision_needed", "revised_scenes"],
+            additionalProperties: false
+        }
+    }
+};
+
+// Safety Schema (Stage 0)
+const SECURITY_SCHEMA = {
+    type: "json_schema",
+    json_schema: {
+        name: "safety_check",
+        strict: true,
+        schema: {
+            type: "object",
+            properties: {
+                safe: { type: "boolean" },
+                violations: { type: "array", items: { type: "string" } },
+                severity: { type: "string", enum: ["BLOCK", "WARNING", "SAFE"] },
+                suggested_alternative: { type: "string" }
+            },
+            required: ["safe", "violations", "severity", "suggested_alternative"],
+            additionalProperties: false
+        }
+    }
+};
+
+// Asset Sheet Schema (Stage 1) - Strict
+const ASSET_SHEET_SCHEMA = {
+    type: "json_schema",
+    json_schema: {
+        name: "asset_sheet",
+        strict: true,
+        schema: {
+            type: "object",
+            properties: {
+                project_metadata: {
+                    type: "object",
+                    properties: {
+                        title: { type: "string" },
+                        duration_seconds: { type: "number" },
+                        total_scenes: { type: "number" },
+                        category: { type: "string", enum: ["entertainment", "commercial", "creative"] },
+                        visual_style: { type: "string" }
+                    },
+                    required: ["title", "duration_seconds", "total_scenes", "category", "visual_style"],
+                    additionalProperties: false
+                },
+                character_bible: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            id: { type: "string" },
+                            role: { type: "string" },
+                            age: { type: "string" },
+                            gender: { type: "string" },
+                            ethnicity: { type: "string" },
+                            physical_description: {
+                                type: "object",
+                                properties: {
+                                    height: { type: "string" },
+                                    build: { type: "string" },
+                                    hair: { type: "string" },
+                                    eyes: { type: "string" },
+                                    skin_tone: { type: "string" },
+                                    distinctive_features: { type: "array", items: { type: "string" } }
+                                },
+                                required: ["hair", "eyes", "skin_tone", "distinctive_features", "height", "build"],
+                                additionalProperties: false
+                            },
+                            costume: {
+                                type: "object",
+                                properties: {
+                                    primary_outfit: { type: "string" },
+                                    accessories: { type: "array", items: { type: "string" } },
+                                    footwear: { type: "string" }
+                                },
+                                required: ["primary_outfit", "accessories", "footwear"],
+                                additionalProperties: false
+                            },
+                            personality_note: { type: "string" }
+                        },
+                        required: ["id", "role", "age", "gender", "ethnicity", "physical_description", "costume", "personality_note"],
+                        additionalProperties: false
+                    }
+                },
+                object_bible: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            id: { type: "string" },
+                            name: { type: "string" },
+                            description: { type: "string" },
+                            consistency_rules: { type: "string" }
+                        },
+                        required: ["id", "name", "description", "consistency_rules"],
+                        additionalProperties: false
+                    }
+                },
+                location_bible: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            id: { type: "string" },
+                            name: { type: "string" },
+                            description: { type: "string" },
+                            lighting_default: { type: "string" },
+                            ambient_sound_default: { type: "string" }
+                        },
+                        required: ["id", "name", "description", "lighting_default", "ambient_sound_default"],
+                        additionalProperties: false
+                    }
+                },
+                brand_elements: {
+                    type: "object",
+                    properties: {
+                        product_name: { type: ["string", "null"] },
+                        product_description: { type: ["string", "null"] },
+                        integration_style: { type: ["string", "null"] }
+                    },
+                    required: ["product_name", "product_description", "integration_style"],
+                    additionalProperties: false
+                },
+                tone_and_style: {
+                    type: "object",
+                    properties: {
+                        genre: { type: "string" },
+                        mood: { type: "string" },
+                        color_palette: { type: "array", items: { type: "string" } },
+                        film_reference: { type: "string" },
+                        camera_philosophy: { type: "string" }
+                    },
+                    required: ["genre", "mood", "color_palette", "film_reference", "camera_philosophy"],
+                    additionalProperties: false
+                }
+            },
+            required: ["project_metadata", "character_bible", "object_bible", "location_bible", "brand_elements", "tone_and_style"],
+            additionalProperties: false
+        }
+    }
+};
+
 /**
- * Generate a cinematic script from story text
- * @param {string} storyText - The story to transform
- * @param {object} options - Optional tier parameters (backward compatible)
- * @param {string} options.plan - 'basic' | 'elite' | 'pro'
- * @param {string} options.productionStyle - 'vlog' | 'standard' | 'cinematic' | 'performance'
- * @param {string} options.artisticAtmosphere - 'photorealistic' | 'cyberpunk' | 'noir' | etc.
- * @param {string} options.length - 'standard' | 'extended'
- * @param {string} options.visualMood - 'neutral-auto' | 'raw-gritty' | 'golden-ethereal' | etc.
+ * STAGE 0: SAFETY CHECK
+ */
+const _stage0_safety_check = async (storyText) => {
+    const prompt = `
+You are a content safety specialist. Analyze this creative brief for policy violations.
+
+USER BRIEF: ${storyText}
+
+Check for:
+1. Sexual or explicit adult content
+2. Content involving minors in harmful contexts
+3. Graphic realistic violence or gore
+4. Hate speech or discrimination
+5. Instructions for illegal activities
+6. Identifiable real people without consent
+
+If the brief is creative (horror, action, commercial) but within acceptable bounds, mark as SAFE.
+`;
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        response_format: SECURITY_SCHEMA,
+        temperature: 0.3
+    });
+
+    return JSON.parse(completion.choices[0].message.content);
+};
+
+/**
+ * STAGE 1: PLANNING
+ * Purpose: Lock down all visual elements BEFORE generating scenes.
+ */
+const _stage1_planning = async (storyText, duration, category = 'creative') => {
+    logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)...");
+
+    const prompt = `
+You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet that will ensure perfect consistency across all video scenes.
+
+USER BRIEF: ${storyText}
+DURATION: ${duration}
+CATEGORY: ${category}
+
+OUTPUT REQUIREMENTS:
+Create a structured JSON asset sheet.
+CRITICAL RULES:
+1. Character descriptions must be FORENSICALLY detailed.
+2. Use EXACT color names.
+3. Include measurements when relevant.
+4. Define consistency anchors.
+5. Plan scene count based on duration.
+6. For non-commercial content, set brand_elements to null values.
+7. Always populate all required fields even if with minimal/null values.
+`;
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        response_format: ASSET_SHEET_SCHEMA,
+        temperature: 0.7
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    logger.info("✅ Stage 1 Complete.");
+    return { assetSheet: parsed, usage: completion.usage };
+};
+
+/**
+ * STAGE 2: SCENE GENERATION
+ * Purpose: Generate professional Veo 3.1 prompts using the locked asset specifications.
+ */
+const _stage2_generation = async (assetSheet, options = {}) => {
+    logger.info("🎥 Stage 2: Generating Scene Prompts...");
+
+    // Inject Tier Options
+    const { plan = 'basic', productionStyle, visualMood } = options;
+    const directorPersona = getDirectorPersona(plan);
+    const styleDirective = productionStyle ? PRODUCTION_STYLES[productionStyle] : '';
+    const moodDirective = visualMood ? VISUAL_MOODS[visualMood] : '';
+
+    const prompt = `
+${directorPersona}
+${styleDirective}
+${moodDirective}
+
+You are an expert Veo 3.1 cinematographer. Using the provided asset sheet, generate professional video prompts following the Veo 3.1 specification.
+
+ASSET SHEET:
+${JSON.stringify(assetSheet, null, 2)}
+
+VEO 3.1 PROMPT FORMULA:
+[Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
+
+AUDIO REQUIREMENTS (MANDATORY):
+- Dialogue: Use double quotes. Format: Character says "exact words"
+- SFX: SFX: [description]
+- Ambient: Ambient noise: [description]
+
+MANDATORY CONSISTENCY RULES:
+1. Copy descriptions VERBATIM from character_bible/object_bible.
+2. Include consistency anchors in EVERY scene.
+3. DO NOT ADD any physical features not in the asset sheet.
+4. If the asset sheet says "chestnut brown hair", use exactly "chestnut brown hair".
+5. Do not invent freckles, scars, tattoos, or other features unless in the asset sheet.
+6. JSON output must strictly follow the schema.
+`;
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        response_format: SCENE_SCHEMA,
+        temperature: 0.8
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    logger.info("✅ Stage 2 Complete.");
+    return { scenesData: parsed, usage: completion.usage };
+};
+
+/**
+ * STAGE 3: VALIDATION & QA
+ * Purpose: Automated quality check to catch inconsistencies before delivery.
+ */
+const _stage3_validation = async (assetSheet, scenesData) => {
+    logger.info("✅ Stage 3: Validating Quality...");
+
+    const prompt = `
+You are a quality assurance specialist for film production. Validate the generated script against the asset sheet and identify any inconsistencies or quality issues.
+
+ASSET SHEET:
+${JSON.stringify(assetSheet, null, 2)}
+
+GENERATED SCENES:
+${JSON.stringify(scenesData, null, 2)}
+
+VALIDATION CHECKLIST:
+
+1. CHARACTER CONSISTENCY
+   - [ ] Physical descriptions match asset sheet exactly in ALL scenes
+   - [ ] Hair color/style identical across scenes
+   - [ ] Clothing matches character bible
+   - [ ] Consistency anchors present in every appearance
+   - [ ] Age/build/features consistent
+
+2. OBJECT CONSISTENCY
+   - [ ] Object descriptions match asset sheet verbatim
+   - [ ] Size/color/material consistent
+   - [ ] Distinctive features always mentioned
+
+3. FORMULA COMPLIANCE
+   - [ ] Every scene has all 5 parts: Cinematography, Subject, Action, Context, Style
+   - [ ] Cinematography uses professional terms
+   - [ ] Context includes lighting description
+   - [ ] Style references film aesthetic
+
+4. AUDIO COMPLETENESS
+   - [ ] Every scene has audio elements
+   - [ ] SFX present and appropriate
+   - [ ] Ambient noise defined
+   - [ ] Dialogue formatted correctly with quotes
+
+5. NARRATIVE FLOW
+   - [ ] Scenes connect logically
+   - [ ] Timeline makes sense for duration
+   - [ ] Visual variety (not repetitive shot types)
+   - [ ] Emotional arc present
+
+6. TECHNICAL QUALITY
+   - [ ] Prompts are 60-120 words
+   - [ ] Professional vocabulary used
+   - [ ] Specific (not vague descriptions)
+   - [ ] Camera work supports story
+
+OUTPUT FORMAT (JSON):
+{
+  "validation_status": "PASS|FAIL|NEEDS_REVISION",
+  "overall_score": 8.5, // Float 1-10
+  "issues_found": [
+    {
+      "severity": "CRITICAL|MODERATE|MINOR",
+      "category": "character_consistency|audio|formula|narrative|technical",
+      "scene_number": number,
+      "issue": "Description of problem",
+      "current_text": "What the script currently says",
+      "required_fix": "Exact correction needed"
+    }
+  ],
+  "strengths": ["array of what works well"],
+  "revision_needed": boolean,
+  "revised_scenes": [
+    // Include the FULL corrected scene objects here (same structure as input scenes) if revision is needed.
+    // If status is PASS, this array can be empty.
+  ]
+}
+
+CRITICAL ISSUE EXAMPLES:
+- Character hair described as "auburn" in scene 1 but "reddish-brown" in scene 3 → CRITICAL
+- Missing audio elements → CRITICAL
+- Vague description "the woman" instead of full character details → CRITICAL
+- No lighting specified → MODERATE
+- Shot type repeated 3 times → MODERATE
+- Minor word choice improvement → MINOR
+
+If validation_status is FAIL or NEEDS_REVISION, YOU MUST PROVIDE THE CORRECTED SCENES in the 'revised_scenes' array.
+`;
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        response_format: VALIDATION_SCHEMA,
+        temperature: 0.3 // Strict low temp for validation
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    logger.info({ score: parsed.overall_score, status: parsed.validation_status }, "✅ Stage 3 Complete.");
+    return { validationReport: parsed, usage: completion.usage };
+};
+
+// HELPER: Motion Complexity Derivation
+const deriveMotionComplexity = (cinematographyText) => {
+    if (!cinematographyText) return 50;
+    const lower = cinematographyText.toLowerCase();
+    if (lower.includes('static') || lower.includes('tripod')) return 10;
+    if (lower.includes('pan') || lower.includes('tilt')) return 40;
+    if (lower.includes('dolly') || lower.includes('tracking')) return 70;
+    if (lower.includes('fpv') || lower.includes('drone') || lower.includes('fast')) return 90;
+    return 50;
+};
+
+// HELPER: Audio Directive Formatting
+const formatAudioDirective = (audio) => {
+    if (!audio) return "Ambient sound";
+    const parts = [];
+    if (audio.dialogue) parts.push(`Dialogue: "${audio.dialogue}"`);
+    if (audio.sfx && Array.isArray(audio.sfx) && audio.sfx.length) parts.push(`SFX: ${audio.sfx.join(', ')}`);
+    if (audio.ambient) parts.push(`Ambient: ${audio.ambient}`);
+    return parts.join(' | ');
+};
+
+// HELPER: Time Parsing
+const calculateDuration = (timestamp) => {
+    if (!timestamp) return 5;
+    // Parse "[00:00-00:08]" → 8 seconds
+    const match = timestamp.match(/\[(\d+):(\d+)-(\d+):(\d+)\]/);
+    if (!match) return 5;
+    const start = parseInt(match[1]) * 60 + parseInt(match[2]);
+    const end = parseInt(match[3]) * 60 + parseInt(match[4]);
+    return Math.max(end - start, 3); // Min 3s
+};
+
+
+/**
+ * Generate a cinematic script using the 3-Stage Pipeline (Planning -> Generation -> Validation).
  */
 export const generateScript = async (storyText, options = {}) => {
-    // Backward compatibility: if options is a string (old API), treat as plan
-    const tierOptions = typeof options === 'string'
-        ? { plan: options }
-        : options;
+    // 1. SAFETY CHECK (Stage 0)
+    // NOTE: If story is empty or too short, we might skip, but good to be safe.
+    const safetyCheck = await _stage0_safety_check(storyText);
+    if (safetyCheck.severity === 'BLOCK') {
+        logger.warn({ violations: safetyCheck.violations }, "Safety Check Blocked Request");
+        throw new Error(`SAFETY_VIOLATION: ${safetyCheck.violations.join(', ')}. Suggestion: ${safetyCheck.suggested_alternative}`);
+    }
+    if (safetyCheck.severity === 'WARNING') {
+        logger.warn({ violations: safetyCheck.violations }, "Safety Check Warning (Proceeding)");
+    }
 
-    const {
-        plan = 'basic',
-        productionStyle = 'standard',
-        artisticAtmosphere = 'photorealistic',
-        length = 'standard',
-        visualMood = 'neutral-auto',
-        audioMode = 'MIX',
-        textMode = 'TEXT_ONLY'
-    } = tierOptions;
+    const tierOptions = typeof options === 'string' ? { plan: options } : options;
+    const { plan = 'basic', length = 'standard' } = tierOptions;
 
-    const directorPersona = getDirectorPersona(plan);
-    const styleDirective = PRODUCTION_STYLES[productionStyle] || PRODUCTION_STYLES.standard;
-    const aestheticDirective = ARTISTIC_ATMOSPHERES[artisticAtmosphere] || ARTISTIC_ATMOSPHERES.photorealistic;
-    const moodDirective = VISUAL_MOODS[visualMood] || VISUAL_MOODS['neutral-auto'];
-    const durationConstraint = length === 'extended'
-        ? "Total duration must be between 60-65 seconds across all scenes."
-        : "Total duration must be between 10-12 seconds across all scenes.";
+    // Constraints
+    const isExtended = length === 'extended';
+    const durationString = isExtended ? "60 seconds" : "15 seconds";
 
-    // Wrap the core logic to allow for retries of the *Generation* step
+    // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {
-        const prompt = `
-            ${directorPersona}
+        // 2. Stage 1: Planning
+        const { assetSheet, usage: u1 } = await _stage1_planning(storyText, durationString);
 
-            You are a Direct, Literal Visualizer.
-            You do NOT invent artistic B-roll or "mood shots" unless explicitly asked.
-            You follow the story EXACTLY as written, translating it into 4 clear visual scenes.
+        // 3. Stage 2: Generation (Injecting styles/moods)
+        const { scenesData, usage: u2 } = await _stage2_generation(assetSheet, tierOptions);
 
-            --- INSTRUCTIONS ---
-            1. Technical Style: ${styleDirective}
-            2. Artistic Mood: ${aestheticDirective}
-            3. Visual Mood: ${moodDirective}
-            4. Duration Target: ${durationConstraint}
-            5. Dialogue Mode: ${audioMode} (Respect this strictly)
-            6. Text Mode: ${textMode}
+        // 4. Stage 3: Validation
+        const { validationReport, usage: u3 } = await _stage3_validation(assetSheet, scenesData);
 
-            --- CRITICAL RULES FOR CONSISTENCY ---
-            1. **LITERAL INTERPRETATION**: If the story says "Cinderella cleans the floor", SHOW CINDERELLA CLEANING THE FLOOR. Do not show a "close up of a bottle" or "sunlight hitting dust". Show the CHARACTER doing the ACTION.
-            2. **CHARACTER CONTINUITY**: If a character (e.g., Cinderella) is introduced, they must remain the same character in all scenes. Do not switch to "random lady" or "generic hands".
-            3. **NO FLUFF**: Avoid flowery language like "A symphony of light" or "The camera dances". Use simple, direct descriptions: "Cinderella scrubs the floor." "She picks up the bottle."
-            4. **STRICT 4-SCENE STRUCTURE**:
-               - **Scene 1: THE PROBLEM**. Show the struggle/pain point. (e.g. Cinderella tired, scrubbing dirty floor).
-               - **Scene 2: THE DISCOVERY**. Show the character finding/seeing the product. (e.g. She sees the Shinky bottle).
-               - **Scene 3: THE SOLUTION**. The magic happens. (e.g. She uses it, floor becomes instantly shiny).
-               - **Scene 4: THE PAYOFF/CTA**. Hero shot or Character speaking to camera. (e.g. She smiles at camera, holds bottle).
+        // QUALITY GATE
+        const MIN_PRODUCTION_SCORE = 8.5;
+        const MIN_ACCEPTABLE_SCORE = 7.5;
 
-            STORY INPUT:
-            "${storyText}"
+        // Strict Enforcement
+        if (validationReport.overall_score < MIN_ACCEPTABLE_SCORE) {
+            const criticalIssues = validationReport.issues_found.filter(i => i.severity === 'CRITICAL');
+            logger.error({
+                score: validationReport.overall_score,
+                issues: criticalIssues
+            }, "❌ Quality check failed");
 
-            OUTPUT FORMAT (STRICT JSON):
-            {
-                "suggested_title": "Title String",
-                "scenes": [
-                    {
-                        "scene_id": 1,
-                        "action_description": "Literal description of action. If Audio Mode is MIX/DIALOGUE_ONLY, include: 'Character says: ...'",
-                        "shot_type": "Medium Shot / Wide Shot / Close Up",
-                        "motion_complexity": 5,
-                        "audio_directive": "Specific sounds (scrubbing, footsteps, upbeat music)",
-                        "duration": 8
+            // Throw to stop delivery of bad scripts
+            throw new Error(
+                `Quality check failed: Score ${validationReport.overall_score}/10 is below minimum (${MIN_ACCEPTABLE_SCORE}). ` +
+                `Critical issues: ${criticalIssues.map(i => i.issue).join('; ')}`
+            );
+        }
+
+        if (validationReport.overall_score < MIN_PRODUCTION_SCORE) {
+            logger.warn({ score: validationReport.overall_score, target: MIN_PRODUCTION_SCORE }, "⚠️ Quality score below production standard but acceptable.");
+        }
+
+        // 5. Merge / Revision Logic (Improved merging)
+        let finalScenes = scenesData.scenes;
+        if (validationReport.revision_needed && validationReport.revised_scenes && validationReport.revised_scenes.length > 0) {
+            logger.warn({
+                original_count: finalScenes.length,
+                revised_count: validationReport.revised_scenes.length,
+                issues: validationReport.issues_found
+            }, "⚠️ Applying validation corrections");
+
+            // Optimistic replacement
+            if (validationReport.revised_scenes.length === finalScenes.length) {
+                finalScenes = validationReport.revised_scenes;
+            } else {
+                const revisedMap = new Map(validationReport.revised_scenes.map(s => [s.scene_number, s]));
+                finalScenes = finalScenes.map(scene => {
+                    const revised = revisedMap.get(scene.scene_number);
+                    if (revised) {
+                        logger.info({ scene_number: scene.scene_number }, "Applying correction");
+                        return revised;
                     }
-                ]
+                    return scene;
+                });
             }
-        `;
-
-        const openai = getOpenAI(); // Get OpenAI client
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o", // or "gpt-4" or "gpt-3.5-turbo"
-            messages: [
-                {
-                    role: "system",
-                    content: "You are a professional film director and screenwriter. You respond ONLY with valid JSON."
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
-            ],
-            temperature: 0.7,
-        });
-
-        const text = completion.choices[0].message.content;
-
-        // Log token usage (Observability)
-        const usage = completion.usage;
-        logger.info({
-            promptTokens: usage?.prompt_tokens,
-            completionTokens: usage?.completion_tokens,
-            totalTokens: usage?.total_tokens
-        }, 'Token usage');
-
-        // Try Parsing
-        const cleanedText = cleanMarkdown(text);
-        let parsedResponse;
-
-        try {
-            parsedResponse = JSON.parse(cleanedText);
-        } catch (parseError) {
-            logger.error({ err: parseError, responseSnippet: text.substring(0, 500) }, 'JSON parsing failed');
-            throw new Error(`Failed to parse scene JSON: ${parseError.message}`);
         }
 
-        // Handle both new format (object with suggested_title + scenes) and legacy format (array)
-        const suggested_title = parsedResponse.suggested_title || null;
-        const scenes = Array.isArray(parsedResponse) ? parsedResponse : parsedResponse.scenes;
+        // 6. Mapping to Database Format (High Fidelity)
+        const mappedScenes = finalScenes.map((s, i) => ({
+            scene_id: s.scene_number || (i + 1),
+            // The "Prompt" is the action description for the DB
+            action_description: s.prompt,
+            shot_type: s.technical_breakdown?.cinematography || "Cinematic Shot",
+            motion_complexity: deriveMotionComplexity(s.technical_breakdown?.cinematography),
+            audio_directive: formatAudioDirective(s.audio),
+            duration: s.duration || calculateDuration(s.timestamp),
 
-        if (!Array.isArray(scenes) || scenes.length === 0) {
-            throw new Error('Invalid scene data: Expected non-empty scenes array');
-        }
+            // Metadata for debugging
+            character_ids: s.consistency_check?.character_ids || [],
+            object_ids: s.consistency_check?.object_ids || []
+        }));
+
+        const totalTokens = (u1?.total_tokens || 0) + (u2?.total_tokens || 0) + (u3?.total_tokens || 0);
+        const promptTokens = (u1?.prompt_tokens || 0) + (u2?.prompt_tokens || 0) + (u3?.prompt_tokens || 0);
+        const completionTokens = (u1?.completion_tokens || 0) + (u2?.completion_tokens || 0) + (u3?.completion_tokens || 0);
 
         return {
-            scenes,
-            suggested_title, // AI-generated creative title
+            scenes: mappedScenes,
+            suggested_title: assetSheet.project_metadata?.title || "Untitled Project",
+            // Return the Asset Sheet so Controller can save it to DB
+            assetSheet: assetSheet,
+            validationReport: validationReport,
             usage: {
-                promptTokenCount: usage?.prompt_tokens || 0,
-                candidatesTokenCount: usage?.completion_tokens || 0,
-                totalTokenCount: usage?.total_tokens || 0
+                promptTokenCount: promptTokens,
+                candidatesTokenCount: completionTokens,
+                totalTokenCount: totalTokens
             }
         };
     });
@@ -306,6 +829,12 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
     const rawModelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
     const modelId = rawModelId ? rawModelId.trim() : null;
 
+    // Fix for missing bucketName variable
+    let bucketName = null;
+    if (process.env.GCP_BUCKET_NAME) {
+        bucketName = process.env.GCP_BUCKET_NAME;
+    }
+
     if (!project || !modelId) {
         throw new Error("Missing GCP Project ID or Veo Model ID.");
     }
@@ -343,14 +872,6 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
     if (process.env.GCP_BUCKET_NAME) {
         logger.info("NOTE: GCP_BUCKET_NAME is set, but we are enforcing Base64/Direct mode to avoid permission errors.");
     }
-
-    // GCS Config Removed (Commented out below for reference if needed later)
-    /*
-    if (process.env.GCP_BUCKET_NAME) {
-        bucketName = process.env.GCP_BUCKET_NAME;
-        // ... (Old Logic Removed)
-    }
-    */
 
     // If a hero image is provided, add it to the request
     if (heroImageUrl) {
@@ -512,7 +1033,6 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
                 bucket: process.env.GCP_BUCKET_NAME,
                 responseStructure: safeLog(responseOrResult)
             }, "GCS Bucket configured but no URI returned. Veo likely fell back to Base64 (failed) or error occurred.");
-
             // Allow fall-through to Base64 handler below if it exists, otherwise error.
         }
     }

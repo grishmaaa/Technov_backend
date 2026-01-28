@@ -106,7 +106,7 @@ export const generateScriptController = async (req, res) => {
         });
 
         // 2. Generate Script (JSON) with tier options - backward compatible
-        const { scenes: scenesData, suggested_title: aiTitle, usage } = await generateScript(story, {
+        const { scenes: scenesData, suggested_title: aiTitle, usage, assetSheet } = await generateScript(story, {
             plan: userPlan,
             productionStyle,
             artisticAtmosphere,
@@ -120,7 +120,10 @@ export const generateScriptController = async (req, res) => {
         // Update project with AI-generated title if applicable
         await prisma.project.update({
             where: { id: project.id },
-            data: { title: finalTitle }
+            data: {
+                title: finalTitle,
+                metadata: assetSheet || undefined
+            }
         });
 
         // Calculate Cost (OpenAI GPT-4 Pricing)

@@ -71,6 +71,7 @@ model Project {
   errorLog       String? // Text to store debug info
   retryCount     Int     @default(0)
   traceId        String?
+  metadata       Json?    @map("metadata")
   
   finalVideoUrl String? @map("final_video_url")
   createdAt   DateTime @default(now()) @map("created_at")

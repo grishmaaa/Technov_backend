@@ -481,11 +481,11 @@ AUDIO REQUIREMENTS (MANDATORY):
 - Ambient: Ambient noise: [description]
 
 MANDATORY CONSISTENCY RULES:
-1. Copy descriptions VERBATIM from character_bible/object_bible.
-2. Include consistency anchors in EVERY scene.
-3. DO NOT ADD any physical features not in the asset sheet.
-4. If the asset sheet says "chestnut brown hair", use exactly "chestnut brown hair".
-5. Do not invent freckles, scars, tattoos, or other features unless in the asset sheet.
+1. Copy descriptions VERBATIM from character_bible/object_bible for CORE IDENTIFIERS (hair color, eye color, distinct features).
+2. ENHANCE the visual description with cinematic details (lighting, texture, atmosphere) that fit the style.
+3. Include consistency anchors in EVERY scene.
+4. If the asset sheet says "chestnut brown hair", use exactly "chestnut brown hair", but you can add "glistening in the rain".
+5. Do not invent CONTRADICTORY features (e.g. don't give a scar if none exists).
 6. JSON output must strictly follow the schema.
 `;
 

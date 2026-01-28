@@ -417,6 +417,14 @@ const _stage0_safety_check = async (storyText) => {
 const _stage1_planning = async (storyText, duration, category = 'creative') => {
     logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)...");
 
+    // CALCULATE REQUIRED SCENES
+    // logic: 15s -> 3 scenes (5s each), 30s -> 5 scenes, 60s -> 10 scenes
+    let durationSeconds = 15;
+    if (duration.includes("60")) durationSeconds = 60;
+    else if (duration.includes("30")) durationSeconds = 30;
+    
+    const scenesNeeded = Math.ceil(durationSeconds / 5); // 5 seconds per scene ideal for Veo
+
     const prompt = `
     You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet that will ensure perfect consistency across all video scenes.
 
@@ -424,14 +432,20 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
     DURATION: ${duration}
     CATEGORY: ${category}
 
+    SCENE PLANNING REQUIREMENTS:
+    - For ${duration}, generate EXACTLY ${scenesNeeded} scenes
+    - Each scene should be 5 seconds long
+    - Each scene should have ONE clear focus (one camera move, one action)
+    - Scenes should flow sequentially to tell the complete story
+
     OUTPUT REQUIREMENTS:
     Create a structured JSON asset sheet.
     CRITICAL RULES:
-    1. Character descriptions must be FORENSICALLY detailed.
-    2. Use EXACT color names.
-    3. Include measurements when relevant.
-    4. Define consistency anchors.
-    5. Plan scene count based on duration.
+    1. total_scenes MUST be ${scenesNeeded}
+    2. Character descriptions must be FORENSICALLY detailed.
+    3. Use EXACT color names.
+    4. Include measurements when relevant.
+    5. Define consistency anchors.
     6. For non-commercial content, set brand_elements to null values.
     7. Always populate all required fields even if with minimal/null values.
     `;
@@ -467,25 +481,46 @@ const _stage2_generation = async (assetSheet, options = {}) => {
     ${styleDirective}
     ${moodDirective}
 
-    You are an expert Veo 3.1 cinematographer. Using the provided asset sheet, generate professional video prompts following the Veo 3.1 specification.
+    You are an expert Veo 3.1 cinematographer. Generate prompts for ${assetSheet.project_metadata.total_scenes} SEPARATE video clips that will be stitched together.
 
     ASSET SHEET:
     ${JSON.stringify(assetSheet, null, 2)}
 
-    VEO 3.1 PROMPT FORMULA:
-    [Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
+    CRITICAL VEO 3.1 CONSTRAINTS:
+    - Each scene is a SEPARATE 5-second video generation
+    - ONE camera movement per scene maximum
+    - ONE main action per scene
+    - Focus on 2-3 key visual details, not everything
+    - Length: 80-120 words (Veo's sweet spot for detail retention)
+
+    SCENE STRUCTURE (for each of the ${assetSheet.project_metadata.total_scenes} scenes):
+
+    **FRONT-LOAD DISTINCTIVE FEATURES (First 20 words):**
+    "{Character} with {DISTINCTIVE FEATURE IN CAPS}, {clothing}, {expression}"
+
+    **SINGLE ACTION (Next 20 words):**
+    "performs {one specific action}"
+
+    **SINGLE CAMERA MOVE (Next 20 words):**
+    "{One camera technique only: wide shot / dolly in / pan / close-up}"
+
+    **ENVIRONMENT (Next 30 words):**
+    "{Location} with {2-3 specific environmental details}"
+
+    **STYLE (Final 30 words):**
+    "{Lighting style}, {color palette}, {mood}, {film reference}"
 
     AUDIO REQUIREMENTS (MANDATORY):
-    - Dialogue: Use double quotes. Format: Character says "exact words"
+    - Dialogue: Use double quotes. Format: Character says "exact words" (Keep short < 10 words)
     - SFX: SFX: [description]
     - Ambient: Ambient noise: [description]
 
     MANDATORY CONSISTENCY RULES:
-    1. Copy descriptions VERBATIM from character_bible/object_bible for CORE IDENTIFIERS (hair color, eye color, distinct features).
-    2. ENHANCE the visual description with cinematic details (lighting, texture, atmosphere) that fit the style.
+    1. Copy descriptions VERBATIM from character_bible/object_bible for CORE IDENTIFIERS.
+    2. ENHANCE the visual description with cinematic details (lighting, texture, atmosphere).
     3. Include consistency anchors in EVERY scene.
-    4. If the asset sheet says "chestnut brown hair", use exactly "chestnut brown hair", but you can add "glistening in the rain".
-    5. Do not invent CONTRADICTORY features (e.g. don't give a scar if none exists).
+    4. CAPS for distinctive features in EVERY scene (e.g. "CYBERNETIC GOLD ARM").
+    5. Each scene must be 80-120 words.
     6. JSON output must strictly follow the schema.
     `;
 
@@ -524,37 +559,31 @@ const _stage3_validation = async (assetSheet, scenesData) => {
     - [ ] Physical descriptions match asset sheet exactly in ALL scenes
     - [ ] Hair color/style identical across scenes
     - [ ] Clothing matches character bible
-    - [ ] Consistency anchors present in every appearance
-    - [ ] Age/build/features consistent
+    - [ ] Consistency anchors present in every appearance (CAPS preferred)
 
     2. OBJECT CONSISTENCY
     - [ ] Object descriptions match asset sheet verbatim
-    - [ ] Size/color/material consistent
     - [ ] Distinctive features always mentioned
 
     3. FORMULA COMPLIANCE
-    - [ ] Every scene has all 5 parts: Cinematography, Subject, Action, Context, Style
+    - [ ] Every scene has ONE camera movement
+    - [ ] Every scene has ONE main action
     - [ ] Cinematography uses professional terms
-    - [ ] Context includes lighting description
-    - [ ] Style references film aesthetic
+    - [ ] Distinctive features appear in FIRST 20 words of each scene
 
     4. AUDIO COMPLETENESS
     - [ ] Every scene has audio elements
-    - [ ] SFX present and appropriate
-    - [ ] Ambient noise defined
-    - [ ] Dialogue formatted correctly with quotes
+    - [ ] Dialogue is short (< 10 words) and correctly quoted
 
     5. NARRATIVE FLOW
     - [ ] Scenes connect logically
     - [ ] Timeline makes sense for duration
     - [ ] Visual variety (not repetitive shot types)
-    - [ ] Emotional arc present
 
     6. TECHNICAL QUALITY
-    - [ ] Prompts are 60-120 words
+    - [ ] Prompts are 80-120 words (Veo optimal)
     - [ ] Professional vocabulary used
     - [ ] Specific (not vague descriptions)
-    - [ ] Camera work supports story
 
     OUTPUT FORMAT (JSON):
     {

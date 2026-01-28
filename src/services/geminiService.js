@@ -59,8 +59,8 @@ const cleanMarkdown = (text) => text.replace(/```json/g, '').replace(/```/g, '')
 const getDirectorPersona = (plan) => {
     if (plan === 'elite' || plan === 'pro') {
         return `You are an Oscar-winning Cinematographer with 30 years of experience.
-Your shot descriptions must be poetic and use advanced cinematic terms (e.g., 'chiaroscuro lighting', 'anamorphic lens flare').
-Add visual subtext and emotional layers to every scene.`;
+    Your shot descriptions must be poetic and use advanced cinematic terms (e.g., 'chiaroscuro lighting', 'anamorphic lens flare').
+    Add visual subtext and emotional layers to every scene.`;
     }
     return `You are an expert film director, screenwriter, cinematographer, and editor combined.`;
 };
@@ -385,20 +385,20 @@ const ASSET_SHEET_SCHEMA = {
  */
 const _stage0_safety_check = async (storyText) => {
     const prompt = `
-You are a content safety specialist. Analyze this creative brief for policy violations.
+    You are a content safety specialist. Analyze this creative brief for policy violations.
 
-USER BRIEF: ${storyText}
+    USER BRIEF: ${storyText}
 
-Check for:
-1. Sexual or explicit adult content
-2. Content involving minors in harmful contexts
-3. Graphic realistic violence or gore
-4. Hate speech or discrimination
-5. Instructions for illegal activities
-6. Identifiable real people without consent
+    Check for:
+    1. Sexual or explicit adult content
+    2. Content involving minors in harmful contexts
+    3. Graphic realistic violence or gore
+    4. Hate speech or discrimination
+    5. Instructions for illegal activities
+    6. Identifiable real people without consent
 
-If the brief is creative (horror, action, commercial) but within acceptable bounds, mark as SAFE.
-`;
+    If the brief is creative (horror, action, commercial) but within acceptable bounds, mark as SAFE.
+    `;
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -418,23 +418,23 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
     logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)...");
 
     const prompt = `
-You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet that will ensure perfect consistency across all video scenes.
+    You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet that will ensure perfect consistency across all video scenes.
 
-USER BRIEF: ${storyText}
-DURATION: ${duration}
-CATEGORY: ${category}
+    USER BRIEF: ${storyText}
+    DURATION: ${duration}
+    CATEGORY: ${category}
 
-OUTPUT REQUIREMENTS:
-Create a structured JSON asset sheet.
-CRITICAL RULES:
-1. Character descriptions must be FORENSICALLY detailed.
-2. Use EXACT color names.
-3. Include measurements when relevant.
-4. Define consistency anchors.
-5. Plan scene count based on duration.
-6. For non-commercial content, set brand_elements to null values.
-7. Always populate all required fields even if with minimal/null values.
-`;
+    OUTPUT REQUIREMENTS:
+    Create a structured JSON asset sheet.
+    CRITICAL RULES:
+    1. Character descriptions must be FORENSICALLY detailed.
+    2. Use EXACT color names.
+    3. Include measurements when relevant.
+    4. Define consistency anchors.
+    5. Plan scene count based on duration.
+    6. For non-commercial content, set brand_elements to null values.
+    7. Always populate all required fields even if with minimal/null values.
+    `;
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
@@ -463,31 +463,31 @@ const _stage2_generation = async (assetSheet, options = {}) => {
     const moodDirective = visualMood ? VISUAL_MOODS[visualMood] : '';
 
     const prompt = `
-${directorPersona}
-${styleDirective}
-${moodDirective}
+    ${directorPersona}
+    ${styleDirective}
+    ${moodDirective}
 
-You are an expert Veo 3.1 cinematographer. Using the provided asset sheet, generate professional video prompts following the Veo 3.1 specification.
+    You are an expert Veo 3.1 cinematographer. Using the provided asset sheet, generate professional video prompts following the Veo 3.1 specification.
 
-ASSET SHEET:
-${JSON.stringify(assetSheet, null, 2)}
+    ASSET SHEET:
+    ${JSON.stringify(assetSheet, null, 2)}
 
-VEO 3.1 PROMPT FORMULA:
-[Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
+    VEO 3.1 PROMPT FORMULA:
+    [Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
 
-AUDIO REQUIREMENTS (MANDATORY):
-- Dialogue: Use double quotes. Format: Character says "exact words"
-- SFX: SFX: [description]
-- Ambient: Ambient noise: [description]
+    AUDIO REQUIREMENTS (MANDATORY):
+    - Dialogue: Use double quotes. Format: Character says "exact words"
+    - SFX: SFX: [description]
+    - Ambient: Ambient noise: [description]
 
-MANDATORY CONSISTENCY RULES:
-1. Copy descriptions VERBATIM from character_bible/object_bible for CORE IDENTIFIERS (hair color, eye color, distinct features).
-2. ENHANCE the visual description with cinematic details (lighting, texture, atmosphere) that fit the style.
-3. Include consistency anchors in EVERY scene.
-4. If the asset sheet says "chestnut brown hair", use exactly "chestnut brown hair", but you can add "glistening in the rain".
-5. Do not invent CONTRADICTORY features (e.g. don't give a scar if none exists).
-6. JSON output must strictly follow the schema.
-`;
+    MANDATORY CONSISTENCY RULES:
+    1. Copy descriptions VERBATIM from character_bible/object_bible for CORE IDENTIFIERS (hair color, eye color, distinct features).
+    2. ENHANCE the visual description with cinematic details (lighting, texture, atmosphere) that fit the style.
+    3. Include consistency anchors in EVERY scene.
+    4. If the asset sheet says "chestnut brown hair", use exactly "chestnut brown hair", but you can add "glistening in the rain".
+    5. Do not invent CONTRADICTORY features (e.g. don't give a scar if none exists).
+    6. JSON output must strictly follow the schema.
+    `;
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
@@ -510,84 +510,84 @@ const _stage3_validation = async (assetSheet, scenesData) => {
     logger.info("✅ Stage 3: Validating Quality...");
 
     const prompt = `
-You are a quality assurance specialist for film production. Validate the generated script against the asset sheet and identify any inconsistencies or quality issues.
+    You are a quality assurance specialist for film production. Validate the generated script against the asset sheet and identify any inconsistencies or quality issues.
 
-ASSET SHEET:
-${JSON.stringify(assetSheet, null, 2)}
+    ASSET SHEET:
+    ${JSON.stringify(assetSheet, null, 2)}
 
-GENERATED SCENES:
-${JSON.stringify(scenesData, null, 2)}
+    GENERATED SCENES:
+    ${JSON.stringify(scenesData, null, 2)}
 
-VALIDATION CHECKLIST:
+    VALIDATION CHECKLIST:
 
-1. CHARACTER CONSISTENCY
-   - [ ] Physical descriptions match asset sheet exactly in ALL scenes
-   - [ ] Hair color/style identical across scenes
-   - [ ] Clothing matches character bible
-   - [ ] Consistency anchors present in every appearance
-   - [ ] Age/build/features consistent
+    1. CHARACTER CONSISTENCY
+    - [ ] Physical descriptions match asset sheet exactly in ALL scenes
+    - [ ] Hair color/style identical across scenes
+    - [ ] Clothing matches character bible
+    - [ ] Consistency anchors present in every appearance
+    - [ ] Age/build/features consistent
 
-2. OBJECT CONSISTENCY
-   - [ ] Object descriptions match asset sheet verbatim
-   - [ ] Size/color/material consistent
-   - [ ] Distinctive features always mentioned
+    2. OBJECT CONSISTENCY
+    - [ ] Object descriptions match asset sheet verbatim
+    - [ ] Size/color/material consistent
+    - [ ] Distinctive features always mentioned
 
-3. FORMULA COMPLIANCE
-   - [ ] Every scene has all 5 parts: Cinematography, Subject, Action, Context, Style
-   - [ ] Cinematography uses professional terms
-   - [ ] Context includes lighting description
-   - [ ] Style references film aesthetic
+    3. FORMULA COMPLIANCE
+    - [ ] Every scene has all 5 parts: Cinematography, Subject, Action, Context, Style
+    - [ ] Cinematography uses professional terms
+    - [ ] Context includes lighting description
+    - [ ] Style references film aesthetic
 
-4. AUDIO COMPLETENESS
-   - [ ] Every scene has audio elements
-   - [ ] SFX present and appropriate
-   - [ ] Ambient noise defined
-   - [ ] Dialogue formatted correctly with quotes
+    4. AUDIO COMPLETENESS
+    - [ ] Every scene has audio elements
+    - [ ] SFX present and appropriate
+    - [ ] Ambient noise defined
+    - [ ] Dialogue formatted correctly with quotes
 
-5. NARRATIVE FLOW
-   - [ ] Scenes connect logically
-   - [ ] Timeline makes sense for duration
-   - [ ] Visual variety (not repetitive shot types)
-   - [ ] Emotional arc present
+    5. NARRATIVE FLOW
+    - [ ] Scenes connect logically
+    - [ ] Timeline makes sense for duration
+    - [ ] Visual variety (not repetitive shot types)
+    - [ ] Emotional arc present
 
-6. TECHNICAL QUALITY
-   - [ ] Prompts are 60-120 words
-   - [ ] Professional vocabulary used
-   - [ ] Specific (not vague descriptions)
-   - [ ] Camera work supports story
+    6. TECHNICAL QUALITY
+    - [ ] Prompts are 60-120 words
+    - [ ] Professional vocabulary used
+    - [ ] Specific (not vague descriptions)
+    - [ ] Camera work supports story
 
-OUTPUT FORMAT (JSON):
-{
-  "validation_status": "PASS|FAIL|NEEDS_REVISION",
-  "overall_score": 8.5, // Float 1-10
-  "issues_found": [
+    OUTPUT FORMAT (JSON):
     {
-      "severity": "CRITICAL|MODERATE|MINOR",
-      "category": "character_consistency|audio|formula|narrative|technical",
-      "scene_number": number,
-      "issue": "Description of problem",
-      "current_text": "What the script currently says",
-      "required_fix": "Exact correction needed"
+    "validation_status": "PASS|FAIL|NEEDS_REVISION",
+    "overall_score": 8.5, // Float 1-10
+    "issues_found": [
+        {
+        "severity": "CRITICAL|MODERATE|MINOR",
+        "category": "character_consistency|audio|formula|narrative|technical",
+        "scene_number": number,
+        "issue": "Description of problem",
+        "current_text": "What the script currently says",
+        "required_fix": "Exact correction needed"
+        }
+    ],
+    "strengths": ["array of what works well"],
+    "revision_needed": boolean,
+    "revised_scenes": [
+        // Include the FULL corrected scene objects here (same structure as input scenes) if revision is needed.
+        // If status is PASS, this array can be empty.
+    ]
     }
-  ],
-  "strengths": ["array of what works well"],
-  "revision_needed": boolean,
-  "revised_scenes": [
-    // Include the FULL corrected scene objects here (same structure as input scenes) if revision is needed.
-    // If status is PASS, this array can be empty.
-  ]
-}
 
-CRITICAL ISSUE EXAMPLES:
-- Character hair described as "auburn" in scene 1 but "reddish-brown" in scene 3 → CRITICAL
-- Missing audio elements → CRITICAL
-- Vague description "the woman" instead of full character details → CRITICAL
-- No lighting specified → MODERATE
-- Shot type repeated 3 times → MODERATE
-- Minor word choice improvement → MINOR
+    CRITICAL ISSUE EXAMPLES:
+    - Character hair described as "auburn" in scene 1 but "reddish-brown" in scene 3 → CRITICAL
+    - Missing audio elements → CRITICAL
+    - Vague description "the woman" instead of full character details → CRITICAL
+    - No lighting specified → MODERATE
+    - Shot type repeated 3 times → MODERATE
+    - Minor word choice improvement → MINOR
 
-If validation_status is FAIL or NEEDS_REVISION, YOU MUST PROVIDE THE CORRECTED SCENES in the 'revised_scenes' array.
-`;
+    If validation_status is FAIL or NEEDS_REVISION, YOU MUST PROVIDE THE CORRECTED SCENES in the 'revised_scenes' array.
+    `;
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
@@ -862,14 +862,13 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         ],
         parameters: {
             aspectRatio: options.aspectRatio || '16:9',
-            sampleCount: 1,
+            sampleCount: 1
             // durationSeconds is not directly supported - Veo generates fixed 8s clips
-            storageUri: bucketName ? `gs://${bucketName}/generated/${crypto.randomUUID()}` : undefined
         }
     };
 
     if (bucketName) {
-        logger.info({ storageUri: veoRequest.parameters.storageUri }, "Configured GCS output destination for Veo");
+        logger.info({ bucket: bucketName }, "GCS bucket available (Veo will decide output mode)");
     } else {
         logger.info("No GCS bucket configured. Veo will return Base64 or default storage URI.");
     }
@@ -968,19 +967,39 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         return await extractVideoFromResponse(finalResponse, project, location, modelId, accessToken, bucketName);
 
     } catch (error) {
-        // Auto-Retry logic for Guardrails
+        const errorContext = {
+            message: error.message,
+            promptLength: prompt.length,
+            hasHeroImage: !!heroImageUrl,
+            bucketConfigured: !!bucketName,
+            attemptNumber: options.isRetry ? 2 : 1
+        };
+
+        // Guardrail errors (Auto-Retry with sanitized prompt)
         if (error.message.includes("GUARDRAIL_ERROR") && !options.isRetry) {
-            logger.warn({ originalPrompt: prompt }, "Guardrail triggered. Retrying with sanitized prompt...");
+            logger.warn({ ...errorContext, type: 'guardrail', originalPrompt: prompt }, "Guardrail triggered. Retrying with sanitized prompt...");
 
-            // Fallback strategy: Strip brand names, keep style. 
-            // Since we can't easily NLP detect brands here without valid regex or libraries, 
-            // we will reduce the prompt to its core style directives + generic subject.
+            // Fallback strategy: Strip brand names, keep style.
             const sanitizedPrompt = `Cinematic product shot, high quality, 4k. A generic unbranded bottle in a clean environment. ${options.visualMood || ''}`;
-
             return generateVideo(sanitizedPrompt, heroImageUrl, { ...options, isRetry: true });
         }
 
-        logger.error({ err: error }, "Veo video generation failed");
+        // Internal/transient errors (retry once after delay)
+        if ((error.message.includes("Internal error") ||
+            error.message.includes("503") ||
+            error.message.includes("timeout")) && !options.isRetry) {
+            logger.warn({ ...errorContext, type: 'transient' }, "Veo transient error, retrying after 5s delay...");
+            await sleep(5000);
+            return generateVideo(prompt, heroImageUrl, { ...options, isRetry: true });
+        }
+
+        // Permission errors (don't retry)
+        if (error.message.includes("permission") || error.message.includes("403")) {
+            logger.error({ ...errorContext, type: 'permission' }, "GCS permission error - check service account");
+            throw new Error(`GCS Permission Error: Your service account needs storage.objects.create permission on bucket ${bucketName}`);
+        }
+
+        logger.error({ ...errorContext, type: 'unknown', stack: error.stack }, "Veo generation failed");
         throw new Error(`Veo Generation Failed: ${error.message}`);
     }
     // End of generateVideo (logic dispatched to extractVideoFromResponse)
@@ -989,6 +1008,11 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
 // Helper to extracting video URL or Base64 from the Veo response
 const extractVideoFromResponse = async (responseOrResult, project, location, modelId, accessToken, bucketName) => {
+    logger.info({
+        responseKeys: responseOrResult ? Object.keys(responseOrResult) : [],
+        isArray: Array.isArray(responseOrResult)
+    }, "Extracting video from Veo response");
+
     // Recursive finder
     const findVal = (obj, keys) => {
         if (!obj || typeof obj !== 'object') return null;
@@ -1006,6 +1030,12 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
     // Structure typically: [ { video: { uri: "gs://..." } } ] or just { video: { uri: "..." } }
     // Note: responseOrResult might be the whole pollData or just the 'response' part.
     const container = Array.isArray(responseOrResult) ? responseOrResult[0] : responseOrResult;
+
+    logger.info({
+        hasVideo: !!container?.video,
+        hasUri: !!container?.uri,
+        containerKeys: container ? Object.keys(container) : []
+    }, "Response container structure");
 
     // Inspect known keys for Veo 3.1
     let videoUrl = container?.video?.uri || container?.video?.videoUri || container?.uri || container?.video_uri || container?.gcsUri;

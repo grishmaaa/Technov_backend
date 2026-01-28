@@ -862,15 +862,16 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         ],
         parameters: {
             aspectRatio: options.aspectRatio || '16:9',
-            sampleCount: 1
+            sampleCount: 1,
             // durationSeconds is not directly supported - Veo generates fixed 8s clips
+            storageUri: bucketName ? `gs://${bucketName}/generated/${crypto.randomUUID()}` : undefined
         }
     };
 
-    // FORCE BASE64 MODE: Ignore GCS Buffer configuration to avoid Vertex AI internal errors
-    // (We are bypassing the bucket logic entirely to rely on direct Base64 response)
-    if (process.env.GCP_BUCKET_NAME) {
-        logger.info("NOTE: GCP_BUCKET_NAME is set, but we are enforcing Base64/Direct mode to avoid permission errors.");
+    if (bucketName) {
+        logger.info({ storageUri: veoRequest.parameters.storageUri }, "Configured GCS output destination for Veo");
+    } else {
+        logger.info("No GCS bucket configured. Veo will return Base64 or default storage URI.");
     }
 
     // If a hero image is provided, add it to the request
@@ -1006,11 +1007,13 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
     // Note: responseOrResult might be the whole pollData or just the 'response' part.
     const container = Array.isArray(responseOrResult) ? responseOrResult[0] : responseOrResult;
 
-    let videoUrl = container?.video?.uri || container?.video?.videoUri || container?.uri;
+    // Inspect known keys for Veo 3.1
+    let videoUrl = container?.video?.uri || container?.video?.videoUri || container?.uri || container?.video_uri || container?.gcsUri;
 
     // 2. Recursive Search for URL if not found directly
+    // Added 'video_uri', 'gcs_uri', 'output_uri' to recursive search
     if (!videoUrl) {
-        videoUrl = findVal(responseOrResult, ['videoUri', 'gcsUri', 'uri', 'videoUrl', 'url']);
+        videoUrl = findVal(responseOrResult, ['videoUri', 'gcsUri', 'uri', 'videoUrl', 'url', 'video_uri', 'gcs_uri', 'outputUri']);
     }
 
     // SECURITY CHECK: If GCS was requested but no URL returned, something is wrong (Permissions?)

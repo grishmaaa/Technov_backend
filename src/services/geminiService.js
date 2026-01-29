@@ -495,6 +495,9 @@ const _stage2_generation = async (assetSheet, options = {}) => {
 
     SCENE STRUCTURE (for each of the ${assetSheet.project_metadata.total_scenes} scenes):
 
+    **TITLE (For UI Display):**
+    "{Short, punchy 3-5 word summary of the ACTION, e.g. 'Finding the Chip'}"
+
     **FRONT-LOAD DISTINCTIVE FEATURES (First 20 words):**
     "{Character} with {DISTINCTIVE FEATURE IN CAPS}, {clothing}, {expression}."
 

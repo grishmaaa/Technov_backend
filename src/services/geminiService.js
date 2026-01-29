@@ -496,19 +496,19 @@ const _stage2_generation = async (assetSheet, options = {}) => {
     SCENE STRUCTURE (for each of the ${assetSheet.project_metadata.total_scenes} scenes):
 
     **FRONT-LOAD DISTINCTIVE FEATURES (First 20 words):**
-    "{Character} with {DISTINCTIVE FEATURE IN CAPS}, {clothing}, {expression}"
+    "{Character} with {DISTINCTIVE FEATURE IN CAPS}, {clothing}, {expression}."
 
     **SINGLE ACTION (Next 20 words):**
-    "performs {one specific action}"
+    "Performs {one specific action}."
 
     **SINGLE CAMERA MOVE (Next 20 words):**
-    "{One camera technique only: wide shot / dolly in / pan / close-up}"
+    "{One camera technique only: wide shot / dolly in / pan / close-up}."
 
     **ENVIRONMENT (Next 30 words):**
-    "{Location} with {2-3 specific environmental details}"
+    "{Location} with {2-3 specific environmental details}."
 
     **STYLE (Final 30 words):**
-    "{Lighting style}, {color palette}, {mood}, {film reference}"
+    "{Lighting style}, {color palette}, {mood}, {film reference}."
 
     AUDIO REQUIREMENTS (MANDATORY):
     - Dialogue: Use double quotes. Format: Character says "exact words" (Keep short < 10 words)

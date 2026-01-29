@@ -178,6 +178,14 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
         });
 
         // Use compiled prompt instead of raw shot.prompt
+        logger.info({
+            sceneId: shot.sceneId,
+            shotId: shot.id,
+            promptLength: compiledPrompt.length,
+            promptWordCount: compiledPrompt.split(' ').length,
+            promptPreview: compiledPrompt.substring(0, 150)
+        }, "🎬 Sending compiled prompt to Veo");
+
         const { video_url: videoUrl } = await generateVideo(compiledPrompt, '', options);
         if (!videoUrl) {
             throw new Error('Video generation response missing video URL');

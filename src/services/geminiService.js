@@ -469,65 +469,160 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
  * Purpose: Generate professional Veo 3.1 prompts using the locked asset specifications.
  */
 const _stage2_generation = async (assetSheet, options = {}) => {
-    logger.info("🎥 Stage 2: Generating Scene Prompts...");
+    logger.info("🎥 Stage 2: Generating Veo 3.1 Cinematic Prompts...");
 
-    // Inject Tier Options
     const { plan = 'basic', productionStyle, visualMood } = options;
     const directorPersona = getDirectorPersona(plan);
     const styleDirective = productionStyle ? PRODUCTION_STYLES[productionStyle] : '';
     const moodDirective = visualMood ? VISUAL_MOODS[visualMood] : '';
 
     const prompt = `
-    ${directorPersona}
-    ${styleDirective}
-    ${moodDirective}
+${directorPersona}
+${styleDirective}
+${moodDirective}
 
-    You are an expert Veo 3.1 cinematographer. Generate PROMPTS for ${assetSheet.project_metadata.total_scenes} separate 8-second video generations.
+You are an expert Veo 3.1 prompt engineer. Your job is to write COMPLETE, PRODUCTION-READY VIDEO PROMPTS for Google's Veo 3.1 model.
 
-    ASSET SHEET:
-    ${JSON.stringify(assetSheet, null, 2)}
+ASSET SHEET:
+${JSON.stringify(assetSheet, null, 2)}
 
-    VEO 3.1 STRATEGY: TIMESTAMP PROMPTING
-    Instead of static shots, you will generate DYNAMIC SEQUENCES using timestamp notation within each 8-second clip.
-    
-    FOR EACH SCENE (Generation), construct the 'prompt' field using this structure:
-    [00:00-00:02] {Shot 1 details}
-    [00:02-00:04] {Shot 2 details}
-    [00:04-00:06] {Shot 3 details}
-    [00:06-00:08] {Shot 4 details}
+CRITICAL UNDERSTANDING: VEO 3.1 TIMESTAMP FORMAT
+Veo 3.1 uses timestamp-based prompting where each 8-second video contains 4 distinct camera shots.
 
-    CRITICAL REQUIREMENTS PER 8-SECOND GENERATION:
-    1. **4 DISTINCT SHOTS**: Use timestamps [00:00-00:02], [00:02-00:04], [00:04-00:06], [00:06-00:08].
-    2. **FRONT-LOAD FEATURES**: In the [00:00-00:02] block, you MUST describe the character/subject fully with CAPS for distinctive features.
-    3. **CONSISTENCY**: Repost the character description in EVERY timestamp block to ensure Veo maintains identity.
-    4. **SHOT VARIETY**: Wide -> Medium -> Close-up -> Action. Do not repeat the same angle.
-    5. **AUDIO**: Define audio for the whole 8s sequence in the 'audio' object.
+YOUR TASK:
+Generate ${assetSheet.project_metadata.total_scenes} complete 8-second video prompts. Each prompt must follow this EXACT format:
 
-    JSON SCHEMA MAPPING:
-    - 'prompt': Put the FULL multi-line timestamp text here. (Max 800 chars).
-    - 'title': Short 3-5 word summary of the sequence (e.g. "Roof Chase Sequence").
-    - 'technical_breakdown': Summarize the DOMINANT style/action of the sequence.
-    - 'duration': Must be 8.
+[00:00-00:02] {Complete cinematic description with all 5 elements}
+[00:02-00:04] {Complete cinematic description with all 5 elements}
+[00:04-00:06] {Complete cinematic description with all 5 elements}
+[00:06-00:08] {Complete cinematic description with all 5 elements}
 
-    EXAMPLE PROMPT FIELD CONTENT:
-    "[00:00-00:02] Wide establishing shot, Detective with CYBERNETIC GOLD ARM walks in rain (Neo-Noir). [00:02-00:04] Medium shot, he kneels to inspect chip, GOLD ARM visible. [00:04-00:06] Extreme close-up on GLOWING BLUE CHIP in his hand. [00:06-00:08] Low angle, he looks up, suspicious."
+THE 5 MANDATORY ELEMENTS FOR EACH TIMESTAMP:
+1. [Shot Type & Camera Movement]: Wide shot | Medium shot | Close-up | Tracking shot | Dolly in | Crane up | etc.
+2. [Environment/Context]: Detailed description of location, lighting, atmosphere (20-30 words)
+3. [Subject with DISTINCTIVE FEATURES]: Character/object with CAPS for unique identifiers (15-20 words)
+4. [Action]: What the subject is doing (10-15 words)
+5. [Style & Mood]: Lighting style, color palette, film reference (15-20 words)
 
-    MANDATORY CONSISTENCY RULES:
-    1. Copy descriptions VERBATIM from character_bible for CORE IDENTIFIERS.
-    2. CAPS for distinctive features in EVERY timestamp block.
-    3. JSON output must strictly follow the schema.
-    `;
+CRITICAL RULES:
+1. **Write COMPLETE SENTENCES** - Not bullet points or fragments
+2. **Front-load distinctive features** - CAPS in every timestamp
+3. **Be SPECIFIC** - "vibrant pink and cyan neon signs" NOT "neon lights"
+4. **Include lighting** - "chiaroscuro lighting with rim lights" NOT "good lighting"
+5. **Total per timestamp: 80-100 words** (comprehensive but focused)
+6. **Consistency**: Copy character descriptions VERBATIM from asset sheet in EVERY timestamp
+
+EXAMPLE OF CORRECT VEO 3.1 PROMPT FORMAT:
+
+Scene 1 Prompt Field (this goes in the "prompt" JSON field):
+
+[00:00-00:02] Wide establishing shot, narrow rain-soaked alleyway with vibrant pink and cyan neon signs reflecting off wet cobblestone pavement, steam rising from metal grates, distant city lights creating atmospheric fog. DETECTIVE with CYBERNETIC GOLD ARM glinting under neon reflections, wearing dark leather trench coat (collar up, rain dripping), scar on left cheek visible, approaches camera through the rain with determined stride. Chiaroscuro lighting with deep shadows and neon highlights, neo-noir aesthetic, shot on vintage anamorphic lenses with lens flares, moody and atmospheric. SFX: Heavy rain, footsteps splashing in puddles, distant sirens. Ambient: Urban night sounds, neon transformer hum.
+
+[00:02-00:04] Medium shot at eye level, DETECTIVE with CYBERNETIC GOLD ARM (mechanical fingers visible with intricate circuitry), scar on left cheek, dark trench coat now wet, steel grey eyes focused, kneels down in the alleyway to examine a GLOWING BLUE DATA CHIP lying in a puddle of water reflecting pink neon light. Same rain-soaked environment, neon signs flickering in background creating dynamic lighting on his face. Dramatic rim lighting from overhead neon, high contrast shadows, rain visible in foreground. SFX: Knee hitting wet ground, cloth rustling, rain intensifying. Ambient: Closer neon buzzing, water dripping from nearby fire escape.
+
+[00:04-00:06] Extreme close-up with shallow depth of field, DETECTIVE's CYBERNETIC GOLD ARM (detailed servo motors and circuit patterns visible, rain beading on metallic surface), mechanical fingers extend smoothly to pick up the GLOWING BLUE DATA CHIP from the puddle, rack focus from the gold arm to the chip's pulsing blue light reflecting in the water, pink and cyan neon reflections dancing on wet metal. Macro lens perspective with cinematic bokeh, dramatic side lighting creating texture on the gold surface. SFX: Servo motors whirring quietly, chip emitting soft electronic beep, water droplets. Ambient: Detective's steady breathing, rain rhythm continues.
+
+[00:06-00:08] Low angle medium shot rising with movement, DETECTIVE with CYBERNETIC GOLD ARM holding the glowing blue chip up to examine it at eye level, scar on left cheek visible, determined expression, rain running down his face, stands up as HOLOGRAPHIC WOMAN with FLOWING CYAN HAIR and TRANSLUCENT BODY flickers into existence behind him (glitching slightly, ethereal), her cyan-tinted features ghostly against the dark alley. Dramatic backlighting from neon signs creating volumetric fog effects, high contrast neo-noir cinematography. She says "You shouldn't have found that." SFX: Hologram materialization sound, his sharp inhale of surprise. Ambient: Rain continuing, distant thunder rumbling. Film aesthetic: shot on ARRI Alexa with anamorphic lenses, heavy film grain, Blade Runner 2049 inspired color grading with pink/cyan contrast.
+
+---
+
+WHAT NOT TO DO (COMMON MISTAKES):
+
+❌ WRONG (Description style):
+"[00:00-00:02] Wide shot of NEON-LIT ALLEYWAY with DETECTIVE"
+
+❌ WRONG (Missing details):
+"[00:00-00:02] Detective walks in alley, raining, neon lights"
+
+❌ WRONG (Fragmented):
+"[00:00-00:02] Wide shot. Alleyway. Detective. Rain. Neon."
+
+✅ CORRECT (Full cinematic prompt):
+"[00:00-00:02] Wide establishing shot, narrow rain-soaked alleyway with vibrant pink and cyan neon signs reflecting off wet cobblestone pavement..."
+
+---
+
+OUTPUT JSON STRUCTURE:
+
+For each of the ${assetSheet.project_metadata.total_scenes} scenes, create:
+
+{
+  "scenes": [
+    {
+      "scene_number": 1,
+      "timestamp": "[00:00-00:08]",
+      "title": "Noir Alley Discovery",
+      "prompt": "FULL MULTI-LINE TEXT WITH ALL 4 TIMESTAMPS AS SHOWN IN EXAMPLE ABOVE (400-500 words total)",
+      "technical_breakdown": {
+        "cinematography": "Dynamic sequence: Wide → Medium → Extreme Close-up → Low Angle",
+        "subject": "Detective with cybernetic gold arm, holographic woman",
+        "action": "Investigating data chip discovery in rain-soaked alley",
+        "context": "Neo-noir alleyway with pink/cyan neon reflections, rain",
+        "style_ambiance": "Chiaroscuro lighting, Blade Runner aesthetic, anamorphic lenses"
+      },
+      "audio": {
+        "dialogue": "You shouldn't have found that",
+        "sfx": ["Heavy rain", "Footsteps splashing", "Servo motors", "Hologram materialization"],
+        "ambient": "Urban night atmosphere with neon hum and rain"
+      },
+      "consistency_check": {
+        "character_ids": ["detective_char1", "hologram_char2"],
+        "object_ids": ["data_chip_obj1"],
+        "location_id": "alley_loc1"
+      },
+      "duration": 8
+    }
+  ],
+  "narrative_flow": "Brief description of story progression",
+  "audio_continuity": "How audio builds across scenes"
+}
+
+CONSISTENCY ENFORCEMENT CHECKLIST:
+- [ ] CYBERNETIC GOLD ARM appears in ALL 4 timestamps
+- [ ] Scar on left cheek mentioned consistently
+- [ ] Dark leather trench coat in every timestamp
+- [ ] Steel grey eyes referenced
+- [ ] Neon colors (pink/cyan) consistent
+- [ ] Rain present throughout
+- [ ] Holographic woman has CYAN HAIR and TRANSLUCENT BODY
+
+QUALITY STANDARDS:
+- Each timestamp = 80-100 words
+- Total prompt per scene = 400-500 words
+- Professional cinematography terminology throughout
+- Specific lighting descriptions (not "good lighting")
+- Film aesthetic reference in final timestamp
+- Audio elements present and continuous
+
+Generate the scenes now following this EXACT format.
+`;
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
         response_format: SCENE_SCHEMA,
-        temperature: 0.8
+        temperature: 0.7 // Balanced for creativity + consistency
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-    logger.info("✅ Stage 2 Complete.");
+
+    // Validation: Check if prompts are actually detailed enough
+    for (const scene of parsed.scenes) {
+        const promptLength = scene.prompt.length;
+        if (promptLength < 300) {
+            logger.warn({
+                scene_number: scene.scene_number,
+                prompt_length: promptLength
+            }, "⚠️ Scene prompt is too short - may lack detail");
+        }
+    }
+
+    logger.info({
+        scene_count: parsed.scenes.length,
+        avg_prompt_length: Math.round(parsed.scenes.reduce((sum, s) => sum + s.prompt.length, 0) / parsed.scenes.length)
+    }, "✅ Stage 2 Complete.");
+
     return { scenesData: parsed, usage: completion.usage };
 };
 

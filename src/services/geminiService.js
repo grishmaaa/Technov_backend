@@ -417,16 +417,19 @@ const _stage0_safety_check = async (storyText) => {
 const _stage1_planning = async (storyText, duration, category = 'creative') => {
     logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)...");
 
-    // CALCULATE REQUIRED SCENES
-    // logic: 15s -> 3 scenes (5s each), 30s -> 5 scenes, 60s -> 10 scenes
+    // CALCULATE REQUIRED SCENES (Veo 3.1 Generations)
+    // Veo 3.1 creates 8-second clips. We generate multiple 8s clips to cover duration.
+    // 15s -> 2 clips (16s total)
+    // 30s -> 4 clips (32s total)
     let durationSeconds = 15;
     if (duration.includes("60")) durationSeconds = 60;
     else if (duration.includes("30")) durationSeconds = 30;
-    
-    const scenesNeeded = Math.ceil(durationSeconds / 5); // 5 seconds per scene ideal for Veo
+
+    // Logic: Ceiling of duration / 8
+    const scenesNeeded = Math.ceil(durationSeconds / 8);
 
     const prompt = `
-    You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet that will ensure perfect consistency across all video scenes.
+    You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet.
 
     USER BRIEF: ${storyText}
     DURATION: ${duration}
@@ -434,9 +437,9 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
 
     SCENE PLANNING REQUIREMENTS:
     - For ${duration}, generate EXACTLY ${scenesNeeded} scenes
-    - Each scene should be 5 seconds long
-    - Each scene should have ONE clear focus (one camera move, one action)
-    - Scenes should flow sequentially to tell the complete story
+    - Each scene represents ONE 8-second Veo generation
+    - Each 8-second scene will contain multiple shots (handled in Stage 2)
+    - Scenes should flow sequentially
 
     OUTPUT REQUIREMENTS:
     Create a structured JSON asset sheet.
@@ -444,10 +447,8 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
     1. total_scenes MUST be ${scenesNeeded}
     2. Character descriptions must be FORENSICALLY detailed.
     3. Use EXACT color names.
-    4. Include measurements when relevant.
-    5. Define consistency anchors.
-    6. For non-commercial content, set brand_elements to null values.
-    7. Always populate all required fields even if with minimal/null values.
+    4. Define consistency anchors.
+    5. Always populate all required fields.
     `;
 
     const openai = getOpenAI();
@@ -481,50 +482,40 @@ const _stage2_generation = async (assetSheet, options = {}) => {
     ${styleDirective}
     ${moodDirective}
 
-    You are an expert Veo 3.1 cinematographer. Generate prompts for ${assetSheet.project_metadata.total_scenes} SEPARATE video clips that will be stitched together.
+    You are an expert Veo 3.1 cinematographer. Generate PROMPTS for ${assetSheet.project_metadata.total_scenes} separate 8-second video generations.
 
     ASSET SHEET:
     ${JSON.stringify(assetSheet, null, 2)}
 
-    CRITICAL VEO 3.1 CONSTRAINTS:
-    - Each scene is a SEPARATE 5-second video generation
-    - ONE camera movement per scene maximum
-    - ONE main action per scene
-    - Focus on 2-3 key visual details, not everything
-    - Length: 80-120 words (Veo's sweet spot for detail retention)
+    VEO 3.1 STRATEGY: TIMESTAMP PROMPTING
+    Instead of static shots, you will generate DYNAMIC SEQUENCES using timestamp notation within each 8-second clip.
+    
+    FOR EACH SCENE (Generation), construct the 'prompt' field using this structure:
+    [00:00-00:02] {Shot 1 details}
+    [00:02-00:04] {Shot 2 details}
+    [00:04-00:06] {Shot 3 details}
+    [00:06-00:08] {Shot 4 details}
 
-    SCENE STRUCTURE (for each of the ${assetSheet.project_metadata.total_scenes} scenes):
+    CRITICAL REQUIREMENTS PER 8-SECOND GENERATION:
+    1. **4 DISTINCT SHOTS**: Use timestamps [00:00-00:02], [00:02-00:04], [00:04-00:06], [00:06-00:08].
+    2. **FRONT-LOAD FEATURES**: In the [00:00-00:02] block, you MUST describe the character/subject fully with CAPS for distinctive features.
+    3. **CONSISTENCY**: Repost the character description in EVERY timestamp block to ensure Veo maintains identity.
+    4. **SHOT VARIETY**: Wide -> Medium -> Close-up -> Action. Do not repeat the same angle.
+    5. **AUDIO**: Define audio for the whole 8s sequence in the 'audio' object.
 
-    **TITLE (For UI Display):**
-    "{Short, punchy 3-5 word summary of the ACTION, e.g. 'Finding the Chip'}"
+    JSON SCHEMA MAPPING:
+    - 'prompt': Put the FULL multi-line timestamp text here. (Max 800 chars).
+    - 'title': Short 3-5 word summary of the sequence (e.g. "Roof Chase Sequence").
+    - 'technical_breakdown': Summarize the DOMINANT style/action of the sequence.
+    - 'duration': Must be 8.
 
-    **FRONT-LOAD DISTINCTIVE FEATURES (First 20 words):**
-    "{Character} with {DISTINCTIVE FEATURE IN CAPS}, {clothing}, {expression}."
-
-    **SINGLE ACTION (Next 20 words):**
-    "Performs {one specific action}."
-
-    **SINGLE CAMERA MOVE (Next 20 words):**
-    "{One camera technique only: wide shot / dolly in / pan / close-up}."
-
-    **ENVIRONMENT (Next 30 words):**
-    "{Location} with {2-3 specific environmental details}."
-
-    **STYLE (Final 30 words):**
-    "{Lighting style}, {color palette}, {mood}, {film reference}."
-
-    AUDIO REQUIREMENTS (MANDATORY):
-    - Dialogue: Use double quotes. Format: Character says "exact words" (Keep short < 10 words)
-    - SFX: SFX: [description]
-    - Ambient: Ambient noise: [description]
+    EXAMPLE PROMPT FIELD CONTENT:
+    "[00:00-00:02] Wide establishing shot, Detective with CYBERNETIC GOLD ARM walks in rain (Neo-Noir). [00:02-00:04] Medium shot, he kneels to inspect chip, GOLD ARM visible. [00:04-00:06] Extreme close-up on GLOWING BLUE CHIP in his hand. [00:06-00:08] Low angle, he looks up, suspicious."
 
     MANDATORY CONSISTENCY RULES:
-    1. Copy descriptions VERBATIM from character_bible/object_bible for CORE IDENTIFIERS.
-    2. ENHANCE the visual description with cinematic details (lighting, texture, atmosphere).
-    3. Include consistency anchors in EVERY scene.
-    4. CAPS for distinctive features in EVERY scene (e.g. "CYBERNETIC GOLD ARM").
-    5. Each scene must be 80-120 words.
-    6. JSON output must strictly follow the schema.
+    1. Copy descriptions VERBATIM from character_bible for CORE IDENTIFIERS.
+    2. CAPS for distinctive features in EVERY timestamp block.
+    3. JSON output must strictly follow the schema.
     `;
 
     const openai = getOpenAI();
@@ -558,8 +549,13 @@ const _stage3_validation = async (assetSheet, scenesData) => {
 
     VALIDATION CHECKLIST:
 
-    1. CHARACTER CONSISTENCY
-    - [ ] Physical descriptions match asset sheet exactly in ALL scenes
+    1. TIMESTAMP STRUCTURE
+    - [ ] Prompt contains 4 timestamps: [00:00-00:02], [00:02-00:04], [00:04-00:06], [00:06-00:08]
+    - [ ] Each timestamp block has a specific shot type
+    - [ ] Total prompt length 300-800 chars
+
+    2. CHARACTER CONSISTENCY
+    - [ ] Distinctive features in CAPS appear in EVERY timestamp block
     - [ ] Hair color/style identical across scenes
     - [ ] Clothing matches character bible
     - [ ] Consistency anchors present in every appearance (CAPS preferred)
@@ -568,25 +564,16 @@ const _stage3_validation = async (assetSheet, scenesData) => {
     - [ ] Object descriptions match asset sheet verbatim
     - [ ] Distinctive features always mentioned
 
-    3. FORMULA COMPLIANCE
-    - [ ] Every scene has ONE camera movement
-    - [ ] Every scene has ONE main action
-    - [ ] Cinematography uses professional terms
-    - [ ] Distinctive features appear in FIRST 20 words of each scene
+    3. CINEMATIC QUALITY
+    - [ ] Shot variety (Wide/Medium/Close-up) present within the sequence
+    - [ ] No static shots (camera movement implied in each timestamp)
 
     4. AUDIO COMPLETENESS
-    - [ ] Every scene has audio elements
-    - [ ] Dialogue is short (< 10 words) and correctly quoted
+    - [ ] Audio object populated correctly
 
-    5. NARRATIVE FLOW
-    - [ ] Scenes connect logically
-    - [ ] Timeline makes sense for duration
-    - [ ] Visual variety (not repetitive shot types)
-
-    6. TECHNICAL QUALITY
-    - [ ] Prompts are 80-120 words (Veo optimal)
-    - [ ] Professional vocabulary used
-    - [ ] Specific (not vague descriptions)
+    5. JSON COMPLIANCE
+    - [ ] Title is short/punchy
+    - [ ] Duration is 8 seconds
 
     OUTPUT FORMAT (JSON):
     {
@@ -595,28 +582,23 @@ const _stage3_validation = async (assetSheet, scenesData) => {
     "issues_found": [
         {
         "severity": "CRITICAL|MODERATE|MINOR",
-        "category": "character_consistency|audio|formula|narrative|technical",
+        "category": "timestamp_structure|consistency|cinematic",
         "scene_number": number,
         "issue": "Description of problem",
-        "current_text": "What the script currently says",
-        "required_fix": "Exact correction needed"
+        "current_text": "text",
+        "required_fix": "fix"
         }
     ],
-    "strengths": ["array of what works well"],
+    "strengths": ["array"],
     "revision_needed": boolean,
-    "revised_scenes": [
-        // Include the FULL corrected scene objects here (same structure as input scenes) if revision is needed.
-        // If status is PASS, this array can be empty.
-    ]
+    "revised_scenes": []
     }
 
     CRITICAL ISSUE EXAMPLES:
-    - Character hair described as "auburn" in scene 1 but "reddish-brown" in scene 3 → CRITICAL
-    - Missing audio elements → CRITICAL
-    - Vague description "the woman" instead of full character details → CRITICAL
-    - No lighting specified → MODERATE
-    - Shot type repeated 3 times → MODERATE
-    - Minor word choice improvement → MINOR
+    - Missing timestamps → CRITICAL
+    - Only 2 timestamps instead of 4 → MODERATE
+    - "Cybernetic arm" mentioned in T1 but missing in T3 → MODERATE
+
 
     If validation_status is FAIL or NEEDS_REVISION, YOU MUST PROVIDE THE CORRECTED SCENES in the 'revised_scenes' array.
     `;
@@ -687,7 +669,7 @@ export const generateScript = async (storyText, options = {}) => {
 
     // Constraints
     const isExtended = length === 'extended';
-    const durationString = isExtended ? "60 seconds" : "15 seconds";
+    const durationString = isExtended ? "24 seconds" : "8 seconds";
 
     // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {

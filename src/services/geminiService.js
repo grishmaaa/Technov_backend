@@ -762,9 +762,15 @@ export const generateScript = async (storyText, options = {}) => {
     const tierOptions = typeof options === 'string' ? { plan: options } : options;
     const { plan = 'basic', length = 'standard' } = tierOptions;
 
-    // Constraints
+    // Constraints & Durations (Base=8s, Pro=32s, Elite=64s)
     const isExtended = length === 'extended';
-    const durationString = isExtended ? "24 seconds" : "8 seconds";
+    let durationString = "8 seconds"; // Default (Standard)
+
+    if (isExtended) {
+        if (plan === 'elite') durationString = "64 seconds";
+        else if (plan === 'pro') durationString = "32 seconds";
+        // Basic plan ignores 'extended' request
+    }
 
     // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {
@@ -935,7 +941,9 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
     }
     const project = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || projectFromSA;
     const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
-    const rawModelId = process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
+
+    // Model Selection: Check options first (Tier Logic), then Env Var
+    const rawModelId = options.videoModel || process.env.VEO_MODEL_ID || process.env.VEO_MODEL;
     const modelId = rawModelId ? rawModelId.trim() : null;
 
     // Fix for missing bucketName variable

@@ -326,6 +326,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             include: {
                 project: {
                     include: {
+                        user: true, // Fetch user to check plan (Base/Pro/Elite)
                         scenes: { orderBy: { orderIndex: 'asc' } }
                     }
                 }
@@ -337,10 +338,21 @@ export const processGenerationJob = async (jobId, context = {}) => {
         }
 
         const project = job.project;
+        const userPlan = (project.user?.plan || 'free').toLowerCase();
+
+        // --- TIER LOGIC: Model Selection ---
+        // Base/Pro -> Standard | Elite -> Fast
+        // Note: Replace with actual model IDs if different.
+        // Assuming 'veo-001-fast' exists or similar for the 'cheap' model.
+        let videoModel = 'veo-001'; // Default Standard
+        if (userPlan === 'elite') {
+            videoModel = 'veo-001-fast'; // Or whatever generic name maps to the faster/cheaper model
+        }
+
         const scenes = project.scenes;
         const totalScenes = scenes.length;
         const qualitySettings = getQualitySettings(project);
-        const jobLogger = logger.child({ jobId, projectId: project.id, userId: project.userId });
+        const jobLogger = logger.child({ jobId, projectId: project.id, userId: project.userId, plan: userPlan, model: videoModel });
 
         jobLogger.info({ totalScenes }, 'Processing render job');
 
@@ -384,6 +396,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             for (const shot of shots) {
                 const options = {
                     durationSeconds: shot.duration,
+                    videoModel: videoModel, // Pass the determined model
                     aspectRatio: project.aspectRatio || DEFAULT_ASPECT_RATIO,
                     fps: project.fps || DEFAULT_FPS,
                     postProcess: qualitySettings.postProcess

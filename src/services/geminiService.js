@@ -372,9 +372,22 @@ const ASSET_SHEET_SCHEMA = {
                     },
                     required: ["genre", "mood", "color_palette", "film_reference", "camera_philosophy"],
                     additionalProperties: false
+                },
+                scene_progression_blueprint: {
+                    type: "array",
+                    description: "List of narrative beats for each scene",
+                    items: {
+                        type: "object",
+                        properties: {
+                            scene_id: { type: "integer" },
+                            narrative_beat: { type: "string" }
+                        },
+                        required: ["scene_id", "narrative_beat"],
+                        additionalProperties: false
+                    }
                 }
             },
-            required: ["project_metadata", "character_bible", "object_bible", "location_bible", "brand_elements", "tone_and_style"],
+            required: ["project_metadata", "character_bible", "object_bible", "location_bible", "brand_elements", "tone_and_style", "scene_progression_blueprint"],
             additionalProperties: false
         }
     }
@@ -414,42 +427,112 @@ const _stage0_safety_check = async (storyText) => {
  * STAGE 1: PLANNING
  * Purpose: Lock down all visual elements BEFORE generating scenes.
  */
+// ==========================================
+// ==========================================
+// ANTI-REPETITION FIX: ENSURE UNIQUE SCENES
+// ==========================================
+
+// STAGE 1 UPDATE: Add narrative progression blueprint
+
 const _stage1_planning = async (storyText, duration, category = 'creative') => {
-    logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)...");
+    logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet...");
 
-    // CALCULATE REQUIRED SCENES (Veo 3.1 Generations)
-    // Veo 3.1 creates 8-second clips. We generate multiple 8s clips to cover duration.
-    // 15s -> 2 clips (16s total)
-    // 30s -> 4 clips (32s total)
-    let durationSeconds = 15;
-    if (duration.includes("60")) durationSeconds = 60;
-    else if (duration.includes("30")) durationSeconds = 30;
+    // Parse duration
+    let durationSeconds = 8;
+    if (typeof duration === 'string') {
+        const match = duration.match(/(\d+)/);
+        if (match) durationSeconds = parseInt(match[1]);
+    } else if (typeof duration === 'number') {
+        durationSeconds = duration;
+    }
 
-    // Logic: Ceiling of duration / 8
     const scenesNeeded = Math.ceil(durationSeconds / 8);
+    
+    logger.info({ 
+        durationSeconds, 
+        scenesNeeded,
+        calculation: `Math.ceil(${durationSeconds} / 8) = ${scenesNeeded}`
+    }, "Scene calculation");
 
     const prompt = `
-    You are a professional film production planner. Analyze the user's brief and create a detailed asset specification sheet.
+You are a professional film production planner. Create a detailed asset specification sheet.
 
-    USER BRIEF: ${storyText}
-    DURATION: ${duration}
-    CATEGORY: ${category}
+USER BRIEF: ${storyText}
+DURATION: ${durationSeconds} seconds
+CATEGORY: ${category}
 
-    SCENE PLANNING REQUIREMENTS:
-    - For ${duration}, generate EXACTLY ${scenesNeeded} scenes
-    - Each scene represents ONE 8-second Veo generation
-    - Each 8-second scene will contain multiple shots (handled in Stage 2)
-    - Scenes should flow sequentially
+CRITICAL REQUIREMENT: You MUST generate EXACTLY ${scenesNeeded} scenes.
 
-    OUTPUT REQUIREMENTS:
-    Create a structured JSON asset sheet.
-    CRITICAL RULES:
-    1. total_scenes MUST be ${scenesNeeded}
-    2. Character descriptions must be FORENSICALLY detailed.
-    3. Use EXACT color names.
-    4. Define consistency anchors.
-    5. Always populate all required fields.
-    `;
+SCENE PLANNING LOGIC:
+- Total duration: ${durationSeconds} seconds
+- Each scene = 8 seconds (one Veo generation)
+- Required scenes: ${scenesNeeded}
+
+Examples:
+- 8 seconds  → 1 scene  (single moment)
+- 15 seconds → 2 scenes (setup + payoff)
+- 30 seconds → 4 scenes (beginning, development, climax, resolution)
+- 60 seconds → 8 scenes (full story arc with multiple beats)
+
+====================
+CRITICAL: NARRATIVE PROGRESSION BLUEPRINT
+====================
+
+For ${scenesNeeded} scenes, you MUST create a SCENE-BY-SCENE story progression that ensures:
+
+1. NO REPETITION: Each scene shows a DIFFERENT moment/action/location
+2. CLEAR PROGRESSION: Scenes must advance the story chronologically
+3. DISTINCT BEATS: Each scene has a unique narrative purpose
+
+Create a "scene_progression_blueprint" list of objects:
+
+EXAMPLE for 4 scenes (30 seconds):
+[
+  { "scene_id": 1, "narrative_beat": "Establishing shot - introduce character and setting" },
+  { "scene_id": 2, "narrative_beat": "Inciting incident - character discovers/encounters something" },
+  { "scene_id": 3, "narrative_beat": "Rising action - character responds/investigates" },
+  { "scene_id": 4, "narrative_beat": "Climax/resolution - dramatic conclusion or revelation" }
+]
+
+EXAMPLE for 8 scenes (60 seconds):
+[
+  { "scene_id": 1, "narrative_beat": "Wide establishing - show world/environment" },
+  { "scene_id": 2, "narrative_beat": "Introduce protagonist - show their current state" },
+  { "scene_id": 3, "narrative_beat": "Inciting incident - problem/discovery appears" },
+  { "scene_id": 4, "narrative_beat": "First reaction - character begins to respond" },
+  { "scene_id": 5, "narrative_beat": "Complication - situation escalates or changes" },
+  { "scene_id": 6, "narrative_beat": "Turning point - crucial decision made" },
+  { "scene_id": 7, "narrative_beat": "Climax - peak of action/emotion" },
+  { "scene_id": 8, "narrative_beat": "Resolution - show aftermath/new status quo" }
+]
+
+ANTI-REPETITION RULES:
+- Scene 2 cannot show the same action as Scene 1
+- Each scene must have a unique camera position or subject focus
+- If Scene 1 is "character walks", Scene 2 must be "character arrives" or "character discovers"
+- Avoid phrases like "continues to" or "still walking" - each scene is a NEW beat
+
+CHARACTER BIBLE RULES:
+1. FORENSICALLY detailed - specific enough to draw
+2. Exact color names: "cobalt blue" not "blue"
+3. 3-5 DISTINCTIVE FEATURES in CAPS (appear in EVERY scene)
+4. Measurements: "5'4\"", "6-foot tall"
+
+OBJECT BIBLE RULES:
+1. Exact dimensions, colors, materials
+2. Brand names if relevant
+3. Consistency anchors
+
+LOCATION BIBLE RULES:
+1. Specific lighting conditions
+2. Ambient sound defaults
+3. Architectural details
+
+ADDITIONAL REQUIRED FIELD:
+Add a "scene_progression_blueprint" object to your output with ${scenesNeeded} entries defining what makes each scene unique.
+
+Generate the complete asset sheet now following the strict JSON schema.
+`;
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
@@ -460,141 +543,251 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-    logger.info("✅ Stage 1 Complete.");
+    
+    // VALIDATION: Verify scene count
+    if (parsed.project_metadata.total_scenes !== scenesNeeded) {
+        logger.error({
+            expected: scenesNeeded,
+            got: parsed.project_metadata.total_scenes
+        }, "❌ CRITICAL: Wrong scene count!");
+        parsed.project_metadata.total_scenes = scenesNeeded;
+    }
+    
+    // ADD: Scene progression blueprint if missing
+    if (!parsed.scene_progression_blueprint) {
+        logger.warn("⚠️ No scene progression blueprint found, adding default");
+        parsed.scene_progression_blueprint = generateDefaultProgression(scenesNeeded);
+    }
+    
+    logger.info({ 
+        scenes: parsed.project_metadata.total_scenes,
+        duration: durationSeconds,
+        has_blueprint: !!parsed.scene_progression_blueprint
+    }, "✅ Stage 1 Complete");
+    
     return { assetSheet: parsed, usage: completion.usage };
 };
 
-/**
- * STAGE 2: SCENE GENERATION
- * Purpose: Generate professional Veo 3.1 prompts using the locked asset specifications.
- */
+// Helper: Generate default progression if GPT-4 fails
+const generateDefaultProgression = (sceneCount) => {
+    const progressions = {
+        1: [
+            { scene_id: 1, narrative_beat: "Complete moment showing setup and resolution" }
+        ],
+        2: [
+            { scene_id: 1, narrative_beat: "Establishing shot introducing character/situation" },
+            { scene_id: 2, narrative_beat: "Action/reaction or dramatic reveal" }
+        ],
+        4: [
+            { scene_id: 1, narrative_beat: "Establishing - introduce world and character" },
+            { scene_id: 2, narrative_beat: "Inciting incident - problem/discovery appears" },
+            { scene_id: 3, narrative_beat: "Rising action - character responds to situation" },
+            { scene_id: 4, narrative_beat: "Climax/resolution - dramatic conclusion" }
+        ],
+        8: [
+            { scene_id: 1, narrative_beat: "Wide establishing shot of environment" },
+            { scene_id: 2, narrative_beat: "Introduce protagonist in their element" },
+            { scene_id: 3, narrative_beat: "Inciting incident triggers story" },
+            { scene_id: 4, narrative_beat: "First reaction - character begins response" },
+            { scene_id: 5, narrative_beat: "Complication - situation escalates" },
+            { scene_id: 6, narrative_beat: "Turning point - crucial decision made" },
+            { scene_id: 7, narrative_beat: "Climax - peak action/emotion" },
+            { scene_id: 8, narrative_beat: "Resolution - new equilibrium established" }
+        ]
+    };
+    
+    return progressions[sceneCount] || progressions[4];
+};
+
+// ==========================================
+// STAGE 2 UPDATE: Use blueprint to prevent repetition
+// ==========================================
+
 const _stage2_generation = async (assetSheet, options = {}) => {
-    logger.info("🎥 Stage 2: Generating Veo 3.1 Cinematic Prompts...");
+    logger.info("🎥 Stage 2: Generating Veo 3.1 Prompts...");
 
     const { plan = 'basic', productionStyle, visualMood } = options;
     const directorPersona = getDirectorPersona(plan);
     const styleDirective = productionStyle ? PRODUCTION_STYLES[productionStyle] : '';
     const moodDirective = visualMood ? VISUAL_MOODS[visualMood] : '';
 
+    // Extract scene progression blueprint
+    const blueprint = assetSheet.scene_progression_blueprint || generateDefaultProgression(assetSheet.project_metadata.total_scenes);
+
     const prompt = `
 ${directorPersona}
 ${styleDirective}
 ${moodDirective}
 
-You are an expert Veo 3.1 prompt engineer. Your job is to write COMPLETE, PRODUCTION-READY VIDEO PROMPTS for Google's Veo 3.1 model.
+You are an expert Veo 3.1 prompt engineer. Generate ${assetSheet.project_metadata.total_scenes} UNIQUE 8-second video prompts.
 
 ASSET SHEET:
 ${JSON.stringify(assetSheet, null, 2)}
 
-CRITICAL UNDERSTANDING: VEO 3.1 TIMESTAMP FORMAT
-Veo 3.1 uses timestamp-based prompting where each 8-second video contains 4 distinct camera shots.
+====================
+CRITICAL: ANTI-REPETITION REQUIREMENTS
+====================
 
-YOUR TASK:
-Generate ${assetSheet.project_metadata.total_scenes} complete 8-second video prompts. Each prompt must follow this EXACT format:
+SCENE PROGRESSION BLUEPRINT (FOLLOW THIS EXACTLY):
+${JSON.stringify(blueprint, null, 2)}
 
-[00:00-00:02] {Complete cinematic description with all 5 elements}
-[00:02-00:04] {Complete cinematic description with all 5 elements}
-[00:04-00:06] {Complete cinematic description with all 5 elements}
-[00:06-00:08] {Complete cinematic description with all 5 elements}
+Each scene MUST:
+1. Match its blueprint purpose exactly
+2. Show a DIFFERENT action/moment than previous scenes
+3. Have a DISTINCT camera angle or subject focus
+4. Advance the narrative forward
 
-THE 5 MANDATORY ELEMENTS FOR EACH TIMESTAMP:
-1. [Shot Type & Camera Movement]: Wide shot | Medium shot | Close-up | Tracking shot | Dolly in | Crane up | etc.
-2. [Environment/Context]: Detailed description of location, lighting, atmosphere (20-30 words)
-3. [Subject with DISTINCTIVE FEATURES]: Character/object with CAPS for unique identifiers (15-20 words)
-4. [Action]: What the subject is doing (10-15 words)
-5. [Style & Mood]: Lighting style, color palette, film reference (15-20 words)
+FORBIDDEN:
+- ❌ Two scenes showing the same action (e.g., "walking" in Scene 1 and Scene 2)
+- ❌ Repeating the same camera angle consecutively
+- ❌ Using phrases like "continues to" or "still doing"
+- ❌ Same environment/lighting without progression
+- ❌ Identical subject positions between scenes
 
-CRITICAL RULES:
-1. **Write COMPLETE SENTENCES** - Not bullet points or fragments
-2. **Front-load distinctive features** - CAPS in every timestamp
-3. **Be SPECIFIC** - "vibrant pink and cyan neon signs" NOT "neon lights"
-4. **Include lighting** - "chiaroscuro lighting with rim lights" NOT "good lighting"
-5. **Total per timestamp: 80-100 words** (comprehensive but focused)
-6. **Consistency**: Copy character descriptions VERBATIM from asset sheet in EVERY timestamp
+REQUIRED:
+- ✅ Each scene shows a NEW story beat
+- ✅ Camera positions vary between scenes (if Scene 1 is wide, Scene 2 could be medium)
+- ✅ Character performs DIFFERENT actions in each scene
+- ✅ Time progression is evident (environmental changes, character state changes)
 
-EXAMPLE OF CORRECT VEO 3.1 PROMPT FORMAT:
+====================
+EXAMPLE PROGRESSION (4 scenes - Detective Story):
+====================
 
-Scene 1 Prompt Field (this goes in the "prompt" JSON field):
+Scene 1 (Establishing):
+- Blueprint: "Establishing - introduce world and character"
+- Action: Detective WALKS into alley, approaching crime scene
+- Camera: Wide shot showing environment
+- Key difference: This is the ARRIVAL moment
 
-[00:00-00:02] Wide establishing shot, narrow rain-soaked alleyway with vibrant pink and cyan neon signs reflecting off wet cobblestone pavement, steam rising from metal grates, distant city lights creating atmospheric fog. DETECTIVE with CYBERNETIC GOLD ARM glinting under neon reflections, wearing dark leather trench coat (collar up, rain dripping), scar on left cheek visible, approaches camera through the rain with determined stride. Chiaroscuro lighting with deep shadows and neon highlights, neo-noir aesthetic, shot on vintage anamorphic lenses with lens flares, moody and atmospheric. SFX: Heavy rain, footsteps splashing in puddles, distant sirens. Ambient: Urban night sounds, neon transformer hum.
+Scene 2 (Discovery):
+- Blueprint: "Inciting incident - problem/discovery appears"  
+- Action: Detective KNEELS DOWN, examining data chip on ground
+- Camera: Medium shot focusing on detective and chip
+- Key difference: This is the INVESTIGATION moment (NOT walking anymore)
 
-[00:02-00:04] Medium shot at eye level, DETECTIVE with CYBERNETIC GOLD ARM (mechanical fingers visible with intricate circuitry), scar on left cheek, dark trench coat now wet, steel grey eyes focused, kneels down in the alleyway to examine a GLOWING BLUE DATA CHIP lying in a puddle of water reflecting pink neon light. Same rain-soaked environment, neon signs flickering in background creating dynamic lighting on his face. Dramatic rim lighting from overhead neon, high contrast shadows, rain visible in foreground. SFX: Knee hitting wet ground, cloth rustling, rain intensifying. Ambient: Closer neon buzzing, water dripping from nearby fire escape.
+Scene 3 (Reaction):
+- Blueprint: "Rising action - character responds"
+- Action: Detective PICKS UP chip, examining it in his hand
+- Camera: Extreme close-up on hand and chip
+- Key difference: This is the INTERACTION moment (NOT examining ground anymore)
 
-[00:04-00:06] Extreme close-up with shallow depth of field, DETECTIVE's CYBERNETIC GOLD ARM (detailed servo motors and circuit patterns visible, rain beading on metallic surface), mechanical fingers extend smoothly to pick up the GLOWING BLUE DATA CHIP from the puddle, rack focus from the gold arm to the chip's pulsing blue light reflecting in the water, pink and cyan neon reflections dancing on wet metal. Macro lens perspective with cinematic bokeh, dramatic side lighting creating texture on the gold surface. SFX: Servo motors whirring quietly, chip emitting soft electronic beep, water droplets. Ambient: Detective's steady breathing, rain rhythm continues.
+Scene 4 (Revelation):
+- Blueprint: "Climax - dramatic conclusion"
+- Action: Detective STANDS UP as hologram APPEARS behind him
+- Camera: Low angle showing both characters
+- Key difference: This is the CONFRONTATION moment (new character appears)
 
-[00:06-00:08] Low angle medium shot rising with movement, DETECTIVE with CYBERNETIC GOLD ARM holding the glowing blue chip up to examine it at eye level, scar on left cheek visible, determined expression, rain running down his face, stands up as HOLOGRAPHIC WOMAN with FLOWING CYAN HAIR and TRANSLUCENT BODY flickers into existence behind him (glitching slightly, ethereal), her cyan-tinted features ghostly against the dark alley. Dramatic backlighting from neon signs creating volumetric fog effects, high contrast neo-noir cinematography. She says "You shouldn't have found that." SFX: Hologram materialization sound, his sharp inhale of surprise. Ambient: Rain continuing, distant thunder rumbling. Film aesthetic: shot on ARRI Alexa with anamorphic lenses, heavy film grain, Blade Runner 2049 inspired color grading with pink/cyan contrast.
+Notice: Each scene has DIFFERENT:
+- Action verb (walks → kneels → picks up → stands)
+- Camera distance (wide → medium → extreme close-up → low angle)
+- Narrative purpose (arrival → investigation → interaction → revelation)
 
----
+====================
+WORD COUNT REQUIREMENTS:
+====================
 
-WHAT NOT TO DO (COMMON MISTAKES):
+PER TIMESTAMP:
+- Minimum: 60 words
+- Maximum: 90 words
+- Target: 75 words
 
-❌ WRONG (Description style):
-"[00:00-00:02] Wide shot of NEON-LIT ALLEYWAY with DETECTIVE"
+PER SCENE:
+- Total: 240-360 words (4 timestamps × 75 words)
 
-❌ WRONG (Missing details):
-"[00:00-00:02] Detective walks in alley, raining, neon lights"
+====================
+STRUCTURE (75 words per timestamp):
+====================
 
-❌ WRONG (Fragmented):
-"[00:00-00:02] Wide shot. Alleyway. Detective. Rain. Neon."
+1. Shot Type (5 words): "Wide establishing shot" or "Medium close-up"
+2. Environment (25 words): Location details, lighting, atmosphere
+3. Subject (25 words): Character/object with CAPS features, clothing, action
+4. Style (20 words): Cinematography, film reference, audio
 
-✅ CORRECT (Full cinematic prompt):
-"[00:00-00:02] Wide establishing shot, narrow rain-soaked alleyway with vibrant pink and cyan neon signs reflecting off wet cobblestone pavement..."
+====================
+EXAMPLE TIMESTAMP (75 words):
+====================
 
----
+[00:00-00:02] Wide establishing shot, narrow rain-soaked alleyway with vibrant pink and cyan neon signs reflecting off wet cobblestone pavement, steam rising from metal grates, distant city lights creating depth. DETECTIVE with CYBERNETIC GOLD ARM glinting under neon reflections, wearing dark leather trench coat, SCAR ON LEFT CHEEK visible in pink light, approaches camera through heavy rain with determined stride. Chiaroscuro lighting with deep shadows and bright neon highlights, neo-noir aesthetic shot on vintage anamorphic lenses, moody atmospheric tone. SFX: Heavy rain, footsteps splashing. Ambient: Urban night sounds, neon hum.
 
-OUTPUT JSON STRUCTURE:
+====================
+GENERATION STRATEGY FOR MULTI-SCENE VIDEOS:
+====================
 
-For each of the ${assetSheet.project_metadata.total_scenes} scenes, create:
+When generating Scene N, remember:
+- Scene 1 has already shown [previous action]
+- Scene 2 has already shown [previous action]
+- Scene N must show [NEW action from blueprint]
+
+For each scene, ask yourself:
+1. Does this scene show a different action than the previous one?
+2. Does this match the blueprint purpose for this scene number?
+3. Would someone watching notice a clear progression?
+
+If the answer to any is "no", revise the scene.
+
+====================
+MANDATORY REQUIREMENTS:
+====================
+
+1. WORD COUNT: Each timestamp 60-90 words, total scene 240-360 words
+2. DISTINCTIVE FEATURES: CAPS in EVERY timestamp
+3. SHOT VARIETY WITHIN SCENE: Wide → Medium → Close-up → Dynamic
+4. SCENE VARIETY ACROSS VIDEO: Each scene shows unique narrative beat
+5. CONSISTENCY: Character descriptions identical across ALL timestamps and scenes
+6. PROGRESSION: Each scene advances story according to blueprint
+
+====================
+JSON OUTPUT:
+====================
 
 {
   "scenes": [
     {
       "scene_number": 1,
       "timestamp": "[00:00-00:08]",
-      "title": "Noir Alley Discovery",
-      "prompt": "FULL MULTI-LINE TEXT WITH ALL 4 TIMESTAMPS AS SHOWN IN EXAMPLE ABOVE (400-500 words total)",
+      "title": "3-5 word title reflecting unique beat",
+      "prompt": "All 4 timestamps (240-360 words total)",
+      "blueprint_adherence": "How this scene fulfills its blueprint purpose",
+      "unique_elements": ["List 2-3 things that make this scene different from others"],
       "technical_breakdown": {
-        "cinematography": "Dynamic sequence: Wide → Medium → Extreme Close-up → Low Angle",
-        "subject": "Detective with cybernetic gold arm, holographic woman",
-        "action": "Investigating data chip discovery in rain-soaked alley",
-        "context": "Neo-noir alleyway with pink/cyan neon reflections, rain",
-        "style_ambiance": "Chiaroscuro lighting, Blade Runner aesthetic, anamorphic lenses"
+        "cinematography": "Brief summary of shot progression",
+        "subject": "Who/what appears",
+        "action": "What happens",
+        "context": "Where it happens",
+        "style_ambiance": "Visual style and mood"
       },
       "audio": {
-        "dialogue": "You shouldn't have found that",
-        "sfx": ["Heavy rain", "Footsteps splashing", "Servo motors", "Hologram materialization"],
-        "ambient": "Urban night atmosphere with neon hum and rain"
+        "dialogue": "Spoken lines or null",
+        "sfx": ["array", "of", "sounds"],
+        "ambient": "background atmosphere"
       },
       "consistency_check": {
-        "character_ids": ["detective_char1", "hologram_char2"],
-        "object_ids": ["data_chip_obj1"],
-        "location_id": "alley_loc1"
+        "character_ids": ["ids from asset sheet"],
+        "object_ids": ["ids from asset sheet"],
+        "location_id": "id from asset sheet"
       },
       "duration": 8
     }
   ],
-  "narrative_flow": "Brief description of story progression",
-  "audio_continuity": "How audio builds across scenes"
+  "narrative_flow": "How scenes connect narratively",
+  "audio_continuity": "How audio evolves across scenes"
 }
 
-CONSISTENCY ENFORCEMENT CHECKLIST:
-- [ ] CYBERNETIC GOLD ARM appears in ALL 4 timestamps
-- [ ] Scar on left cheek mentioned consistently
-- [ ] Dark leather trench coat in every timestamp
-- [ ] Steel grey eyes referenced
-- [ ] Neon colors (pink/cyan) consistent
-- [ ] Rain present throughout
-- [ ] Holographic woman has CYAN HAIR and TRANSLUCENT BODY
+====================
+QUALITY CHECKLIST:
+====================
 
-QUALITY STANDARDS:
-- Each timestamp = 80-100 words
-- Total prompt per scene = 400-500 words
-- Professional cinematography terminology throughout
-- Specific lighting descriptions (not "good lighting")
-- Film aesthetic reference in final timestamp
-- Audio elements present and continuous
+Before submitting, verify:
+- [ ] Each scene matches its blueprint purpose
+- [ ] No two scenes show the same action
+- [ ] Character performs different action in each scene
+- [ ] Camera angles vary between scenes
+- [ ] Each scene word count is 240-360 words
+- [ ] Distinctive features in CAPS in all timestamps across all scenes
+- [ ] Narrative progresses logically scene to scene
 
-Generate the scenes now following this EXACT format.
+Generate ${assetSheet.project_metadata.total_scenes} UNIQUE scenes now.
 `;
 
     const openai = getOpenAI();
@@ -602,27 +795,75 @@ Generate the scenes now following this EXACT format.
         model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
         response_format: SCENE_SCHEMA,
-        temperature: 0.7 // Balanced for creativity + consistency
+        temperature: 0.7
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-
-    // Validation: Check if prompts are actually detailed enough
+    
+    // VALIDATION: Check for repetition
+    const countWords = (text) => text.trim().split(/\s+/).length;
+    
+    // Extract action verbs from each scene to detect repetition
+    const sceneActions = [];
+    
     for (const scene of parsed.scenes) {
-        const promptLength = scene.prompt.length;
-        if (promptLength < 300) {
+        const totalWords = countWords(scene.prompt);
+        
+        // Basic repetition detection: Check if scenes contain very similar text
+        const sceneText = scene.prompt.toLowerCase();
+        sceneActions.push(sceneText);
+        
+        // Word count validation
+        if (totalWords > 360) {
+            logger.error({
+                scene_number: scene.scene_number,
+                total_words: totalWords,
+                target: "240-360 words"
+            }, "❌ Scene too long!");
+        } else if (totalWords < 240) {
             logger.warn({
                 scene_number: scene.scene_number,
-                prompt_length: promptLength
-            }, "⚠️ Scene prompt is too short - may lack detail");
+                total_words: totalWords
+            }, "⚠️ Scene might be too short");
+        } else {
+            logger.info({
+                scene_number: scene.scene_number,
+                total_words: totalWords
+            }, "✅ Scene length optimal");
         }
     }
-
-    logger.info({
+    
+    // Check for repetition between consecutive scenes
+    for (let i = 1; i < sceneActions.length; i++) {
+        const prev = sceneActions[i - 1];
+        const curr = sceneActions[i];
+        
+        // Simple similarity check: count common significant words
+        const prevWords = new Set(prev.split(/\s+/).filter(w => w.length > 4));
+        const currWords = new Set(curr.split(/\s+/).filter(w => w.length > 4));
+        
+        const commonWords = [...prevWords].filter(w => currWords.has(w));
+        const similarity = commonWords.length / Math.max(prevWords.size, currWords.size);
+        
+        if (similarity > 0.6) {
+            logger.warn({
+                scene_pair: `${i} and ${i + 1}`,
+                similarity: `${Math.round(similarity * 100)}%`,
+                common_words: commonWords.slice(0, 5)
+            }, "⚠️ High similarity detected between consecutive scenes!");
+        }
+    }
+    
+    const avgWords = Math.round(
+        parsed.scenes.reduce((sum, s) => sum + countWords(s.prompt), 0) / parsed.scenes.length
+    );
+    
+    logger.info({ 
         scene_count: parsed.scenes.length,
-        avg_prompt_length: Math.round(parsed.scenes.reduce((sum, s) => sum + s.prompt.length, 0) / parsed.scenes.length)
-    }, "✅ Stage 2 Complete.");
-
+        avg_words: avgWords,
+        target: "300 words"
+    }, "✅ Stage 2 Complete");
+    
     return { scenesData: parsed, usage: completion.usage };
 };
 
@@ -630,84 +871,110 @@ Generate the scenes now following this EXACT format.
  * STAGE 3: VALIDATION & QA
  * Purpose: Automated quality check to catch inconsistencies before delivery.
  */
+// ==========================================
+// STAGE 3 UPDATE: Add repetition check to validation
+// ==========================================
+
 const _stage3_validation = async (assetSheet, scenesData) => {
     logger.info("✅ Stage 3: Validating Quality...");
 
     const prompt = `
-    You are a quality assurance specialist for film production. Validate the generated script against the asset sheet and identify any inconsistencies or quality issues.
+You are a quality assurance specialist for film production. Validate against repetition and consistency issues.
 
-    ASSET SHEET:
-    ${JSON.stringify(assetSheet, null, 2)}
+ASSET SHEET:
+${JSON.stringify(assetSheet, null, 2)}
 
-    GENERATED SCENES:
-    ${JSON.stringify(scenesData, null, 2)}
+GENERATED SCENES:
+${JSON.stringify(scenesData, null, 2)}
 
-    VALIDATION CHECKLIST:
+VALIDATION CHECKLIST:
 
-    1. TIMESTAMP STRUCTURE
-    - [ ] Prompt contains 4 timestamps: [00:00-00:02], [00:02-00:04], [00:04-00:06], [00:06-00:08]
-    - [ ] Each timestamp block has a specific shot type
-    - [ ] Total prompt length 300-800 chars
+1. ANTI-REPETITION CHECK (CRITICAL FOR MULTI-SCENE VIDEOS)
+   - [ ] Each scene shows a DIFFERENT action/moment
+   - [ ] No two consecutive scenes have the same camera angle
+   - [ ] No phrases like "continues to" or "still doing"
+   - [ ] Each scene advances the narrative forward
+   - [ ] Character performs different actions in each scene
 
-    2. CHARACTER CONSISTENCY
-    - [ ] Distinctive features in CAPS appear in EVERY timestamp block
-    - [ ] Hair color/style identical across scenes
-    - [ ] Clothing matches character bible
-    - [ ] Consistency anchors present in every appearance (CAPS preferred)
+2. TIMESTAMP STRUCTURE
+   - [ ] Each scene has 4 timestamps: [00:00-00:02], [00:02-00:04], [00:04-00:06], [00:06-00:08]
+   - [ ] Total prompt length 240-360 words per scene
 
-    2. OBJECT CONSISTENCY
-    - [ ] Object descriptions match asset sheet verbatim
-    - [ ] Distinctive features always mentioned
+3. CHARACTER CONSISTENCY
+   - [ ] Distinctive features in CAPS in EVERY timestamp in EVERY scene
+   - [ ] Same character descriptions across all scenes
+   - [ ] Clothing consistent throughout
 
-    3. CINEMATIC QUALITY
-    - [ ] Shot variety (Wide/Medium/Close-up) present within the sequence
-    - [ ] No static shots (camera movement implied in each timestamp)
+4. NARRATIVE PROGRESSION
+   - [ ] Scenes follow a logical story arc
+   - [ ] Each scene has unique narrative purpose
+   - [ ] No redundant or repetitive scenes
 
-    4. AUDIO COMPLETENESS
-    - [ ] Audio object populated correctly
+5. CINEMATOGRAPHY
+   - [ ] Shot variety within each scene
+   - [ ] Different camera angles between scenes
+   - [ ] No static or repetitive compositions
 
-    5. JSON COMPLIANCE
-    - [ ] Title is short/punchy
-    - [ ] Duration is 8 seconds
+CRITICAL ISSUE EXAMPLES:
 
-    OUTPUT FORMAT (JSON):
+REPETITION ISSUES (HIGHEST PRIORITY):
+- Scene 1 and Scene 2 both show "character walking" → CRITICAL
+- Two consecutive scenes with same camera angle → CRITICAL  
+- Scene describes "continues from previous" → CRITICAL
+- Identical actions across scenes → CRITICAL
+
+CONSISTENCY ISSUES:
+- Distinctive feature missing in a timestamp → MODERATE
+- Character description changes between scenes → CRITICAL
+- Wrong word count → MODERATE
+
+OUTPUT FORMAT:
+{
+  "validation_status": "PASS|FAIL|NEEDS_REVISION",
+  "overall_score": 8.5,
+  "issues_found": [
     {
-    "validation_status": "PASS|FAIL|NEEDS_REVISION",
-    "overall_score": 8.5, // Float 1-10
-    "issues_found": [
-        {
-        "severity": "CRITICAL|MODERATE|MINOR",
-        "category": "timestamp_structure|consistency|cinematic",
-        "scene_number": number,
-        "issue": "Description of problem",
-        "current_text": "text",
-        "required_fix": "fix"
-        }
-    ],
-    "strengths": ["array"],
-    "revision_needed": boolean,
-    "revised_scenes": []
+      "severity": "CRITICAL|MODERATE|MINOR",
+      "category": "repetition|consistency|word_count|cinematography",
+      "scene_number": number,
+      "issue": "Description",
+      "current_text": "text",
+      "required_fix": "fix"
     }
+  ],
+  "strengths": ["array"],
+  "revision_needed": boolean,
+  "revised_scenes": []
+}
 
-    CRITICAL ISSUE EXAMPLES:
-    - Missing timestamps → CRITICAL
-    - Only 2 timestamps instead of 4 → MODERATE
-    - "Cybernetic arm" mentioned in T1 but missing in T3 → MODERATE
-
-
-    If validation_status is FAIL or NEEDS_REVISION, YOU MUST PROVIDE THE CORRECTED SCENES in the 'revised_scenes' array.
-    `;
+If scenes are repetitive, YOU MUST revise them to be unique and include in revised_scenes array.
+`;
 
     const openai = getOpenAI();
     const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
         response_format: VALIDATION_SCHEMA,
-        temperature: 0.3 // Strict low temp for validation
+        temperature: 0.3
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-    logger.info({ score: parsed.overall_score, status: parsed.validation_status }, "✅ Stage 3 Complete.");
+    
+    // Log repetition issues specifically
+    const repetitionIssues = parsed.issues_found.filter(i => i.category === 'repetition');
+    if (repetitionIssues.length > 0) {
+        logger.warn({
+            count: repetitionIssues.length,
+            issues: repetitionIssues.map(i => i.issue)
+        }, "⚠️ Scene repetition detected!");
+    }
+    
+    logger.info({ 
+        score: parsed.overall_score, 
+        status: parsed.validation_status,
+        repetition_issues: repetitionIssues.length
+    }, "✅ Stage 3 Complete");
+    
     return { validationReport: parsed, usage: completion.usage };
 };
 
@@ -727,8 +994,8 @@ const formatAudioDirective = (audio) => {
     if (!audio) return "Ambient sound";
     const parts = [];
     if (audio.dialogue) parts.push(`Dialogue: "${audio.dialogue}"`);
-    if (audio.sfx && Array.isArray(audio.sfx) && audio.sfx.length) parts.push(`SFX: ${audio.sfx.join(', ')}`);
-    if (audio.ambient) parts.push(`Ambient: ${audio.ambient}`);
+    if (audio.sfx && Array.isArray(audio.sfx) && audio.sfx.length) parts.push(`SFX: ${ audio.sfx.join(', ') } `);
+    if (audio.ambient) parts.push(`Ambient: ${ audio.ambient } `);
     return parts.join(' | ');
 };
 
@@ -753,7 +1020,7 @@ export const generateScript = async (storyText, options = {}) => {
     const safetyCheck = await _stage0_safety_check(storyText);
     if (safetyCheck.severity === 'BLOCK') {
         logger.warn({ violations: safetyCheck.violations }, "Safety Check Blocked Request");
-        throw new Error(`SAFETY_VIOLATION: ${safetyCheck.violations.join(', ')}. Suggestion: ${safetyCheck.suggested_alternative}`);
+        throw new Error(`SAFETY_VIOLATION: ${ safetyCheck.violations.join(', ') }.Suggestion: ${ safetyCheck.suggested_alternative } `);
     }
     if (safetyCheck.severity === 'WARNING') {
         logger.warn({ violations: safetyCheck.violations }, "Safety Check Warning (Proceeding)");
@@ -764,14 +1031,29 @@ export const generateScript = async (storyText, options = {}) => {
 
     // Constraints & Durations (Base=8s, Pro=32s, Elite=64s)
     // Support both legacy "extended" and new explicit "30s"/"60s" from frontend
-    let durationString = "8 seconds"; // Default
+    // Constraints & Durations (Base=8s, Pro=32s, Elite=64s)
+    let requestedSeconds = 8;
+    
+    // 1. Parse Requested Length
+    if (length === '60s') requestedSeconds = 64;
+    else if (length === '30s') requestedSeconds = 32;
+    else if (length === 'extended') requestedSeconds = (plan === 'elite') ? 64 : 32;
 
-    if (length === '60s' || (length === 'extended' && plan === 'elite')) {
-        durationString = "64 seconds";
-    } else if (length === '30s' || (length === 'extended' && plan === 'pro')) {
-        durationString = "32 seconds";
-    } 
-    // "8s" or "standard" remains "8 seconds"
+    // 2. Determine Plan Cap
+    let planCap = 8;
+    if (plan === 'elite') planCap = 64;
+    else if (plan === 'pro') planCap = 32;
+
+    // 3. Enforce Limit
+    const finalSeconds = Math.min(requestedSeconds, planCap);
+    const durationString = `${finalSeconds} seconds`;
+
+    if (finalSeconds !== requestedSeconds) {
+        logger.warn({ plan, requested: length, enforced: durationString }, "⚠️ Duration capped by plan limit");
+    } else {
+        logger.info({ plan, duration: durationString }, "✅ Duration within plan limits");
+    }
+
 
     // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {
@@ -798,71 +1080,71 @@ export const generateScript = async (storyText, options = {}) => {
 
             // Throw to stop delivery of bad scripts
             throw new Error(
-                `Quality check failed: Score ${validationReport.overall_score}/10 is below minimum (${MIN_ACCEPTABLE_SCORE}). ` +
-                `Critical issues: ${criticalIssues.map(i => i.issue).join('; ')}`
+                `Quality check failed: Score ${ validationReport.overall_score }/10 is below minimum (${MIN_ACCEPTABLE_SCORE}). ` +
+    `Critical issues: ${criticalIssues.map(i => i.issue).join('; ')}`
             );
         }
 
-        if (validationReport.overall_score < MIN_PRODUCTION_SCORE) {
-            logger.warn({ score: validationReport.overall_score, target: MIN_PRODUCTION_SCORE }, "⚠️ Quality score below production standard but acceptable.");
-        }
+if (validationReport.overall_score < MIN_PRODUCTION_SCORE) {
+    logger.warn({ score: validationReport.overall_score, target: MIN_PRODUCTION_SCORE }, "⚠️ Quality score below production standard but acceptable.");
+}
 
-        // 5. Merge / Revision Logic (Improved merging)
-        let finalScenes = scenesData.scenes;
-        if (validationReport.revision_needed && validationReport.revised_scenes && validationReport.revised_scenes.length > 0) {
-            logger.warn({
-                original_count: finalScenes.length,
-                revised_count: validationReport.revised_scenes.length,
-                issues: validationReport.issues_found
-            }, "⚠️ Applying validation corrections");
+// 5. Merge / Revision Logic (Improved merging)
+let finalScenes = scenesData.scenes;
+if (validationReport.revision_needed && validationReport.revised_scenes && validationReport.revised_scenes.length > 0) {
+    logger.warn({
+        original_count: finalScenes.length,
+        revised_count: validationReport.revised_scenes.length,
+        issues: validationReport.issues_found
+    }, "⚠️ Applying validation corrections");
 
-            // Optimistic replacement
-            if (validationReport.revised_scenes.length === finalScenes.length) {
-                finalScenes = validationReport.revised_scenes;
-            } else {
-                const revisedMap = new Map(validationReport.revised_scenes.map(s => [s.scene_number, s]));
-                finalScenes = finalScenes.map(scene => {
-                    const revised = revisedMap.get(scene.scene_number);
-                    if (revised) {
-                        logger.info({ scene_number: scene.scene_number }, "Applying correction");
-                        return revised;
-                    }
-                    return scene;
-                });
+    // Optimistic replacement
+    if (validationReport.revised_scenes.length === finalScenes.length) {
+        finalScenes = validationReport.revised_scenes;
+    } else {
+        const revisedMap = new Map(validationReport.revised_scenes.map(s => [s.scene_number, s]));
+        finalScenes = finalScenes.map(scene => {
+            const revised = revisedMap.get(scene.scene_number);
+            if (revised) {
+                logger.info({ scene_number: scene.scene_number }, "Applying correction");
+                return revised;
             }
-        }
+            return scene;
+        });
+    }
+}
 
-        // 6. Mapping to Database Format (High Fidelity)
-        const mappedScenes = finalScenes.map((s, i) => ({
-            scene_id: s.scene_number || (i + 1),
-            // The "Prompt" is the action description for the DB
-            action_description: s.prompt,
-            shot_type: s.technical_breakdown?.cinematography || "Cinematic Shot",
-            motion_complexity: deriveMotionComplexity(s.technical_breakdown?.cinematography),
-            audio_directive: formatAudioDirective(s.audio),
-            duration: s.duration || calculateDuration(s.timestamp),
+// 6. Mapping to Database Format (High Fidelity)
+const mappedScenes = finalScenes.map((s, i) => ({
+    scene_id: s.scene_number || (i + 1),
+    // The "Prompt" is the action description for the DB
+    action_description: s.prompt,
+    shot_type: s.technical_breakdown?.cinematography || "Cinematic Shot",
+    motion_complexity: deriveMotionComplexity(s.technical_breakdown?.cinematography),
+    audio_directive: formatAudioDirective(s.audio),
+    duration: s.duration || calculateDuration(s.timestamp),
 
-            // Metadata for debugging
-            character_ids: s.consistency_check?.character_ids || [],
-            object_ids: s.consistency_check?.object_ids || []
-        }));
+    // Metadata for debugging
+    character_ids: s.consistency_check?.character_ids || [],
+    object_ids: s.consistency_check?.object_ids || []
+}));
 
-        const totalTokens = (u1?.total_tokens || 0) + (u2?.total_tokens || 0) + (u3?.total_tokens || 0);
-        const promptTokens = (u1?.prompt_tokens || 0) + (u2?.prompt_tokens || 0) + (u3?.prompt_tokens || 0);
-        const completionTokens = (u1?.completion_tokens || 0) + (u2?.completion_tokens || 0) + (u3?.completion_tokens || 0);
+const totalTokens = (u1?.total_tokens || 0) + (u2?.total_tokens || 0) + (u3?.total_tokens || 0);
+const promptTokens = (u1?.prompt_tokens || 0) + (u2?.prompt_tokens || 0) + (u3?.prompt_tokens || 0);
+const completionTokens = (u1?.completion_tokens || 0) + (u2?.completion_tokens || 0) + (u3?.completion_tokens || 0);
 
-        return {
-            scenes: mappedScenes,
-            suggested_title: assetSheet.project_metadata?.title || "Untitled Project",
-            // Return the Asset Sheet so Controller can save it to DB
-            assetSheet: assetSheet,
-            validationReport: validationReport,
-            usage: {
-                promptTokenCount: promptTokens,
-                candidatesTokenCount: completionTokens,
-                totalTokenCount: totalTokens
-            }
-        };
+return {
+    scenes: mappedScenes,
+    suggested_title: assetSheet.project_metadata?.title || "Untitled Project",
+    // Return the Asset Sheet so Controller can save it to DB
+    assetSheet: assetSheet,
+    validationReport: validationReport,
+    usage: {
+        promptTokenCount: promptTokens,
+        candidatesTokenCount: completionTokens,
+        totalTokenCount: totalTokens
+    }
+};
     });
 };
 

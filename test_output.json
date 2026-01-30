@@ -1,0 +1,65 @@
+🚀 Starting 3-Stage Pipeline Test...
+{"level":30,"time":1769623794544,"storyText":"A young cybersecurity analyst discovers a hidden backdoor in her company's server room. She traces the cable to a dusty ventilation shaft.","duration":"15 seconds","category":"creative","msg":"🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)..."}
+{"level":30,"time":1769623802303,"msg":"✅ Stage 1 Complete."}
+{"level":30,"time":1769623802303,"msg":"🎥 Stage 2: Generating Scene Prompts..."}
+{"level":30,"time":1769623819301,"msg":"✅ Stage 2 Complete."}
+{"level":30,"time":1769623819301,"msg":"✅ Stage 3: Validating Quality..."}
+{"level":30,"time":1769623831096,"score":7.5,"status":"NEEDS_REVISION","msg":"✅ Stage 3 Complete."}
+
+✅ Pipeline Complete!
+------------------------------------------
+📝 Title: The Hidden Backdoor
+
+📚 Asset Sheet (Stage 1 Output):
+{
+  "project_metadata": {
+    "title": "The Hidden Backdoor",
+    "duration_seconds": 15,
+    "total_scenes": 3,
+    "category": "creative",
+    "visual_style": "suspenseful and realistic"
+  },
+  "character_bible": [
+    {
+      "id": "1",
+      "role": "Cybersecurity Analyst",
+      "age": "25",
+      "gender": "female",
+      "ethnicity": "Caucasian",
+      "physical_description": {
+        "height": "5'6\"",
+        "build": "slim",
+        "hair": "short, auburn",
+        "eyes": "green",
+  ...
+
+🎬 Generated Scenes (Stage 2 Output):
+
+[Scene 1] (5s)
+Action: Cybersecurity Analyst with FRECKLES, short auburn hair, dark grey suit, intense gaze performs typing rapidly at the console dolly in Company Server Room with dimly lit rows and blinking lights High contrast lighting, midnight blue, tense, 'Mr. Robot' vibe
+Shot: Dolly in
+Audio: Dialogue: "Analyst murmurs "Need to find it..."" | SFX: Keyboard clicks | Ambient: Ambient noise: Soft hum of servers
+
+[Scene 2] (5s)
+Action: Cybersecurity Analyst with SHARP JAWLINE, short auburn hair, dark grey suit, focused expression performs crawling through Ventilation Shaft close-up Ventilation Shaft with metallic finish and cobwebs Dramatic rim lighting, slate grey, suspenseful, 'The Matrix' feel
+Shot: Close-up
+Audio: Dialogue: "Analyst whispers "Almost there..."" | SFX: Metallic creaks | Ambient: Ambient noise: Echoing drips
+
+[Scene 3] (5s)
+Action: Cybersecurity Analyst with BLACK-RIMMED GLASSES, short auburn hair, dark grey suit, determined expression performs inspecting Network Cable wide shot Company Server Room with neglected corners and flickering lights Deep blacks, charcoal, thrilling, 'The Matrix' atmosphere
+Shot: Wide shot
+Audio: Dialogue: "Analyst whispers "This is it..."" | SFX: Cable rustling | Ambient: Ambient noise: Distant electronic beeps
+
+📊 Validation Report (Stage 3 Output):
+Status: NEEDS_REVISION
+Score: 7.5
+Issues: 3
+
+💰 Token Usage:
+{
+  promptTokenCount: 4602,
+  candidatesTokenCount: 1969,
+  totalTokenCount: 6571
+}
+{"level":40,"time":1769623831096,"score":7.5,"target":8.5,"msg":"⚠️ Quality score below production standard but acceptable."}
+{"level":40,"time":1769623831096,"original_count":3,"revised_count":3,"issues":[{"severity":"CRITICAL","category":"character_consistency","scene_number":3,"issue":"Character's hair color/style not mentioned.","current_text":"Cybersecurity Analyst with BLACK-RIMMED GLASSES, dark grey suit, determined expression performs inspecting Network Cable","required_fix":"Include 'short, auburn hair' in the character description."},{"severity":"MODERATE","category":"formula","scene_number":1,"issue":"Distinctive features not mentioned in the first 20 words.","current_text":"Cybersecurity Analyst with FRECKLES, dark grey suit, intense gaze performs typing rapidly at the console dolly in Company Server Room with dimly lit rows and blinking lights High contrast lighting, midnight blue, tense, 'Mr. Robot' vibe","required_fix":"Move 'freckles' to the first 20 words of the scene description."},{"severity":"MODERATE","category":"audio","scene_number":2,"issue":"Missing dialogue in Scene 2.","current_text":"\"dialogue\": null","required_fix":"Add a short dialogue line for continuity, e.g., \"Almost there...\""}],"msg":"⚠️ Applying validation corrections"}

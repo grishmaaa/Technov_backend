@@ -342,11 +342,10 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
         // --- TIER LOGIC: Model Selection ---
         // Base/Pro -> Standard | Elite -> Fast
-        // Note: Replace with actual model IDs if different.
-        // Assuming 'veo-001-fast' exists or similar for the 'cheap' model.
-        let videoModel = 'veo-001'; // Default Standard
+        // Note: Updated to 'veo-2.0-generate-001' to fix 404
+        let videoModel = 'veo-2.0-generate-001'; // Default Standard
         if (userPlan === 'elite') {
-            videoModel = 'veo-001-fast'; // Or whatever generic name maps to the faster/cheaper model
+            videoModel = 'veo-2.0-generate-001'; // Use same model for now until fast variant is confirmed
         }
 
         const scenes = project.scenes;

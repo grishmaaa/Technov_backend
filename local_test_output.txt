@@ -1,0 +1,64 @@
+🚀 Starting 3-Stage Pipeline Test...
+{"level":30,"time":1769706089528,"storyText":"A noir detective with a distinct cybernetic gold arm is investigating a crime scene in a rainy, neon-lit alleyway. He finds a glowing blue data chip in a puddle. He picks it up and says, 'This shouldn't exist.' A holographic woman flickers into existence behind him.","duration":"15 seconds","category":"creative","msg":"🎬 Stage 1: Generating Asset Sheet (Character/Object Bible)..."}
+{"level":30,"time":1769706111243,"msg":"✅ Stage 1 Complete."}
+{"level":30,"time":1769706111243,"msg":"🎥 Stage 2: Generating Scene Prompts..."}
+{"level":30,"time":1769706155177,"msg":"✅ Stage 2 Complete."}
+{"level":30,"time":1769706155178,"msg":"✅ Stage 3: Validating Quality..."}
+{"level":30,"time":1769706182562,"score":7.5,"status":"NEEDS_REVISION","msg":"✅ Stage 3 Complete."}
+
+✅ Pipeline Complete!
+------------------------------------------
+📝 Title: Cyber Noir Investigation
+
+📚 Asset Sheet (Stage 1 Output):
+{
+  "project_metadata": {
+    "title": "Cyber Noir Investigation",
+    "duration_seconds": 15,
+    "total_scenes": 3,
+    "category": "creative",
+    "visual_style": "noir"
+  },
+  "character_bible": [
+    {
+      "id": "detective_01",
+      "role": "Protagonist Detective",
+      "age": "Mid-30s",
+      "gender": "Male",
+      "ethnicity": "Caucasian",
+      "physical_description": {
+        "height": "6'2\"",
+        "build": "Athletic",
+        "hair": "Jet Black",
+        "eyes": "Emerald Gree...
+
+🎬 Generated Scenes (Stage 2 Output):
+
+[Scene 1] (5s)
+Action: CYBERNETIC GOLD ARM Detective in black trench coat, pensive expression. Performs a quick data chip retrieval. Close-up reveal of his hand clutching a Glowing Blue Data Chip. Neon-Lit Alleyway with heavy rainfall and pulsating crimson reflections. Chiaroscuro lighting, Neon Pink and Cyber Blue, mysterious mood, Blade Runner homage.
+Shot: Close-up reveal
+Audio: Dialogue: "Detective says "I've got it."" | SFX: Soft rustle of trench coat | Ambient: Ambient noise: Heavy rain and distant city noise
+
+[Scene 2] (5s)
+Action: Holographic Woman with FLICKERING HOLOGRAM EFFECT, digital dress, serene gaze. Performs a sudden disappearance. Wide shot captures her ethereal form dissolving into pixels. Neon-Lit Alleyway with reflective puddles and flickering signage. Dramatic rim lighting, Midnight Black and Gold, suspenseful mood.
+Shot: Wide shot
+Audio: Dialogue: "Hologram says "Find the truth."" | SFX: Gentle hum of holographic glitch | Ambient: Ambient noise: Heavy rain and distant city noise
+
+[Scene 3] (5s)
+Action: Detective with wide-brim fedora, determined stare. Performs a chase down the alley. Tracking shot follows his purposeful stride. Neon-Lit Alleyway with shadowed corners and distant thunder rolls. High contrast lighting, Rain Grey and Cyber Blue, intense mood, Blade Runner homage.
+Shot: Tracking shot
+Audio: Dialogue: "Detective says "No stopping now."" | SFX: Footsteps splashing through puddles | Ambient: Ambient noise: Heavy rain and distant city noise
+
+📊 Validation Report (Stage 3 Output):
+Status: NEEDS_REVISION
+Score: 7.5
+Issues: 4
+
+💰 Token Usage:
+{
+  promptTokenCount: 4883,
+  candidatesTokenCount: 2300,
+  totalTokenCount: 7183
+}
+{"level":40,"time":1769706182563,"score":7.5,"target":8.5,"msg":"⚠️ Quality score below production standard but acceptable."}
+{"level":40,"time":1769706182563,"original_count":3,"revised_count":3,"issues":[{"severity":"CRITICAL","category":"character_consistency","scene_number":3,"issue":"Detective's sunglasses not mentioned in asset sheet.","current_text":"Detective with DARK SUNGLASSES, wide-brim fedora, determined stare.","required_fix":"Remove 'DARK SUNGLASSES' or align with asset sheet."},{"severity":"MODERATE","category":"formula","scene_number":1,"issue":"Distinctive features not in first 20 words.","current_text":"Detective with CYBERNETIC GOLD ARM, black trench coat, pensive expression.","required_fix":"Move 'CYBERNETIC GOLD ARM' to the start of the scene description."},{"severity":"MODERATE","category":"narrative","scene_number":3,"issue":"Repetitive shot type across scenes.","current_text":"Dolly in emphasizes his purposeful stride.","required_fix":"Change to a different shot type for variety, e.g., 'Tracking shot follows his stride.'"},{"severity":"MINOR","category":"technical","scene_number":2,"issue":"Prompt length exceeds optimal word count.","current_text":"Holographic Woman with FLICKERING HOLOGRAM EFFECT, digital dress, serene gaze. Performs a sudden disappearance. Sweeping wide shot captures her ethereal form dissolving into pixels. Neon-Lit Alleyway with reflective puddles and flickering signage. Dramatic rim lighting, Midnight Black and Gold, suspenseful mood, Blade Runner homage.","required_fix":"Condense to 120 words or less while maintaining detail."}],"msg":"⚠️ Applying validation corrections"}

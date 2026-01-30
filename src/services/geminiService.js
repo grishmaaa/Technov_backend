@@ -763,14 +763,15 @@ export const generateScript = async (storyText, options = {}) => {
     const { plan = 'basic', length = 'standard' } = tierOptions;
 
     // Constraints & Durations (Base=8s, Pro=32s, Elite=64s)
-    const isExtended = length === 'extended';
-    let durationString = "8 seconds"; // Default (Standard)
+    // Support both legacy "extended" and new explicit "30s"/"60s" from frontend
+    let durationString = "8 seconds"; // Default
 
-    if (isExtended) {
-        if (plan === 'elite') durationString = "64 seconds";
-        else if (plan === 'pro') durationString = "32 seconds";
-        // Basic plan ignores 'extended' request
-    }
+    if (length === '60s' || (length === 'extended' && plan === 'elite')) {
+        durationString = "64 seconds";
+    } else if (length === '30s' || (length === 'extended' && plan === 'pro')) {
+        durationString = "32 seconds";
+    } 
+    // "8s" or "standard" remains "8 seconds"
 
     // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {

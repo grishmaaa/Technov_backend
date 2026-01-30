@@ -12,11 +12,12 @@ const runTest = async () => {
 
     // Test Cases
     const cases = [
-        { plan: 'basic', length: 'standard', expectedScenes: 1, name: "Base Plan (Standard)" },
-        { plan: 'basic', length: 'extended', expectedScenes: 1, name: "Base Plan (Extended Request - Should Ignore)" },
-        { plan: 'pro', length: 'standard', expectedScenes: 1, name: "Pro Plan (Standard)" },
-        { plan: 'pro', length: 'extended', expectedScenes: 4, name: "Pro Plan (Extended)" },
-        { plan: 'elite', length: 'extended', expectedScenes: 8, name: "Elite Plan (Extended)" },
+        { plan: 'basic', length: '8s', expectedScenes: 1, name: "Base Plan (8s explicit)" },
+        { plan: 'basic', length: '30s', expectedScenes: 1, name: "Base Plan (30s Request - Should Ignore)" },
+        { plan: 'pro', length: '30s', expectedScenes: 4, name: "Pro Plan (30s)" },
+        { plan: 'elite', length: '60s', expectedScenes: 8, name: "Elite Plan (60s)" },
+        // Legacy Support Check
+        { plan: 'pro', length: 'extended', expectedScenes: 4, name: "Pro Plan (Legacy Extended)" },
     ];
 
     for (const testCase of cases) {

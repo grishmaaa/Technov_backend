@@ -1408,10 +1408,21 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
 // Helper to extracting video URL or Base64 from the Veo response
 const extractVideoFromResponse = async (responseOrResult, project, location, modelId, accessToken, bucketName) => {
+    // CRITICAL DEBUG: Log full response structure for Veo 3.1
+    const safeStringify = (obj, maxLen = 2000) => {
+        try {
+            const str = JSON.stringify(obj, null, 2);
+            return str.length > maxLen ? str.substring(0, maxLen) + '...[truncated]' : str;
+        } catch {
+            return '[Unable to stringify]';
+        }
+    };
+    
     logger.info({
         responseKeys: responseOrResult ? Object.keys(responseOrResult) : [],
-        isArray: Array.isArray(responseOrResult)
-    }, "Extracting video from Veo response");
+        isArray: Array.isArray(responseOrResult),
+        fullResponse: safeStringify(responseOrResult)
+    }, "Extracting video from Veo response - FULL DEBUG");
 
     // Recursive finder
     const findVal = (obj, keys) => {
@@ -1426,19 +1437,34 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
         return null;
     };
 
-    // 1. Explicit Check for Veo 3.1 GCS URI (Highest Priority)
-    // Structure typically: [ { video: { uri: "gs://..." } } ] or just { video: { uri: "..." } }
-    // Note: responseOrResult might be the whole pollData or just the 'response' part.
+    // 1. Check for Veo 3.1 predictions array structure
+    // Structure: { predictions: [ { video: { uri: "gs://..." } } ] }
+    const predictions = responseOrResult?.predictions || responseOrResult?.result?.predictions;
+    let videoUrl = null;
+    
+    if (predictions && Array.isArray(predictions) && predictions.length > 0) {
+        logger.info({ predictionsCount: predictions.length }, "Found predictions array");
+        const firstPred = predictions[0];
+        videoUrl = firstPred?.video?.uri || firstPred?.videoUri || firstPred?.uri;
+        if (videoUrl) {
+            logger.info({ videoUrl }, "Found video URI in predictions");
+        }
+    }
+
+    // 2. Explicit Check for Veo 3.1 GCS URI (Highest Priority)
     const container = Array.isArray(responseOrResult) ? responseOrResult[0] : responseOrResult;
 
     logger.info({
         hasVideo: !!container?.video,
         hasUri: !!container?.uri,
+        hasPredictions: !!container?.predictions,
         containerKeys: container ? Object.keys(container) : []
     }, "Response container structure");
 
     // Inspect known keys for Veo 3.1
-    let videoUrl = container?.video?.uri || container?.video?.videoUri || container?.uri || container?.video_uri || container?.gcsUri;
+    if (!videoUrl) {
+        videoUrl = container?.video?.uri || container?.video?.videoUri || container?.uri || container?.video_uri || container?.gcsUri;
+    }
 
     // 2. Recursive Search for URL if not found directly
     // Added 'video_uri', 'gcs_uri', 'output_uri' to recursive search

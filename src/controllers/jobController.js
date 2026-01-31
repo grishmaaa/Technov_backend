@@ -1,5 +1,6 @@
 import prisma from '../config/database.js';
 import { generateScript } from '../services/geminiService.js';
+import { generateTitle } from '../services/aiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { renderQueue } from '../queue/renderQueue.js';
 import { logger } from '../logger.js';
@@ -105,8 +106,8 @@ export const generateScriptController = async (req, res) => {
             }
         });
 
-        // 2. Generate Script (JSON) with tier options - backward compatible
-        const { scenes: scenesData, suggested_title: aiTitle, usage, assetSheet } = await generateScript(story, {
+        // Generate Script (JSON)
+        const { scenes: scenesData, suggested_title: geminiTitle, usage, assetSheet } = await generateScript(story, {
             plan: userPlan,
             productionStyle,
             artisticAtmosphere,
@@ -114,10 +115,18 @@ export const generateScriptController = async (req, res) => {
             visualMood
         });
 
-        // Use AI-generated title if user didn't provide one
-        const finalTitle = title || aiTitle || `Untitled Film`;
+        // Generate creative title (Parallel execution would be better but keeping it simple for now)
+        // We prefer: 1. Specialized AI Title -> 2. Gemini Title -> 3. User/Default Title
+        const specializedAiTitle = await generateTitle(story); // From aiService.js
 
-        // Update project with AI-generated title if applicable
+        let finalTitle = specializedAiTitle || geminiTitle || title;
+
+        // Fallback if everything is missing
+        if (!finalTitle || finalTitle.startsWith('Film 20')) {
+            finalTitle = `Project ${new Date().toISOString().split('T')[0]}`;
+        }
+
+        // Update project with AI-generated title
         await prisma.project.update({
             where: { id: project.id },
             data: {

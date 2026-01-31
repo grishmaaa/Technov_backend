@@ -1,5 +1,5 @@
 import prisma from '../config/database.js';
-import { generateScriptAndImagePrompt } from '../services/aiService.js';
+import { generateScriptAndImagePrompt, generateTitle } from '../services/aiService.js';
 import { generateHeroImage } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getPresignedDownloadUrl, getS3Client, getStorageConfig } from '../services/storageService.js';
@@ -190,7 +190,11 @@ export const generateScenesFromStory = async (req, res) => {
             return res.status(400).json({ error: 'Story is required' });
         }
 
-        const result = await generateScriptAndImagePrompt(story, visualStyle);
+        // Generate script and title concurrently
+        const [result, aiTitle] = await Promise.all([
+            generateScriptAndImagePrompt(story, visualStyle),
+            generateTitle(story)
+        ]);
 
         if (projectId) {
             const existingProject = await prisma.project.findFirst({
@@ -201,9 +205,16 @@ export const generateScenesFromStory = async (req, res) => {
                 return res.status(404).json({ error: 'Project not found' });
             }
 
+            const updateData = { imagePrompt: result.imagePrompt };
+
+            // Only update title if AI generated one and it looks valid
+            if (aiTitle) {
+                updateData.title = aiTitle;
+            }
+
             await prisma.project.update({
                 where: { id: projectId },
-                data: { imagePrompt: result.imagePrompt }
+                data: updateData
             });
         }
 
@@ -217,7 +228,7 @@ export const generateScenesFromStory = async (req, res) => {
             });
         }
 
-        res.json(result);
+        res.json({ ...result, title: aiTitle });
     } catch (error) {
         res.status(500).json({ error: 'Failed to generate scenes', details: error.message });
     }

@@ -108,3 +108,31 @@ Visual Style:
 
     throw lastError;
 };
+
+export const generateTitle = async (story) => {
+    if (!story) return null;
+
+    const prompt = `
+    Generate a short, creative, and catchy title (3-6 words) for a video based on this story:
+    "${story}"
+    
+    Return ONLY the title. No quotes, no "Title:", just the text.
+    `;
+
+    const openai = getOpenAI();
+
+    try {
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4o', // or gpt-3.5-turbo for speed/cost
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 20
+        });
+
+        const title = completion.choices?.[0]?.message?.content?.trim().replace(/^["']|["']$/g, '');
+        return title || null;
+    } catch (error) {
+        logger.warn({ err: error }, 'Failed to generate AI title');
+        return null; // Non-blocking failure
+    }
+};

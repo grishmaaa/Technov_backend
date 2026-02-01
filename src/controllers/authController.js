@@ -194,3 +194,23 @@ export const changePassword = async (req, res) => {
         res.status(500).json({ error: 'Failed to change password', details: error.message });
     }
 };
+
+export const deleteAccount = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Detailed logging before deletion
+        console.log(`[DELETE_ACCOUNT] Starting deletion for user: ${userId}`);
+
+        // Prisma cascade delete will handle related records (Projects, Credits, etc.)
+        await prisma.user.delete({
+            where: { id: userId }
+        });
+
+        console.log(`[DELETE_ACCOUNT] Successfully deleted user: ${userId}`);
+        res.json({ message: 'Account deleted successfully' });
+    } catch (error) {
+        console.error(`[DELETE_ACCOUNT] Failed to delete user ${req.user.id}:`, error);
+        res.status(500).json({ error: 'Failed to delete account', details: error.message });
+    }
+};

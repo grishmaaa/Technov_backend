@@ -6,7 +6,8 @@ import {
     getMe,
     refreshAccessToken,
     updateProfile,
-    changePassword
+    changePassword,
+    deleteAccount
 } from '../controllers/authController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -21,6 +22,7 @@ router.get('/me', authMiddleware, getMe);
 // Update profile and change password
 router.put('/me', authMiddleware, updateProfile);
 router.post('/change-password', authMiddleware, changePassword);
+router.delete('/me', authMiddleware, deleteAccount);
 
 // TODO: Add email verification endpoints
 // - POST /auth/resend-verification - Resend verification email to user

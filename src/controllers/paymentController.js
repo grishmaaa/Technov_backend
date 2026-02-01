@@ -9,24 +9,23 @@ const razorpay = new Razorpay({
     key_secret: process.env.RAZORPAY_KEY_SECRET || 'PLACEHOLDER_SECRET',
 });
 
-// Plan pricing (in paise - ₹1 = 100 paise)
 const PLANS = {
     basic: {
         name: 'Basic Plan',
-        amount: 100, // ₹1 (Testing)
-        currency: 'INR',
+        amount: 17600, // $176.00
+        currency: 'USD',
         credits: 1200,
     },
     pro: {
         name: 'Pro Plan',
-        amount: 200, // ₹2 (Testing)
-        currency: 'INR',
+        amount: 49500, // $495.00
+        currency: 'USD',
         credits: 3600,
     },
     elite: {
         name: 'Elite Plan',
-        amount: 300, // ₹3 (Testing)
-        currency: 'INR',
+        amount: 59500, // $595.00
+        currency: 'USD',
         credits: 12000,
     }
 };

@@ -24,7 +24,7 @@ const PLANS = {
     },
     elite: {
         name: 'Elite Plan',
-        amount: 59500, // $595.00
+        amount: 50500, // $505.00
         currency: 'USD',
         credits: 12000,
     }

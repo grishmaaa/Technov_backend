@@ -434,8 +434,6 @@ export const processGenerationJob = async (jobId, context = {}) => {
         jobDir = path.join(TMP_DIR, jobId);
         await ensureDir(jobDir);
 
-        const sceneVideoPaths = [];
-
         const sceneVideoPaths = []; // Final paths (post-processed)
         const rawSceneVideoPaths = []; // Preview paths (raw)
 

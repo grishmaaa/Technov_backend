@@ -47,6 +47,7 @@
         "pino": "^9.3.2",
         "pino-http": "^9.0.0",
         "razorpay": "^2.9.6",
+        "socket.io": "^4.8.3",
         "tus-js-client": "^4.1.1"
     },
     "devDependencies": {

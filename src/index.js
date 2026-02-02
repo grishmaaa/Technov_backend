@@ -140,7 +140,7 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     logger.info({ port: PORT }, 'Server started');
     logger.info({ environment: process.env.NODE_ENV || 'development' }, 'Environment');
     logger.info({ corsOrigin: process.env.CORS_ORIGIN || '*' }, 'CORS origin');
@@ -148,6 +148,62 @@ app.listen(PORT, () => {
     // Start cron jobs
     startCreditResetJob();
     startJanitorJob();
+});
+
+// --- SOCKET.IO SETUP ---
+import { Server } from 'socket.io';
+const io = new Server(server, {
+    cors: {
+        origin: ['https://technov.ai', 'http://localhost:8080', 'http://localhost:5173', '*'],
+        methods: ["GET", "POST"]
+    }
+});
+
+// Store io instance globally or export if needed (for simple modules)
+// For worker communication, we'll use Redis Pub/Sub if worker is separate
+import { createClient } from 'redis';
+
+if (process.env.REDIS_URL) {
+    (async () => {
+        try {
+            const subscriber = createClient({ url: process.env.REDIS_URL });
+            await subscriber.connect();
+
+            // Subscribe to worker updates
+            await subscriber.subscribe('job-updates', (message) => {
+                try {
+                    const data = JSON.parse(message);
+                    const { userId, type, payload } = data;
+                    if (userId && type) {
+                        // Emit to specific user room
+                        // io.to(userId).emit(type, payload);
+
+                        // For simplicity during dev/test, just emit to all or check implementation of rooms
+                        // Ideally: socket.join(userId) on connection
+                        io.emit(`${type}:${userId}`, payload); // simpler fallback: client listens to their own event name
+                        io.to(userId).emit(type, payload);
+                    }
+                } catch (e) {
+                    logger.warn({ err: e }, 'Failed to process socket update');
+                }
+            });
+            logger.info('Subscribed to job-updates via Redis');
+        } catch (e) {
+            logger.error({ err: e }, 'Failed to setup Redis subscriber');
+        }
+    })();
+}
+
+io.on('connection', (socket) => {
+    // console.log('Client connected:', socket.id);
+
+    // Simple auth: client sends { userId } on join
+    socket.on('join', (userId) => {
+        if (userId) {
+            socket.join(userId);
+            // console.log(`Socket ${socket.id} joined room ${userId}`);
+        }
+    });
 });
 
 export default app;

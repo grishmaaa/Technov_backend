@@ -139,6 +139,31 @@ const getLatestShotAsset = async (shotId) => {
     });
 };
 
+// --- REDIS PUBLISHER ---
+import { createClient } from 'redis';
+let redisPublisher = null;
+
+const getRedisPublisher = async () => {
+    if (!process.env.REDIS_URL) return null;
+    if (!redisPublisher) {
+        redisPublisher = createClient({ url: process.env.REDIS_URL });
+        await redisPublisher.connect();
+    }
+    return redisPublisher;
+};
+
+const publishUpdate = async (userId, type, payload) => {
+    try {
+        const publisher = await getRedisPublisher();
+        if (publisher) {
+            await publisher.publish('job-updates', JSON.stringify({ userId, type, payload }));
+        }
+    } catch (e) {
+        logger.warn({ err: e }, 'Failed to publish redis update');
+    }
+};
+// -----------------------
+
 const recordApiCall = async ({ jobId, projectId, costUsd }) => {
     const cost = Number(costUsd || 0);
     await prisma.generationJob.update({
@@ -411,11 +436,15 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
         const sceneVideoPaths = [];
 
+        const sceneVideoPaths = []; // Final paths (post-processed)
+        const rawSceneVideoPaths = []; // Preview paths (raw)
+
         for (let sceneIndex = 0; sceneIndex < totalScenes; sceneIndex += 1) {
             const scene = scenes[sceneIndex];
             const shots = await ensureShotsForScene({ scene, project });
 
             const shotVideoPaths = [];
+            const rawShotPaths = []; // Collect raw shots for preview
 
             for (const shot of shots) {
                 const options = {
@@ -449,6 +478,8 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
                     await downloadFile(downloadUrl, localPath);
                     shotVideoPaths.push(localPath);
+                    // For preview, use processed if raw unavailable
+                    rawShotPaths.push(localPath);
                     continue;
                 }
 
@@ -459,6 +490,9 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 try {
                     const result = await generateShotVideo({ shot, project, options, jobDir, jobId });
                     shotVideoPaths.push(result.localPath);
+                    // Assumption: generateShotVideo always creates raw at this path
+                    const rawPath = path.join(jobDir, `shot-${shot.id}-raw.mp4`);
+                    rawShotPaths.push(rawPath);
                 } catch (error) {
                     await prisma.scene.update({
                         where: { id: scene.id },
@@ -476,6 +510,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 throw new Error(`Scene ${scene.id} has no completed shots`);
             }
 
+            // --- PREVIEW GENERATION (Per Scene) ---
+            const scenePreviewPath = path.join(jobDir, `scene-${scene.orderIndex}-preview.mp4`);
+            await concatVideos({ inputPaths: rawShotPaths, outputPath: scenePreviewPath });
+            rawSceneVideoPaths.push(scenePreviewPath);
+
+            // --- FINAL GENERATION (Per Scene) ---
             const sceneOutputPath = path.join(jobDir, `scene-${scene.orderIndex}.mp4`);
             await concatVideos({ inputPaths: shotVideoPaths, outputPath: sceneOutputPath });
             const scenePublicUrl = await uploadFile(sceneOutputPath);
@@ -506,6 +546,41 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 where: { id: jobId },
                 data: { progress }
             });
+
+            // Emit progress
+            await publishUpdate(project.userId, 'render-progress', {
+                projectId: project.id,
+                percent: progress,
+                status: 'rendering'
+            });
+        }
+
+        // --- 1. PREVIEW ASSEMBLY (FAST) ---
+        if (rawSceneVideoPaths.length > 0) {
+            try {
+                jobLogger.info('Assembling Preview Video...');
+                const previewOutputPath = path.join(jobDir, 'preview-full.mp4');
+                await concatVideos({ inputPaths: rawSceneVideoPaths, outputPath: previewOutputPath });
+
+                const previewUrl = await uploadFile(previewOutputPath);
+                const previewUrlString = String(previewUrl || '');
+
+                await prisma.project.update({
+                    where: { id: project.id },
+                    data: {
+                        previewUrl: previewUrlString,
+                        state: 'PREVIEW_READY'
+                    }
+                });
+
+                await publishUpdate(project.userId, 'preview-ready', {
+                    projectId: project.id,
+                    previewUrl: previewUrlString
+                });
+                jobLogger.info({ previewUrlString }, 'Preview Ready');
+            } catch (e) {
+                jobLogger.warn({ err: e }, 'Preview assembly failed');
+            }
         }
 
         if (sceneVideoPaths.length > 0) {
@@ -584,6 +659,13 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 }
             });
 
+            // Socket Emit: Final Ready
+            await publishUpdate(project.userId, 'final-ready', {
+                projectId: project.id,
+                finalUrl: hlsUrl || finalUrlString,
+                quality: '1080p'
+            });
+
             jobLogger.info('Project marked as completed');
         } else {
             await prisma.generationJob.update({
@@ -600,6 +682,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 actorId: null,
                 reason: 'No scenes could be processed'
             });
+            await publishUpdate(project.userId, 'render-error', { projectId: project.id, error: 'No scenes processed' });
         }
 
         logger.info({ jobId }, 'Render job finished');

@@ -123,9 +123,9 @@ export const generateTitle = async (story) => {
 
     try {
         const completion = await openai.chat.completions.create({
-            model: 'gpt-4o', // or gpt-3.5-turbo for speed/cost
+            model: 'gpt-4o-mini', // Cheaper, faster
             messages: [{ role: 'user', content: prompt }],
-            temperature: 0.7,
+            temperature: 0.8,
             max_tokens: 20
         });
 

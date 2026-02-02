@@ -51,12 +51,14 @@ model Project {
   id          String   @id @default(uuid())
   userId      String   @map("user_id")
   title       String
+  story       String? // Original user prompt
   description String?
   state       String   @default("CREATED") @map("status")
   heroImageId String?  @map("hero_image_id")
   imagePrompt String?  @map("image_prompt")
   styleSeed   Int?     @map("style_seed")
   qualityTier String   @default("cinematic") @map("quality_tier")
+  quality     String   @default("1080p") // 1080p, 1440p, 4k
   aspectRatio String   @default("16:9") @map("aspect_ratio")
   fps         Int      @default(24)
   requiresHeroAssets Boolean? @map("requires_hero_assets")
@@ -73,6 +75,8 @@ model Project {
   traceId        String?
   metadata       Json?    @map("metadata")
   
+  renderProgress Int     @default(0) @map("render_progress")
+  previewUrl    String? @map("preview_url")
   finalVideoUrl String? @map("final_video_url")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

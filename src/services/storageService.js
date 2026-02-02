@@ -144,6 +144,39 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     return `https://${bucket}.storage.railway.app/${key}`;
 };
 
+export const uploadDirectoryToStorage = async ({ dirPath, prefix }) => {
+    const { bucket } = getStorageConfig();
+    if (!bucket) throw new Error('Storage bucket is not configured');
+
+    const client = getS3Client();
+    const files = await fs.readdir(dirPath);
+    let masterUrl = '';
+
+    for (const file of files) {
+        const filePath = path.join(dirPath, file);
+        const fileContent = await fs.readFile(filePath);
+        const key = `${prefix}/${file}`;
+
+        let contentType = 'application/octet-stream';
+        if (file.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+        else if (file.endsWith('.ts')) contentType = 'video/mp2t';
+
+        await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: fileContent,
+            ContentType: contentType,
+            ACL: 'public-read'
+        }));
+
+        if (file.endsWith('.m3u8')) {
+            masterUrl = `https://${bucket}.storage.railway.app/${key}`;
+        }
+    }
+
+    return masterUrl;
+};
+
 export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
     const { bucket } = getStorageConfig();
     if (!bucket) {

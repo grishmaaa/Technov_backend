@@ -4,8 +4,8 @@ import os from 'os';
 import { spawn } from 'child_process';
 import prisma from '../config/database.js';
 import { generateVideo } from '../services/geminiService.js';
-import { uploadFile } from '../services/fileHostingService.js';
-import { isStorageConfigured, getPresignedDownloadUrl } from '../services/storageService.js';
+import { uploadFile, uploadDirectoryToStorage } from '../services/fileHostingService.js';
+import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey } from '../services/storageService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { compileVeoPrompt } from '../services/promptCompiler.js';
 import { logger } from '../logger.js';
@@ -243,6 +243,31 @@ const buildConcatFile = async ({ inputPaths, outputPath }) => {
     const listFileContents = inputPaths.map((filePath) => `file '${filePath}'`).join('\n');
     await fs.writeFile(listFilePath, listFileContents);
     return listFilePath;
+};
+
+
+
+// HLS GENERATION
+const generateHLS = async ({ inputPath, outputDir }) => {
+    await ensureDir(outputDir);
+
+    // Create HLS playlist and segments
+    // -hls_time 4: 4 second segments
+    // -hls_list_size 0: Include all segments in playlist
+    // -f hls: Output format HLS
+    const args = [
+        '-y', '-i', inputPath,
+        '-codec:v', 'libx264',
+        '-codec:a', 'aac',
+        '-hls_time', '4',
+        '-hls_playlist_type', 'vod',
+        '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
+        '-start_number', '0',
+        path.join(outputDir, 'playlist.m3u8')
+    ];
+
+    await runFfmpeg(args);
+    return outputDir;
 };
 
 const concatVideos = async ({ inputPaths, outputPath }) => {
@@ -499,11 +524,39 @@ export const processGenerationJob = async (jobId, context = {}) => {
             if (!finalUrlString || finalUrlString === 'undefined' || finalUrlString.includes('Function')) {
                 throw new Error(`Invalid final video URL: ${finalUrlString}`);
             }
-            logger.info({ url: finalUrlString }, 'Final video uploaded successfully');
+
+            // --- HLS TRANSCODING START ---
+            let hlsUrl = null;
+            try {
+                jobLogger.info('Starting HLS transcoding');
+                const hlsOutputDir = path.join(jobDir, 'hls');
+                await generateHLS({ inputPath: finalOutputPath, outputDir: hlsOutputDir });
+
+                // Upload HLS directory
+                const hlsKey = buildObjectKey({ userId: project.userId, prefix: 'hls' }); // Get base key (folder path)
+                // Note: uploadDirectoryToStorage expects a prefix, not a full key with filename
+                // We'll use the UUID from buildObjectKey but remove the extension if any
+                const hlsPrefix = hlsKey.substring(0, hlsKey.lastIndexOf('/'));
+
+                hlsUrl = await uploadDirectoryToStorage({
+                    dirPath: hlsOutputDir,
+                    prefix: hlsKey // Use unique key as the folder prefix
+                });
+
+                jobLogger.info({ hlsUrl }, 'HLS transcoding complete');
+            } catch (hlsError) {
+                jobLogger.warn({ err: hlsError }, 'HLS transcoding failed, falling back to MP4 only');
+            }
+            // --- HLS TRANSCODING END ---
+
+            logger.info({ url: finalUrlString, hlsUrl }, 'Final video uploaded successfully');
 
             await prisma.project.update({
                 where: { id: project.id },
-                data: { finalVideoUrl: finalUrlString }
+                data: {
+                    finalVideoUrl: hlsUrl || finalUrlString, // Prefer HLS URL if available
+                    metadata: { hls: !!hlsUrl, mp4: finalUrlString }
+                }
             });
             await prisma.asset.create({
                 data: {

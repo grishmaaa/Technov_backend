@@ -1,3 +1,4 @@
+//geminiservice.js
 import OpenAI from 'openai';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
@@ -1426,10 +1427,23 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
 
         // Guardrail errors (Auto-Retry with sanitized prompt)
         if (error.message.includes("GUARDRAIL_ERROR") && !options.isRetry) {
-            logger.warn({ ...errorContext, type: 'guardrail', originalPrompt: prompt }, "Guardrail triggered. Retrying with sanitized prompt...");
+            logger.warn({ ...errorContext, type: 'guardrail', originalPrompt: prompt }, "Guardrail triggered. Retrying with stripped prompt (removing metadata)...");
 
-            // Fallback strategy: Strip brand names, keep style.
-            const sanitizedPrompt = `Cinematic product shot, high quality, 4k. A generic unbranded bottle in a clean environment. ${options.visualMood || ''}`;
+            // Fallback strategy: Strip injected metadata (Character Info, Style, etc.) to rescue the core narrative.
+            // This attempts to keep the user's story while removing potential safety/copyright triggers in the bible.
+            let sanitizedPrompt = prompt
+                .split('Character Information:')[0]
+                .split('Visual Style:')[0]
+                .split('Cinematography:')[0]
+                .split('Color Palette:')[0]
+                .trim();
+
+            // If the prompt didn't change (no metadata found), or became too short, fallback to a safe generic structure
+            if (sanitizedPrompt === prompt || sanitizedPrompt.length < 10) {
+                logger.warn("Prompt stripping yielded no change or too short. Using generic fallback.");
+                sanitizedPrompt = `Cinematic scene, high quality, 4k. ${prompt.substring(0, 100)}...`;
+            }
+
             return generateVideo(sanitizedPrompt, heroImageUrl, { ...options, isRetry: true });
         }
 
@@ -1489,6 +1503,15 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
     // 1. Check for Veo 3.1 predictions array structure
     // Structure: { predictions: [ { video: { uri: "gs://..." } } ] }
     const predictions = responseOrResult?.predictions || responseOrResult?.result?.predictions;
+
+    // CHECK FOR RAI FILTERING (Safety Block)
+    const filteredCount = responseOrResult?.raiMediaFilteredCount || responseOrResult?.result?.raiMediaFilteredCount;
+    if (filteredCount > 0) {
+        const reasons = responseOrResult?.raiMediaFilteredReasons || responseOrResult?.result?.raiMediaFilteredReasons;
+        logger.warn({ filteredCount, reasons }, "Veo generation blocked by RAI filters.");
+        throw new Error(`GUARDRAIL_ERROR: Video blocked by safety filters. Reasons: ${reasons ? JSON.stringify(reasons) : 'Unknown'}`);
+    }
+
     let videoUrl = null;
 
     if (predictions && Array.isArray(predictions) && predictions.length > 0) {

@@ -1,3 +1,4 @@
+//renderworker.js
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
@@ -284,11 +285,7 @@ const generateHLS = async ({ inputPath, outputDir }) => {
         '-y', '-i', inputPath,
         '-codec:v', 'libx264',
         '-codec:a', 'aac',
-        '-crf', '23',          // Balanced quality
-        '-preset', 'veryfast', // Fast encoding
-        '-g', '48',            // Keyframe every 2s (assuming 24fps)
-        '-sc_threshold', '0',  // Force keyframes at segment boundaries
-        '-hls_time', '2',      // 2s segments (critical for fast start)
+        '-hls_time', '4',
         '-hls_playlist_type', 'vod',
         '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
         '-start_number', '0',

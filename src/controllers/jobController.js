@@ -1,3 +1,4 @@
+//jobcontrollers.js
 import prisma from '../config/database.js';
 import { generateScript } from '../services/geminiService.js';
 import { generateTitle } from '../services/aiService.js';

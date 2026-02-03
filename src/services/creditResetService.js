@@ -28,6 +28,7 @@ export function shouldResetCredits(user) {
     return daysSinceCycleStart >= BILLING_CYCLE_DAYS;
 }
 
+
 /**
  * Reset user credits to plan defaults
  */

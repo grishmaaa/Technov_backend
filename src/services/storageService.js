@@ -190,7 +190,7 @@ export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
         Body: buffer,
         ContentType: contentType || 'application/octet-stream',
         ContentDisposition: 'inline',
-        ACL: 'public-read', // Ensure public access
+        // ACL: 'public-read', // Removed to prevent failures on buckets with ACLs disabled
     });
 
     await client.send(command);

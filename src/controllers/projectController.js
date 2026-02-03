@@ -554,7 +554,19 @@ export const streamProjectVideo = async (req, res) => {
         res.setHeader('Content-Type', contentType);
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Content-Disposition', 'inline');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
+
+        // CACHING STRATEGY
+        if (key.endsWith('.ts')) {
+            // Segments never change -> Cache forever (1 year) + immutable
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (key.endsWith('.m3u8')) {
+            // Playlists might change if re-generation happens (though rare for completed projects)
+            // Cache for a bit but allow revalidation
+            res.setHeader('Cache-Control', 'public, max-age=60');
+        } else {
+            // Standard MP4
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+        }
 
         if (response.ContentLength) {
             res.setHeader('Content-Length', response.ContentLength);

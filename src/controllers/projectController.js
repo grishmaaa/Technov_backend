@@ -449,6 +449,9 @@ export const generateHeroAssets = async (req, res) => {
             reason: 'Hero assets generated'
         });
 
+        if (asset.url) {
+            asset.url = await signUrl(asset.url);
+        }
         res.json({ asset });
     } catch (error) {
         res.status(400).json({ error: error.message });

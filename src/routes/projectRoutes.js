@@ -37,6 +37,11 @@ router.post('/:id/hero-assets/generate', generateHeroAssets);
 router.get('/', getProjects);
 router.get('/:id/factory', getProjectFactory);
 router.get('/:id/links', getProjectMediaLinks);
+router.get('/:id/links', getProjectMediaLinks);
+// HLS Segments: Capture any .ts file request under a project ID
+// This handles requests like /api/projects/:id/segment000.ts which are relative to the stream URL
+router.get('/:id/:segment(*.ts)', streamProjectVideo);
+
 router.get('/:id/stream', streamProjectVideo);
 router.get('/:id', getProject);
 router.put('/:id', updateProject);

@@ -524,6 +524,16 @@ export const streamProjectVideo = async (req, res) => {
             key = project.finalVideoUrl;
         }
 
+        // If this is a segment request, replace the filename in the key
+        if (req.params.segment) {
+            const segmentFile = req.params.segment; // e.g., segment000.ts
+            // key is like "hls/UUID/playlist.m3u8"
+            // we want "hls/UUID/segment000.ts"
+            const directory = key.substring(0, key.lastIndexOf('/'));
+            key = `${directory}/${segmentFile}`;
+            console.log('[Stream] Serving segment:', key);
+        }
+
         const { bucket } = getStorageConfig();
         console.log('[Stream] Attempting to fetch key:', key, 'from bucket:', bucket);
 
@@ -537,7 +547,11 @@ export const streamProjectVideo = async (req, res) => {
         console.log('[Stream] S3 response received, ContentLength:', response.ContentLength);
 
         // Crucial Headers for Chrome/Firefox
-        res.setHeader('Content-Type', 'video/mp4');
+        const isHls = key.endsWith('.m3u8') || key.endsWith('.ts');
+        const contentType = key.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' :
+            key.endsWith('.ts') ? 'video/mp2t' : 'video/mp4';
+
+        res.setHeader('Content-Type', contentType);
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Content-Disposition', 'inline');
         res.setHeader('Cache-Control', 'public, max-age=3600');

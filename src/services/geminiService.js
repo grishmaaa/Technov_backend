@@ -6,7 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { uploadFile } from './fileHostingService.js';
-import { isStorageConfigured, getPresignedDownloadUrl } from './storageService.js';
+import { isStorageConfigured, getPresignedDownloadUrl, uploadBufferToStorage, buildObjectKey } from './storageService.js';
 import { logger } from '../logger.js';
 import crypto from 'crypto';
 
@@ -447,9 +447,9 @@ const _stage1_planning = async (storyText, duration, category = 'creative') => {
     }
 
     const scenesNeeded = Math.ceil(durationSeconds / 8);
-    
-    logger.info({ 
-        durationSeconds, 
+
+    logger.info({
+        durationSeconds,
         scenesNeeded,
         calculation: `Math.ceil(${durationSeconds} / 8) = ${scenesNeeded}`
     }, "Scene calculation");
@@ -543,7 +543,7 @@ Generate the complete asset sheet now following the strict JSON schema.
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-    
+
     // VALIDATION: Verify scene count
     if (parsed.project_metadata.total_scenes !== scenesNeeded) {
         logger.error({
@@ -552,19 +552,19 @@ Generate the complete asset sheet now following the strict JSON schema.
         }, "❌ CRITICAL: Wrong scene count!");
         parsed.project_metadata.total_scenes = scenesNeeded;
     }
-    
+
     // ADD: Scene progression blueprint if missing
     if (!parsed.scene_progression_blueprint) {
         logger.warn("⚠️ No scene progression blueprint found, adding default");
         parsed.scene_progression_blueprint = generateDefaultProgression(scenesNeeded);
     }
-    
-    logger.info({ 
+
+    logger.info({
         scenes: parsed.project_metadata.total_scenes,
         duration: durationSeconds,
         has_blueprint: !!parsed.scene_progression_blueprint
     }, "✅ Stage 1 Complete");
-    
+
     return { assetSheet: parsed, usage: completion.usage };
 };
 
@@ -595,7 +595,7 @@ const generateDefaultProgression = (sceneCount) => {
             { scene_id: 8, narrative_beat: "Resolution - new equilibrium established" }
         ]
     };
-    
+
     return progressions[sceneCount] || progressions[4];
 };
 
@@ -799,20 +799,20 @@ Generate ${assetSheet.project_metadata.total_scenes} UNIQUE scenes now.
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-    
+
     // VALIDATION: Check for repetition
     const countWords = (text) => text.trim().split(/\s+/).length;
-    
+
     // Extract action verbs from each scene to detect repetition
     const sceneActions = [];
-    
+
     for (const scene of parsed.scenes) {
         const totalWords = countWords(scene.prompt);
-        
+
         // Basic repetition detection: Check if scenes contain very similar text
         const sceneText = scene.prompt.toLowerCase();
         sceneActions.push(sceneText);
-        
+
         // Word count validation
         if (totalWords > 360) {
             logger.error({
@@ -832,19 +832,19 @@ Generate ${assetSheet.project_metadata.total_scenes} UNIQUE scenes now.
             }, "✅ Scene length optimal");
         }
     }
-    
+
     // Check for repetition between consecutive scenes
     for (let i = 1; i < sceneActions.length; i++) {
         const prev = sceneActions[i - 1];
         const curr = sceneActions[i];
-        
+
         // Simple similarity check: count common significant words
         const prevWords = new Set(prev.split(/\s+/).filter(w => w.length > 4));
         const currWords = new Set(curr.split(/\s+/).filter(w => w.length > 4));
-        
+
         const commonWords = [...prevWords].filter(w => currWords.has(w));
         const similarity = commonWords.length / Math.max(prevWords.size, currWords.size);
-        
+
         if (similarity > 0.6) {
             logger.warn({
                 scene_pair: `${i} and ${i + 1}`,
@@ -853,17 +853,17 @@ Generate ${assetSheet.project_metadata.total_scenes} UNIQUE scenes now.
             }, "⚠️ High similarity detected between consecutive scenes!");
         }
     }
-    
+
     const avgWords = Math.round(
         parsed.scenes.reduce((sum, s) => sum + countWords(s.prompt), 0) / parsed.scenes.length
     );
-    
-    logger.info({ 
+
+    logger.info({
         scene_count: parsed.scenes.length,
         avg_words: avgWords,
         target: "300 words"
     }, "✅ Stage 2 Complete");
-    
+
     return { scenesData: parsed, usage: completion.usage };
 };
 
@@ -959,7 +959,7 @@ If scenes are repetitive, YOU MUST revise them to be unique and include in revis
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content);
-    
+
     // Log repetition issues specifically
     const repetitionIssues = parsed.issues_found.filter(i => i.category === 'repetition');
     if (repetitionIssues.length > 0) {
@@ -968,13 +968,13 @@ If scenes are repetitive, YOU MUST revise them to be unique and include in revis
             issues: repetitionIssues.map(i => i.issue)
         }, "⚠️ Scene repetition detected!");
     }
-    
-    logger.info({ 
-        score: parsed.overall_score, 
+
+    logger.info({
+        score: parsed.overall_score,
         status: parsed.validation_status,
         repetition_issues: repetitionIssues.length
     }, "✅ Stage 3 Complete");
-    
+
     return { validationReport: parsed, usage: completion.usage };
 };
 
@@ -994,8 +994,8 @@ const formatAudioDirective = (audio) => {
     if (!audio) return "Ambient sound";
     const parts = [];
     if (audio.dialogue) parts.push(`Dialogue: "${audio.dialogue}"`);
-    if (audio.sfx && Array.isArray(audio.sfx) && audio.sfx.length) parts.push(`SFX: ${ audio.sfx.join(', ') } `);
-    if (audio.ambient) parts.push(`Ambient: ${ audio.ambient } `);
+    if (audio.sfx && Array.isArray(audio.sfx) && audio.sfx.length) parts.push(`SFX: ${audio.sfx.join(', ')} `);
+    if (audio.ambient) parts.push(`Ambient: ${audio.ambient} `);
     return parts.join(' | ');
 };
 
@@ -1020,7 +1020,7 @@ export const generateScript = async (storyText, options = {}) => {
     const safetyCheck = await _stage0_safety_check(storyText);
     if (safetyCheck.severity === 'BLOCK') {
         logger.warn({ violations: safetyCheck.violations }, "Safety Check Blocked Request");
-        throw new Error(`SAFETY_VIOLATION: ${ safetyCheck.violations.join(', ') }.Suggestion: ${ safetyCheck.suggested_alternative } `);
+        throw new Error(`SAFETY_VIOLATION: ${safetyCheck.violations.join(', ')}.Suggestion: ${safetyCheck.suggested_alternative} `);
     }
     if (safetyCheck.severity === 'WARNING') {
         logger.warn({ violations: safetyCheck.violations }, "Safety Check Warning (Proceeding)");
@@ -1033,7 +1033,7 @@ export const generateScript = async (storyText, options = {}) => {
     // Support both legacy "extended" and new explicit "30s"/"60s" from frontend
     // Constraints & Durations (Base=8s, Pro=32s, Elite=64s)
     let requestedSeconds = 8;
-    
+
     // 1. Parse Requested Length
     if (length === '60s') requestedSeconds = 64;
     else if (length === '30s') requestedSeconds = 32;
@@ -1080,78 +1080,83 @@ export const generateScript = async (storyText, options = {}) => {
 
             // Throw to stop delivery of bad scripts
             throw new Error(
-                `Quality check failed: Score ${ validationReport.overall_score }/10 is below minimum (${MIN_ACCEPTABLE_SCORE}). ` +
-    `Critical issues: ${criticalIssues.map(i => i.issue).join('; ')}`
+                `Quality check failed: Score ${validationReport.overall_score}/10 is below minimum (${MIN_ACCEPTABLE_SCORE}). ` +
+                `Critical issues: ${criticalIssues.map(i => i.issue).join('; ')}`
             );
         }
 
-if (validationReport.overall_score < MIN_PRODUCTION_SCORE) {
-    logger.warn({ score: validationReport.overall_score, target: MIN_PRODUCTION_SCORE }, "⚠️ Quality score below production standard but acceptable.");
-}
+        if (validationReport.overall_score < MIN_PRODUCTION_SCORE) {
+            logger.warn({ score: validationReport.overall_score, target: MIN_PRODUCTION_SCORE }, "⚠️ Quality score below production standard but acceptable.");
+        }
 
-// 5. Merge / Revision Logic (Improved merging)
-let finalScenes = scenesData.scenes;
-if (validationReport.revision_needed && validationReport.revised_scenes && validationReport.revised_scenes.length > 0) {
-    logger.warn({
-        original_count: finalScenes.length,
-        revised_count: validationReport.revised_scenes.length,
-        issues: validationReport.issues_found
-    }, "⚠️ Applying validation corrections");
+        // 5. Merge / Revision Logic (Improved merging)
+        let finalScenes = scenesData.scenes;
+        if (validationReport.revision_needed && validationReport.revised_scenes && validationReport.revised_scenes.length > 0) {
+            logger.warn({
+                original_count: finalScenes.length,
+                revised_count: validationReport.revised_scenes.length,
+                issues: validationReport.issues_found
+            }, "⚠️ Applying validation corrections");
 
-    // Optimistic replacement
-    if (validationReport.revised_scenes.length === finalScenes.length) {
-        finalScenes = validationReport.revised_scenes;
-    } else {
-        const revisedMap = new Map(validationReport.revised_scenes.map(s => [s.scene_number, s]));
-        finalScenes = finalScenes.map(scene => {
-            const revised = revisedMap.get(scene.scene_number);
-            if (revised) {
-                logger.info({ scene_number: scene.scene_number }, "Applying correction");
-                return revised;
+            // Optimistic replacement
+            if (validationReport.revised_scenes.length === finalScenes.length) {
+                finalScenes = validationReport.revised_scenes;
+            } else {
+                const revisedMap = new Map(validationReport.revised_scenes.map(s => [s.scene_number, s]));
+                finalScenes = finalScenes.map(scene => {
+                    const revised = revisedMap.get(scene.scene_number);
+                    if (revised) {
+                        logger.info({ scene_number: scene.scene_number }, "Applying correction");
+                        return revised;
+                    }
+                    return scene;
+                });
             }
-            return scene;
-        });
-    }
-}
+        }
 
-// 6. Mapping to Database Format (High Fidelity)
-const mappedScenes = finalScenes.map((s, i) => ({
-    scene_id: s.scene_number || (i + 1),
-    // The "Prompt" is the action description for the DB
-    action_description: s.prompt,
-    shot_type: s.technical_breakdown?.cinematography || "Cinematic Shot",
-    motion_complexity: deriveMotionComplexity(s.technical_breakdown?.cinematography),
-    audio_directive: formatAudioDirective(s.audio),
-    duration: s.duration || calculateDuration(s.timestamp),
+        // 6. Mapping to Database Format (High Fidelity)
+        const mappedScenes = finalScenes.map((s, i) => ({
+            scene_id: s.scene_number || (i + 1),
+            // The "Prompt" is the action description for the DB
+            action_description: s.prompt,
+            shot_type: s.technical_breakdown?.cinematography || "Cinematic Shot",
+            motion_complexity: deriveMotionComplexity(s.technical_breakdown?.cinematography),
+            audio_directive: formatAudioDirective(s.audio),
+            duration: s.duration || calculateDuration(s.timestamp),
 
-    // Metadata for debugging
-    character_ids: s.consistency_check?.character_ids || [],
-    object_ids: s.consistency_check?.object_ids || []
-}));
+            // Metadata for debugging
+            character_ids: s.consistency_check?.character_ids || [],
+            object_ids: s.consistency_check?.object_ids || []
+        }));
 
-const totalTokens = (u1?.total_tokens || 0) + (u2?.total_tokens || 0) + (u3?.total_tokens || 0);
-const promptTokens = (u1?.prompt_tokens || 0) + (u2?.prompt_tokens || 0) + (u3?.prompt_tokens || 0);
-const completionTokens = (u1?.completion_tokens || 0) + (u2?.completion_tokens || 0) + (u3?.completion_tokens || 0);
+        const totalTokens = (u1?.total_tokens || 0) + (u2?.total_tokens || 0) + (u3?.total_tokens || 0);
+        const promptTokens = (u1?.prompt_tokens || 0) + (u2?.prompt_tokens || 0) + (u3?.prompt_tokens || 0);
+        const completionTokens = (u1?.completion_tokens || 0) + (u2?.completion_tokens || 0) + (u3?.completion_tokens || 0);
 
-return {
-    scenes: mappedScenes,
-    suggested_title: assetSheet.project_metadata?.title || "Untitled Project",
-    // Return the Asset Sheet so Controller can save it to DB
-    assetSheet: assetSheet,
-    validationReport: validationReport,
-    usage: {
-        promptTokenCount: promptTokens,
-        candidatesTokenCount: completionTokens,
-        totalTokenCount: totalTokens
-    }
-};
+        return {
+            scenes: mappedScenes,
+            suggested_title: assetSheet.project_metadata?.title || "Untitled Project",
+            // Return the Asset Sheet so Controller can save it to DB
+            assetSheet: assetSheet,
+            validationReport: validationReport,
+            usage: {
+                promptTokenCount: promptTokens,
+                candidatesTokenCount: completionTokens,
+                totalTokenCount: totalTokens
+            }
+        };
     });
 };
 
-export const generateHeroImage = async (actionDescription) => {
+export const generateHeroImage = async (actionDescription, userInstructions = "") => {
     try {
         const openai = getOpenAI();
-        let prompt = `Professional character portrait for: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality.`;
+        let prompt;
+        if (userInstructions) {
+            prompt = `Professional character portrait based on user request: "${userInstructions}". Context: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality.`;
+        } else {
+            prompt = `Professional character portrait for: ${actionDescription}. Photorealistic, cinematic lighting, 8k quality.`;
+        }
 
         logger.info({ prompt }, 'Generating hero image with DALL-E');
 
@@ -1163,7 +1168,39 @@ export const generateHeroImage = async (actionDescription) => {
                 size: "1024x1024",
                 quality: "standard"
             });
-            return response.data[0].url;
+            const imageUrl = response.data[0].url;
+
+            // PERSISTENCE: Download from OpenAI and upload to Railway/S3 Storage
+            // Only if storage is configured (Railway prod)
+            if (isStorageConfigured()) {
+                try {
+                    logger.info("Downloading hero image from OpenAI for persistence...");
+                    const imgRes = await fetch(imageUrl);
+                    if (!imgRes.ok) throw new Error("Failed to download image from OpenAI");
+
+                    const arrayBuffer = await imgRes.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+
+                    const key = buildObjectKey({
+                        userId: 'hero-assets', // Generic folder or use specific if passed
+                        extension: 'png'
+                    });
+
+                    const validStorageUrl = await uploadBufferToStorage({
+                        buffer,
+                        key,
+                        contentType: 'image/png'
+                    });
+
+                    logger.info({ validStorageUrl }, "Hero image persisted to storage");
+                    return validStorageUrl;
+                } catch (persistErr) {
+                    logger.error({ err: persistErr }, "Failed to persist hero image to storage, returning temporary URL");
+                    return imageUrl; // Fallback to temp URL if storage fails
+                }
+            }
+
+            return imageUrl;
         } catch (initialError) {
             // If safety violation, try a sanitized/simpler prompt
             if (initialError.message.includes('safety') || initialError.status === 400) {
@@ -1177,7 +1214,19 @@ export const generateHeroImage = async (actionDescription) => {
                     size: "1024x1024",
                     quality: "standard"
                 });
-                return retryResponse.data[0].url;
+
+                const retryImageUrl = retryResponse.data[0].url;
+                if (isStorageConfigured()) {
+                    try {
+                        const imgRes = await fetch(retryImageUrl);
+                        const buffer = Buffer.from(await imgRes.arrayBuffer());
+                        const key = buildObjectKey({ userId: 'hero-assets', extension: 'png' });
+                        return await uploadBufferToStorage({ buffer, key, contentType: 'image/png' });
+                    } catch (e) {
+                        return retryImageUrl;
+                    }
+                }
+                return retryImageUrl;
             }
             throw initialError;
         }
@@ -1417,7 +1466,7 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
             return '[Unable to stringify]';
         }
     };
-    
+
     logger.info({
         responseKeys: responseOrResult ? Object.keys(responseOrResult) : [],
         isArray: Array.isArray(responseOrResult),
@@ -1441,7 +1490,7 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
     // Structure: { predictions: [ { video: { uri: "gs://..." } } ] }
     const predictions = responseOrResult?.predictions || responseOrResult?.result?.predictions;
     let videoUrl = null;
-    
+
     if (predictions && Array.isArray(predictions) && predictions.length > 0) {
         logger.info({ predictionsCount: predictions.length }, "Found predictions array");
         const firstPred = predictions[0];

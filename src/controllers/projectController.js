@@ -69,7 +69,10 @@ export const getProject = async (req, res) => {
 
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id },
-            include: { scenes: { orderBy: { orderIndex: 'asc' } } }
+            include: {
+                scenes: { orderBy: { orderIndex: 'asc' } },
+                assets: true
+            }
         });
 
         if (!project) {
@@ -88,6 +91,15 @@ export const getProject = async (req, res) => {
             }
         }
 
+        // SIGN HERO ASSET
+        if (project.assets) {
+            for (let asset of project.assets) {
+                if (asset.type === 'HERO_IMAGE' && asset.url) {
+                    asset.url = await signUrl(asset.url);
+                }
+            }
+        }
+
         res.json(project);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch project' });
@@ -101,6 +113,7 @@ export const getProjectFactory = async (req, res) => {
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id },
             include: {
+                assets: true,
                 scenes: {
                     orderBy: { orderIndex: 'asc' },
                     include: {
@@ -128,6 +141,15 @@ export const getProjectFactory = async (req, res) => {
         for (let scene of project.scenes) {
             if (scene.videoUrl) {
                 scene.videoUrl = await signUrl(scene.videoUrl);
+            }
+        }
+
+        // SIGN HERO ASSET
+        if (project.assets) {
+            for (let asset of project.assets) {
+                if (asset.type === 'HERO_IMAGE' && asset.url) {
+                    asset.url = await signUrl(asset.url);
+                }
             }
         }
 
@@ -371,6 +393,7 @@ export const decideVisualIdentity = async (req, res) => {
 export const generateHeroAssets = async (req, res) => {
     try {
         const { id } = req.params;
+        const { regenerate, userInstructions } = req.body;
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id },
             include: { scenes: true, assets: true }
@@ -380,7 +403,7 @@ export const generateHeroAssets = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        if (project.state !== 'VISUAL_IDENTITY_DECISION') {
+        if (project.state !== 'VISUAL_IDENTITY_DECISION' && project.state !== 'ASSETS_READY') {
             return res.status(400).json({ error: 'Project not ready for hero assets' });
         }
 
@@ -389,7 +412,7 @@ export const generateHeroAssets = async (req, res) => {
         }
 
         const existing = project.assets.find((asset) => asset.type === 'HERO_IMAGE' && asset.state === 'READY');
-        if (existing) {
+        if (existing && !regenerate) {
             await transitionProjectState({
                 projectId: id,
                 toState: 'ASSETS_READY',
@@ -401,7 +424,7 @@ export const generateHeroAssets = async (req, res) => {
         }
 
         const baseContext = project.scenes[0]?.actionDescription || project.scenes[0]?.promptText || project.title;
-        const heroUrl = await generateHeroImage(baseContext);
+        const heroUrl = await generateHeroImage(baseContext, userInstructions);
 
         const asset = await prisma.asset.create({
             data: {

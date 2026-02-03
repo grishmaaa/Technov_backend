@@ -538,52 +538,68 @@ export const streamProjectVideo = async (req, res) => {
         }
 
         const { bucket } = getStorageConfig();
-        console.log('[Stream] Attempting to fetch key:', key, 'from bucket:', bucket);
+        // console.log('[Stream] Attempting to fetch key:', key, 'from bucket:', bucket);
 
         const client = getS3Client();
-        const command = new GetObjectCommand({
+        const commandParams = {
             Bucket: bucket,
-            Key: key
-        });
+            Key: key,
+            Range: req.headers.range, // Forward Range requests (e.g. bytes=0-1024)
+            IfNoneMatch: req.headers['if-none-match'] // Forward ETag validation
+        };
 
-        const response = await client.send(command);
-        console.log('[Stream] S3 response received, ContentLength:', response.ContentLength);
+        const command = new GetObjectCommand(commandParams);
 
-        // Crucial Headers for Chrome/Firefox
-        const isHls = key.endsWith('.m3u8') || key.endsWith('.ts');
-        const contentType = key.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' :
-            key.endsWith('.ts') ? 'video/mp2t' : 'video/mp4';
+        try {
+            const response = await client.send(command);
 
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Disposition', 'inline');
+            // Log for debugging
+            // console.log('[Stream] S3 Status:', response.$metadata.httpStatusCode, 'Length:', response.ContentLength);
 
-        // CACHING STRATEGY
-        if (key.endsWith('.ts')) {
-            // Segments never change -> Cache forever (1 year) + immutable
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        } else if (key.endsWith('.m3u8')) {
-            // Playlists might change if re-generation happens (though rare for completed projects)
-            // Cache for a bit but allow revalidation
-            res.setHeader('Cache-Control', 'public, max-age=60');
-        } else {
-            // Standard MP4
-            res.setHeader('Cache-Control', 'public, max-age=3600');
-        }
+            // Crucial Headers for Chrome/Firefox
+            const isHls = key.endsWith('.m3u8') || key.endsWith('.ts');
+            const contentType = key.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' :
+                key.endsWith('.ts') ? 'video/mp2t' : 'video/mp4';
 
-        if (response.ContentLength) {
-            res.setHeader('Content-Length', response.ContentLength);
-        }
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Content-Disposition', 'inline');
 
-        // AWS SDK v3 response.Body is a readable stream in Node.js
-        response.Body.pipe(res);
-
-        response.Body.on('error', (err) => {
-            console.error("[Stream] Stream pipe error:", err);
-            if (!res.headersSent) {
-                res.status(500).json({ error: "Stream failed" });
+            // CACHING STRATEGY
+            if (key.endsWith('.ts')) {
+                res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            } else if (key.endsWith('.m3u8')) {
+                res.setHeader('Cache-Control', 'public, max-age=60');
+            } else {
+                res.setHeader('Cache-Control', 'public, max-age=3600');
             }
-        });
+
+            // Forward S3 headers
+            if (response.ETag) res.setHeader('ETag', response.ETag);
+            if (response.LastModified) res.setHeader('Last-Modified', response.LastModified.toUTCString());
+            if (response.ContentLength) res.setHeader('Content-Length', response.ContentLength);
+            if (response.ContentRange) {
+                res.setHeader('Content-Range', response.ContentRange);
+                res.status(206); // Partial Content
+            }
+
+            // AWS SDK v3 response.Body is a readable stream in Node.js
+            response.Body.pipe(res);
+
+            response.Body.on('error', (err) => {
+                console.error("[Stream] Stream pipe error:", err);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: "Stream failed" });
+                }
+            });
+
+        } catch (s3Error) {
+            // Handle 304 Not Modified (S3 throws this if IfNoneMatch matches)
+            if (s3Error.$metadata && s3Error.$metadata.httpStatusCode === 304) {
+                return res.status(304).end();
+            }
+            throw s3Error;
+        }
 
     } catch (error) {
         console.error("[Stream] Critical Error:", error.message);

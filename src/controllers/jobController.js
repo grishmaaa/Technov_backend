@@ -413,6 +413,13 @@ export const getGenerationStatus = async (req, res) => {
 
         const latestJob = project.jobs[0];
 
+        // HOTFIX: Ensure we send MP4 to frontend even if DB has HLS
+        // This fixes existing projects that were saved with .m3u8
+        let finalVideoUrl = project.finalVideoUrl;
+        if (finalVideoUrl && finalVideoUrl.endsWith('.m3u8') && project.metadata?.mp4) {
+            finalVideoUrl = project.metadata.mp4;
+        }
+
         // Match frontend expectation: { status, progress, scenes, project }
         res.json({
             status: latestJob?.status || project.state,
@@ -421,7 +428,7 @@ export const getGenerationStatus = async (req, res) => {
                 id: project.id,
                 title: project.title,
                 status: project.state,
-                finalVideoUrl: project.finalVideoUrl
+                finalVideoUrl: finalVideoUrl // Use the hot-fixed URL
             },
             scenes: project.scenes, // Return scenes so UI can show per-scene status
             jobs: project.jobs

@@ -517,10 +517,25 @@ export const streamProjectVideo = async (req, res) => {
 
         console.log('[Stream] finalVideoUrl:', project.finalVideoUrl);
 
+        // Check for format override (Frontend fallback logic)
+        const formatOverride = req.query.format;
+
         // Extract key correctly
         let key;
         try {
-            const urlObj = new URL(project.finalVideoUrl);
+            // If fallback requested, prefer the MP4 metadata or replace extension
+            let sourceUrl = project.finalVideoUrl;
+            if (formatOverride === 'mp4') {
+                if (project.metadata?.mp4) {
+                    sourceUrl = project.metadata.mp4;
+                    console.log('[Stream] Format override: switching to MP4 metadata');
+                } else if (sourceUrl.endsWith('.m3u8')) {
+                    sourceUrl = sourceUrl.replace('.m3u8', '.mp4').replace('/hls/', '/'); // Try standard conversion
+                    console.log('[Stream] Format override: heuristic replacement to .mp4');
+                }
+            }
+
+            const urlObj = new URL(sourceUrl);
             key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
         } catch (urlError) {
             console.log('[Stream] URL parsing failed, using as key directly');

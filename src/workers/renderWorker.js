@@ -628,7 +628,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             await prisma.project.update({
                 where: { id: project.id },
                 data: {
-                    finalVideoUrl: hlsUrl || finalUrlString, // Prefer HLS URL if available
+                    finalVideoUrl: finalUrlString, // Fix: Use MP4 for compatibility (Frontend doesn't support HLS yet)
                     metadata: { hls: !!hlsUrl, mp4: finalUrlString }
                 }
             });
@@ -661,7 +661,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             // Socket Emit: Final Ready
             await publishUpdate(project.userId, 'final-ready', {
                 projectId: project.id,
-                finalUrl: hlsUrl || finalUrlString,
+                finalUrl: finalUrlString, // Fix: Use MP4 for compatibility
                 quality: '1080p'
             });
 

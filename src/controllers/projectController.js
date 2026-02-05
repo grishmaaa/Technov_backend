@@ -465,6 +465,21 @@ export const decideVisualIdentity = async (req, res) => {
                 description: c.description || c.visual_prompt || "No description",
                 imageUrl: c.image_url || null // Should be null initially
             }));
+
+            // FALLBACK: If we still have no characters but needsHero is true (e.g. matched keywords only)
+            if (characters.length === 0) {
+                const keywordMatch = project.scenes.find(s =>
+                    (s.promptText || '').toLowerCase().includes('alien') ||
+                    (s.promptText || '').toLowerCase().includes('creature')
+                );
+
+                characters.push({
+                    id: `fallback-${Date.now()}`,
+                    name: keywordMatch ? "Detected Creature/Alien" : "Unknown Protagonist",
+                    description: "Automatically detected from story context. Please generate a reference image.",
+                    imageUrl: null
+                });
+            }
         }
 
         res.json({

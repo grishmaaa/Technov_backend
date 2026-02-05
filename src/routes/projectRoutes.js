@@ -10,7 +10,7 @@ import {
     startSceneReview,
     approveScenes,
     decideVisualIdentity,
-    generateHeroAssets,
+    generateProjectAssets,
     getProjectMediaLinks,
     streamProjectVideo,
     getPublicProject,
@@ -33,7 +33,7 @@ router.post('/generate-scenes', generateScenesFromStory);
 router.post('/:id/review/start', startSceneReview);
 router.post('/:id/review/approve', approveScenes);
 router.post('/:id/visual-identity/decide', decideVisualIdentity);
-router.post('/:id/hero-assets/generate', generateHeroAssets);
+router.post('/:id/hero-assets/generate', generateProjectAssets);
 router.get('/', getProjects);
 router.get('/:id/factory', getProjectFactory);
 router.get('/:id/links', getProjectMediaLinks);

@@ -1662,11 +1662,60 @@ const extractVideoFromResponse = async (responseOrResult, project, location, mod
 
     // 4. Handle GCS URL / found URL
     if (videoUrl && (typeof videoUrl === 'string') && (videoUrl.startsWith('gs://') || videoUrl.startsWith('http'))) {
-        // ... (existing logic)
+        logger.info({ foundUrl: videoUrl }, "Found video URL from Veo");
+
+        // If it's a GCS URL, we need to download it securely and re-upload to our public storage
+        // because the worker cannot access private GCS links directly.
+        if (videoUrl.startsWith('gs://')) {
+            try {
+                const gsParts = videoUrl.replace('gs://', '').split('/');
+                const bucketName = gsParts[0];
+                const objectName = gsParts.slice(1).join('/');
+                // GCS API requires URI encoded object name
+                const gcsApiUrl = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
+
+                logger.info({ gcsApiUrl }, "Downloading video from GCS using Auth Token...");
+                const downloadResponse = await fetch(gcsApiUrl, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!downloadResponse.ok) {
+                    throw new Error(`Failed to download from GCS: ${downloadResponse.status} ${downloadResponse.statusText}`);
+                }
+
+                const videoBuffer = Buffer.from(await downloadResponse.arrayBuffer());
+                const tempFilePath = path.join(os.tmpdir(), `gcs-download-${Date.now()}.mp4`);
+
+                await fs.writeFile(tempFilePath, videoBuffer);
+                logger.info("Video downloaded locally, uploading to primary storage...");
+
+                const key = `generated/${crypto.randomUUID()}.mp4`;
+                const publicUrl = await uploadFile(tempFilePath, { objectKey: key });
+                await fs.rm(tempFilePath, { force: true }).catch(() => { });
+
+                logger.info({ publicUrl }, "Video successfully bridged to public storage");
+
+                if (isStorageConfigured()) {
+                    try {
+                        const signedUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                        logger.info({ signedUrl }, "Generated Signed URL for Worker access to bridged video");
+                        return { video_url: signedUrl, status: 'completed' };
+                    } catch (signErr) {
+                        logger.error({ err: signErr }, "Failed to generate signed URL, falling back to public URL");
+                    }
+                }
+                return { video_url: publicUrl, status: 'completed' };
+
+            } catch (transferError) {
+                logger.error({ err: transferError }, "Failed to transfer video from GCS to Public Storage");
+                throw transferError;
+            }
+        }
+        // Fallback for non-gs URLs (unlikely with Veo)
         return { video_url: videoUrl, status: 'completed' };
     }
 
-    return { video_url: null, status: 'failed' };
+    throw new Error("No video URL or Base64 data found in Veo response (Recursive search failed)");
 };
 
 /**
@@ -1699,59 +1748,4 @@ export const generateTitle = async (story) => {
         logger.warn({ err: error }, 'Failed to generate AI title');
         return null; // Non-blocking failure
     }
-};
-logger.info({ foundUrl: videoUrl }, "Found video URL from Veo");
-
-// If it's a GCS URL, we need to download it securely and re-upload to our public storage
-// because the worker cannot access private GCS links directly.
-if (videoUrl.startsWith('gs://')) {
-    try {
-        const gsParts = videoUrl.replace('gs://', '').split('/');
-        const bucketName = gsParts[0];
-        const objectName = gsParts.slice(1).join('/');
-        // GCS API requires URI encoded object name
-        const gcsApiUrl = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
-
-        logger.info({ gcsApiUrl }, "Downloading video from GCS using Auth Token...");
-        const downloadResponse = await fetch(gcsApiUrl, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-
-        if (!downloadResponse.ok) {
-            throw new Error(`Failed to download from GCS: ${downloadResponse.status} ${downloadResponse.statusText}`);
-        }
-
-        const videoBuffer = Buffer.from(await downloadResponse.arrayBuffer());
-        const tempFilePath = path.join(os.tmpdir(), `gcs-download-${Date.now()}.mp4`);
-
-        await fs.writeFile(tempFilePath, videoBuffer);
-        logger.info("Video downloaded locally, uploading to primary storage...");
-
-        const key = `generated/${crypto.randomUUID()}.mp4`;
-        const publicUrl = await uploadFile(tempFilePath, { objectKey: key });
-        await fs.rm(tempFilePath, { force: true }).catch(() => { });
-
-        logger.info({ publicUrl }, "Video successfully bridged to public storage");
-
-        if (isStorageConfigured()) {
-            try {
-                const signedUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
-                logger.info({ signedUrl }, "Generated Signed URL for Worker access to bridged video");
-                return { video_url: signedUrl, status: 'completed' };
-            } catch (signErr) {
-                logger.error({ err: signErr }, "Failed to generate signed URL, falling back to public URL");
-            }
-        }
-        return { video_url: publicUrl, status: 'completed' };
-
-    } catch (transferError) {
-        logger.error({ err: transferError }, "Failed to transfer video from GCS to Public Storage");
-        throw transferError;
-    }
-}
-// Fallback for non-gs URLs (unlikely with Veo)
-return { video_url: videoUrl, status: 'completed' };
-    }
-
-throw new Error("No video URL or Base64 data found in Veo response (Recursive search failed)");
 };

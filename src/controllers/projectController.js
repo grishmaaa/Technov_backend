@@ -377,20 +377,50 @@ export const decideVisualIdentity = async (req, res) => {
 
         // IMPROVED LOGIC: Check the Asset Sheet first
         const assetSheet = project.metadata?.assetSheet;
-        const hasCharacterBible = assetSheet?.character_bible && Array.isArray(assetSheet.character_bible) && assetSheet.character_bible.length > 0;
+        const bible = assetSheet?.character_bible || [];
+        const objects = assetSheet?.object_bible || [];
 
-        let needsHero = hasCharacterBible;
+        // Debug Log
+        logger.info({
+            projectId: id,
+            bibleCount: bible.length,
+            objectCount: objects.length,
+            metadataKeys: Object.keys(project.metadata || {})
+        }, "🔍 Visual Identity Decision Debug");
+
+        // 1. Check Character Bible
+        let needsHero = Array.isArray(bible) && bible.length > 0;
         let reason = needsHero
-            ? `Identified ${assetSheet.character_bible.length} characters in the Bible.`
-            : 'No characters identified in the Asset Bible.';
+            ? `Identified ${bible.length} characters in the Bible.`
+            : 'No characters in Bible.';
 
-        // Fallback to keyword search if no asset sheet (legacy support)
-        if (!assetSheet && !needsHero) {
-            needsHero = requiresHeroAssets(project.scenes);
-            reason = needsHero
-                ? 'Detected character keywords in scenes.'
-                : 'No character focus detected (Keyword check).';
+        // 2. Check Object Bible for "Living" things (Aliens, Robots, etc.)
+        if (!needsHero && Array.isArray(objects) && objects.length > 0) {
+            const livingKeywords = ['alien', 'robot', 'droid', 'creature', 'monster', 'being', 'entity', 'character', 'protagonist'];
+            const livingObjects = objects.filter(obj => {
+                const text = `${obj.name} ${obj.description}`.toLowerCase();
+                return livingKeywords.some(kw => text.includes(kw));
+            });
+
+            if (livingObjects.length > 0) {
+                needsHero = true;
+                reason = `Found ${livingObjects.length} creature/character-like objects (e.g. ${livingObjects[0].name}).`;
+            }
         }
+
+        // 3. Fallback: Keyword Search in Scenes (ignoring if asset sheet exists or not, just double check)
+        if (!needsHero) {
+            const hasKeywords = requiresHeroAssets(project.scenes);
+            // Also check for "alien" explicitly since it might be missing from HERO_KEYWORDS
+            const hasAlien = project.scenes.some(s => (s.promptText || '').toLowerCase().includes('alien'));
+
+            if (hasKeywords || hasAlien) {
+                needsHero = true;
+                reason = 'Detected character/creature keywords in scenes (Fallback).';
+            }
+        }
+
+        logger.info({ needsHero, reason }, "✅ Visual Decision Result");
 
         const updatedProject = await prisma.project.update({
             where: { id },

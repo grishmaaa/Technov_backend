@@ -443,10 +443,35 @@ export const decideVisualIdentity = async (req, res) => {
             });
         }
 
+        // 4. PREPARE CHARACTER DATA FOR FRONTEND
+        // The frontend requires `characters` array in the response to show Slide 2
+        let characters = [];
+        if (needsHero) {
+            const rawCharacters = [...bible];
+            // If we found living objects but no bible characters, likely aliens/creatures
+            if (rawCharacters.length === 0 && objects.length > 0) {
+                const livingKeywords = ['alien', 'robot', 'droid', 'creature', 'monster', 'being', 'entity', 'character', 'protagonist'];
+                const livingObjects = objects.filter(obj => {
+                    const text = `${obj.name} ${obj.description}`.toLowerCase();
+                    return livingKeywords.some(kw => text.includes(kw));
+                });
+                // Treat these objects as characters
+                rawCharacters.push(...livingObjects);
+            }
+
+            characters = rawCharacters.map((c, index) => ({
+                id: c.id || `temp-${index}-${Date.now()}`, // Fallback ID if not in DB
+                name: c.name || "Unknown Character",
+                description: c.description || c.visual_prompt || "No description",
+                imageUrl: c.image_url || null // Should be null initially
+            }));
+        }
+
         res.json({
             requiresHeroAssets: needsHero,
             reason,
-            project: updatedProject
+            project: updatedProject,
+            characters: characters // CRITICAL: Frontend checks this!
         });
     } catch (error) {
         res.status(400).json({ error: error.message });

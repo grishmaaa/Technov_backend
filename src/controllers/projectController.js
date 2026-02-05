@@ -1,6 +1,7 @@
 import prisma from '../config/database.js';
 import { generateScript, generateCharacterPortrait, generateHeroImage, generateTitle } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
+import { logger } from '../logger.js';
 import { getPresignedDownloadUrl, getS3Client, getStorageConfig } from '../services/storageService.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 

@@ -1061,7 +1061,7 @@ export const generateScript = async (storyText, options = {}) => {
     // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {
         // 2. Stage 1: Planning
-        const { assetSheet, usage: u1 } = await _stage1_planning(storyText, durationString);
+        const { assetSheet, usage: u1 } = await stage1_planning(storyText, durationString);
 
         // 3. Stage 2: Generation (Injecting styles/moods)
         const { scenesData, usage: u2 } = await _stage2_generation(assetSheet, tierOptions);

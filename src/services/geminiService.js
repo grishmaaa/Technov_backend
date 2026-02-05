@@ -435,7 +435,9 @@ const _stage0_safety_check = async (storyText) => {
 
 // STAGE 1 UPDATE: Add narrative progression blueprint
 
-const _stage1_planning = async (storyText, duration, category = 'creative') => {
+// STAGE 1 UPDATE: Add narrative progression blueprint
+
+export const stage1_planning = async (storyText, duration, category = 'creative') => {
     logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet...");
 
     // Parse duration
@@ -1242,6 +1244,60 @@ export const generateHeroImage = async (actionDescription, userInstructions = ""
         // Don't crash the whole job, just return null or a placeholder if you want
         // But for now throwing is okay as long as the user knows why
         throw new Error(`Hero image generation failed: ${error.message}`);
+    }
+};
+
+/**
+ * Generate a character portrait using DALL-E 3.
+ * @param {string} description - The base physical description from the character bible.
+ * @param {string} style - The visual style of the project.
+ * @param {string} [userPrompt] - Optional user override/instruction for regeneration.
+ * @returns {Promise<string>} - The URL of the generated image.
+ */
+export const generateCharacterPortrait = async (description, style, userPrompt = null) => {
+    const openai = getOpenAI();
+
+    let prompt;
+    if (userPrompt) {
+        // Regeneration Case: User provides specific feedback
+        prompt = `Character Design Update: ${userPrompt}. Base Description: ${description}. Style: ${style}. Generate a consistent character portrait sheet, front facing, neutral expression, 8k resolution, cinematic lighting.`;
+    } else {
+        // Initial Generation Case
+        prompt = `Character Reference Portrait: ${description}. Visual Style: ${style}. Front facing, detailed facial features, neutral expression, simple background, 8k resolution, cinematic lighting.`;
+    }
+
+    logger.info({ prompt }, 'Generating character portrait with DALL-E');
+
+    try {
+        const response = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: prompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "standard"
+        });
+
+        const imageUrl = response.data[0].url;
+
+        // Attempt persistence
+        if (isStorageConfigured()) {
+            try {
+                const imgRes = await fetch(imageUrl);
+                if (imgRes.ok) {
+                    const buffer = Buffer.from(await imgRes.arrayBuffer());
+                    const key = buildObjectKey({ userId: 'character-assets', extension: 'png' });
+                    return await uploadBufferToStorage({ buffer, key, contentType: 'image/png' });
+                }
+            } catch (e) {
+                logger.warn({ err: e }, "Failed to persist character image, using temp URL");
+            }
+        }
+
+        return imageUrl;
+    } catch (error) {
+        logger.error({ err: error }, 'Failed to generate character portrait');
+        // Retry logic for safety violations could be added here similar to generateHeroImage
+        throw new Error(`Character generation failed: ${error.message}`);
     }
 };
 

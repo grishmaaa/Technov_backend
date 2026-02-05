@@ -1,6 +1,5 @@
 import prisma from '../config/database.js';
-import { generateScriptAndImagePrompt, generateTitle } from '../services/aiService.js';
-import { generateHeroImage } from '../services/geminiService.js';
+import { generateScript, generateCharacterPortrait, generateHeroImage, generateTitle } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getPresignedDownloadUrl, getS3Client, getStorageConfig } from '../services/storageService.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
@@ -212,11 +211,19 @@ export const generateScenesFromStory = async (req, res) => {
             return res.status(400).json({ error: 'Story is required' });
         }
 
-        // Generate script and title concurrently
-        const [result, aiTitle] = await Promise.all([
-            generateScriptAndImagePrompt(story, visualStyle),
-            generateTitle(story)
-        ]);
+        // Use Advanced 3-Stage Gemini Pipeline
+        const result = await generateScript(story, {
+            productionStyle: visualStyle, // Map visualStyle to options
+            plan: req.user?.plan || 'basic'
+        });
+
+        // result contains: scenes, suggested_title, assetSheet, validationReport
+
+        let aiTitle = result.suggested_title;
+        // Fallback if not returned
+        if (!aiTitle) {
+            aiTitle = await generateTitle(story);
+        }
 
         if (projectId) {
             const existingProject = await prisma.project.findFirst({
@@ -227,31 +234,42 @@ export const generateScenesFromStory = async (req, res) => {
                 return res.status(404).json({ error: 'Project not found' });
             }
 
-            const updateData = { imagePrompt: result.imagePrompt };
-
-            // Only update title if AI generated one and it looks valid
-            if (aiTitle) {
-                updateData.title = aiTitle;
-            }
+            // Save Asset Sheet to Project Metadata
+            // Merge with existing metadata to avoid data loss
+            const existingMetadata = existingProject.metadata || {};
+            const updatedMetadata = {
+                ...existingMetadata,
+                assetSheet: result.assetSheet
+            };
 
             await prisma.project.update({
                 where: { id: projectId },
-                data: updateData
+                data: {
+                    title: aiTitle || undefined,
+                    metadata: updatedMetadata
+                }
             });
-        }
 
-        if (projectId) {
             await transitionProjectState({
                 projectId,
                 toState: 'SCENES_GENERATED',
                 actorType: 'system',
                 actorId: req.user.id,
-                reason: 'Scenes generated from story'
+                reason: 'Scenes generated via 3-stage pipeline'
             });
         }
 
-        res.json({ ...result, title: aiTitle });
+        res.json({
+            scenes: result.scenes,
+            assetSheet: result.assetSheet,
+            title: aiTitle,
+            validationReport: result.validationReport
+        });
     } catch (error) {
+        // Handle Safety Violations gracefully
+        if (error.message.includes("SAFETY_VIOLATION")) {
+            return res.status(400).json({ error: error.message });
+        }
         res.status(500).json({ error: 'Failed to generate scenes', details: error.message });
     }
 };
@@ -390,69 +408,139 @@ export const decideVisualIdentity = async (req, res) => {
     }
 };
 
-export const generateHeroAssets = async (req, res) => {
+// Replaces generateHeroAssets
+export const generateProjectAssets = async (req, res) => {
     try {
         const { id } = req.params;
-        const { regenerate, userInstructions } = req.body;
+        const { regenerate, characterId, userPrompt, imageUrl } = req.body;
+
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id },
-            include: { scenes: true, assets: true }
+            include: { assets: true }
         });
 
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+
+        const assetSheet = project.metadata?.assetSheet;
+        if (!assetSheet || !assetSheet.character_bible) {
+            return res.status(400).json({ error: 'Reference Asset Sheet not found. Please regenerate script.' });
         }
 
-        if (project.state !== 'VISUAL_IDENTITY_DECISION' && project.state !== 'ASSETS_READY') {
-            return res.status(400).json({ error: 'Project not ready for hero assets' });
-        }
+        // 1. Handle User Upload (Direct URL save)
+        if (imageUrl && characterId) {
+            const charDef = assetSheet.character_bible.find(c => c.id === characterId);
+            if (!charDef) return res.status(404).json({ error: 'Character ID not found in bible' });
 
-        if (!project.requiresHeroAssets) {
-            return res.status(400).json({ error: 'Hero assets not required for this project' });
-        }
-
-        const existing = project.assets.find((asset) => asset.type === 'HERO_IMAGE' && asset.state === 'READY');
-        if (existing && !regenerate) {
-            await transitionProjectState({
-                projectId: id,
-                toState: 'ASSETS_READY',
-                actorType: 'system',
-                actorId: req.user.id,
-                reason: 'Hero assets already available'
+            // Create or Update asset
+            // Note: In a real app we might want to delete the old asset file if it exists
+            await prisma.asset.create({
+                data: {
+                    projectId: id,
+                    type: 'CHARACTER',
+                    state: 'READY',
+                    url: imageUrl, // Assumes frontend uploaded and sent URL, or we handle upload separately
+                    metadata: JSON.stringify({
+                        characterId: charDef.id,
+                        role: charDef.role,
+                        name: charDef.id,
+                        description: charDef.physical_description?.distinctive_features?.join(', ') || "Custom Upload",
+                        source: 'upload'
+                    })
+                }
             });
-            return res.json({ asset: existing, alreadyExists: true });
+            return res.json({ message: "Asset uploaded" });
         }
 
-        const baseContext = project.scenes[0]?.actionDescription || project.scenes[0]?.promptText || project.title;
-        const heroUrl = await generateHeroImage(baseContext, userInstructions);
+        // 2. Handle Regeneration (Single Character)
+        if (regenerate && characterId) {
+            const charDef = assetSheet.character_bible.find(c => c.id === characterId);
+            if (!charDef) return res.status(404).json({ error: 'Character ID not found in bible' });
 
-        const asset = await prisma.asset.create({
-            data: {
-                projectId: id,
-                type: 'HERO_IMAGE',
-                state: 'READY',
-                url: heroUrl,
-                metadata: JSON.stringify({ source: 'generated', seedContext: baseContext })
+            const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
+            // Pass userPrompt to influence generation
+            const portraitUrl = await generateCharacterPortrait(
+                JSON.stringify(charDef.physical_description),
+                style,
+                userPrompt
+            );
+
+            const asset = await prisma.asset.create({
+                data: {
+                    projectId: id,
+                    type: 'CHARACTER',
+                    state: 'READY',
+                    url: portraitUrl,
+                    metadata: JSON.stringify({
+                        characterId: charDef.id,
+                        role: charDef.role,
+                        name: charDef.id, // Use ID as name or add name field
+                        description: charDef.physical_description?.distinctive_features?.join(', ') || "AI Generated",
+                        source: 'regen'
+                    })
+                }
+            });
+
+            if (asset.url) asset.url = await signUrl(asset.url);
+            return res.json({ asset });
+        }
+
+        // 3. Initial Bulk Generation (All Characters)
+        // Only generate for characters that don't have an asset yet
+        const results = [];
+        const characters = assetSheet.character_bible; // Array of chars
+        // Limit based on plan?
+        const maxChars = (req.user?.plan === 'elite') ? 6 : 3;
+        const targetChars = characters.slice(0, maxChars);
+
+        for (const charDef of targetChars) {
+            // Check if asset exists
+            const existing = project.assets.find(a => {
+                try {
+                    const meta = JSON.parse(a.metadata || '{}');
+                    return meta.characterId === charDef.id;
+                } catch (e) { return false; }
+            });
+
+            if (existing) {
+                results.push(existing);
+                continue;
             }
-        });
 
-        await prisma.project.update({
-            where: { id },
-            data: { heroImageId: asset.id }
-        });
+            const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
+            const portraitUrl = await generateCharacterPortrait(JSON.stringify(charDef.physical_description), style);
+
+            const asset = await prisma.asset.create({
+                data: {
+                    projectId: id,
+                    type: 'CHARACTER',
+                    state: 'READY',
+                    url: portraitUrl,
+                    metadata: JSON.stringify({
+                        characterId: charDef.id,
+                        role: charDef.role,
+                        name: charDef.id,
+                        description: charDef.physical_description?.distinctive_features?.join(', ') || "AI Generated",
+                        source: 'initial'
+                    })
+                }
+            });
+            results.push(asset);
+        }
 
         await transitionProjectState({
             projectId: id,
             toState: 'ASSETS_READY',
             actorType: 'system',
             actorId: req.user.id,
-            reason: 'Hero assets generated'
+            reason: 'Character assets generated'
         });
 
-        if (asset.url) {
-            asset.url = await signUrl(asset.url);
+        // Sign URLs
+        for (let asset of results) {
+            if (asset.url) asset.url = await signUrl(asset.url);
         }
-        res.json({ asset });
+
+        res.json({ assets: results });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }

@@ -203,16 +203,38 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
             options: options
         });
 
+        // INJECT CHARACTER REFERENCE (Slide 3 Consistency)
+        // Find the first available character asset to use as a face reference
+        // Future: Match specific character ID from scene metadata if multiple characters exist
+        let heroAssetUrl = '';
+        if (project.assets && project.assets.length > 0) {
+            const charAsset = project.assets.find(a => a.type === 'CHARACTER' && a.state === 'READY');
+            if (charAsset) {
+                heroAssetUrl = charAsset.url;
+                // Sign URL if it's private storage
+                if (isStorageConfigured() && heroAssetUrl.includes('.storage.railway.app/')) {
+                    try {
+                        const key = heroAssetUrl.split('.storage.railway.app/')[1];
+                        if (key) {
+                            heroAssetUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                        }
+                    } catch (e) {
+                        logger.warn({ err: e }, 'Failed to sign character asset URL');
+                    }
+                }
+            }
+        }
+
         // Use compiled prompt instead of raw shot.prompt
         logger.info({
             sceneId: shot.sceneId,
             shotId: shot.id,
             promptLength: compiledPrompt.length,
             promptWordCount: compiledPrompt.split(' ').length,
-            promptPreview: compiledPrompt.substring(0, 150)
+            hasHeroRef: !!heroAssetUrl
         }, "🎬 Sending compiled prompt to Veo");
 
-        const { video_url: videoUrl } = await generateVideo(compiledPrompt, '', options);
+        const { video_url: videoUrl } = await generateVideo(compiledPrompt, heroAssetUrl, options);
         if (!videoUrl) {
             throw new Error('Video generation response missing video URL');
         }

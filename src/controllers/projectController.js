@@ -375,16 +375,30 @@ export const decideVisualIdentity = async (req, res) => {
             return res.status(400).json({ error: 'Project not ready for visual identity decision' });
         }
 
-        const needsHero = requiresHeroAssets(project.scenes);
-        const reason = needsHero
-            ? 'Detected character-focused scenes; hero assets required'
-            : 'No character focus detected; hero assets not required';
+        // IMPROVED LOGIC: Check the Asset Sheet first
+        const assetSheet = project.metadata?.assetSheet;
+        const hasCharacterBible = assetSheet?.character_bible && Array.isArray(assetSheet.character_bible) && assetSheet.character_bible.length > 0;
+
+        let needsHero = hasCharacterBible;
+        let reason = needsHero
+            ? `Identified ${assetSheet.character_bible.length} characters in the Bible.`
+            : 'No characters identified in the Asset Bible.';
+
+        // Fallback to keyword search if no asset sheet (legacy support)
+        if (!assetSheet && !needsHero) {
+            needsHero = requiresHeroAssets(project.scenes);
+            reason = needsHero
+                ? 'Detected character keywords in scenes.'
+                : 'No character focus detected (Keyword check).';
+        }
 
         const updatedProject = await prisma.project.update({
             where: { id },
             data: {
                 requiresHeroAssets: needsHero,
-                visualIdentityReason: reason
+                visualIdentityReason: reason,
+                // If we have characters, ensure they are in the assets table? 
+                // typically generateProjectAssets handles creation. 
             }
         });
 

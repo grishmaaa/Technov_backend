@@ -126,7 +126,12 @@ export const getProject = async (req, res) => {
 
         // SIGN THE FINAL VIDEO
         if (project.finalVideoUrl) {
-            project.finalVideoUrl = await signUrl(project.finalVideoUrl);
+            // Favor MP4 for maximum browser compatibility
+            let urlToSign = project.finalVideoUrl;
+            if (urlToSign.endsWith('.m3u8') && project.metadata?.mp4_url) {
+                urlToSign = project.metadata.mp4_url;
+            }
+            project.finalVideoUrl = await signUrl(urlToSign);
         }
 
         // SIGN THE SCENE VIDEOS
@@ -179,7 +184,13 @@ export const getProjectFactory = async (req, res) => {
 
         // SIGN THE FINAL VIDEO
         if (project.finalVideoUrl) {
-            project.finalVideoUrl = await signUrl(project.finalVideoUrl);
+            // Favor MP4 for maximum browser compatibility in the direct video player
+            let urlToSign = project.finalVideoUrl;
+            if (urlToSign.endsWith('.m3u8') && project.metadata?.mp4_url) {
+                logger.info({ projectId: id }, "Favoring MP4 over HLS for project factory response");
+                urlToSign = project.metadata.mp4_url;
+            }
+            project.finalVideoUrl = await signUrl(urlToSign);
         }
 
         // SIGN THE SCENE VIDEOS

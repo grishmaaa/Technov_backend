@@ -213,26 +213,52 @@ export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 
     return getSignedUrl(client, command, { expiresIn });
 };
 
-export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download = false }) => {
+export const extractKeyFromUrl = (url) => {
+    if (!url) return null;
+    try {
+        const urlObj = new URL(url);
+        // Extracts path after first slash, e.g. /generated/file.png -> generated/file.png
+        let path = urlObj.pathname;
+        if (path.startsWith('/')) path = path.substring(1);
+        return path;
+    } catch (e) {
+        // If it's already a key, return it
+        return url;
+    }
+};
+
+export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download = false, contentType = null }) => {
     const { bucket } = getStorageConfig();
     if (!bucket) {
         throw new Error('Storage bucket is not configured');
     }
     const client = getS3Client();
 
-    // Build command params - force browser to see it as video/mp4
+    // Guess content type if not provided
+    let responseContentType = contentType;
+    if (!responseContentType) {
+        const ext = path.extname(key).toLowerCase();
+        if (ext === '.m3u8') responseContentType = 'application/vnd.apple.mpegurl';
+        else if (ext === '.ts') responseContentType = 'video/mp2t';
+        else if (ext === '.mp4') responseContentType = 'video/mp4';
+        else if (ext === '.png') responseContentType = 'image/png';
+        else if (ext === '.jpg' || ext === '.jpeg') responseContentType = 'image/jpeg';
+        else if (ext === '.webp') responseContentType = 'image/webp';
+    }
+
     const commandParams = {
         Bucket: bucket,
         Key: key,
-        // FORCE the browser to see it as a video for the player
-        ResponseContentType: 'video/mp4',
-        // Cache control for better performance
         ResponseCacheControl: 'max-age=3600',
     };
 
-    // If the user clicked "Download", force the browser to save the file
+    if (responseContentType) {
+        commandParams.ResponseContentType = responseContentType;
+    }
+
     if (download) {
-        commandParams.ResponseContentDisposition = `attachment; filename="technov-film-${Date.now()}.mp4"`;
+        const ext = path.extname(key) || '.mp4';
+        commandParams.ResponseContentDisposition = `attachment; filename="technov-asset-${Date.now()}${ext}"`;
     }
 
     const command = new GetObjectCommand(commandParams);

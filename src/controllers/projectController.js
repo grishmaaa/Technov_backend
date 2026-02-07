@@ -2,23 +2,24 @@ import prisma from '../config/database.js';
 import { generateScript, generateCharacterPortrait, generateHeroImage, generateTitle } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
-import { getPresignedDownloadUrl, getS3Client, getStorageConfig } from '../services/storageService.js';
+import { getPresignedDownloadUrl, getS3Client, getStorageConfig, extractKeyFromUrl } from '../services/storageService.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 
 // Helper to turn a raw DB URL into a Signed Playable URL
 const signUrl = async (rawUrl) => {
-    if (!rawUrl || !rawUrl.includes('railway.app')) return rawUrl;
+    if (!rawUrl) return rawUrl;
+    // If it's already a http(s) URL but NOT on our storage, it might be a temporary DALL-E link.
+    // DALL-E links are already public and expire. If it's an S3 link, we MUST sign it.
+    if (!rawUrl.includes('storage.railway.app') && !rawUrl.includes('s3.amazonaws.com') && rawUrl.startsWith('http')) {
+        return rawUrl;
+    }
+
     try {
-        // Example rawUrl: https://storage.railway.app/generated/user-id/file.mp4
-        // We need to extract: generated/user-id/file.mp4
-        const urlObj = new URL(rawUrl);
-        const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
-
-        console.log("[Signer] Signing key:", key);
-
+        const key = extractKeyFromUrl(rawUrl);
+        if (!key) return rawUrl;
         return await getPresignedDownloadUrl({ key, expiresIn: 3600 });
     } catch (err) {
-        console.error("[Signer] Signing failed for URL:", rawUrl, err);
+        logger.error({ err, rawUrl }, "[Signer] Signing failed");
         return rawUrl;
     }
 };
@@ -465,7 +466,7 @@ export const decideVisualIdentity = async (req, res) => {
             }
 
             // ✅ FIX: Correct mapping for character_bible structure
-            characters = rawCharacters.map((c, index) => {
+            characters = await Promise.all(rawCharacters.map(async (c, index) => {
                 // Check if an image already exists for this character
                 const existingAsset = project.assets?.find(a => {
                     try {
@@ -496,20 +497,23 @@ export const decideVisualIdentity = async (req, res) => {
 
                     description = parts.join('. ');
                 } else if (c.description) {
-                    // Fallback for object-based characters or legacy data
                     description = c.description;
+                }
+
+                let imageUrl = existingAsset ? existingAsset.url : (c.image_url || null);
+                if (imageUrl) {
+                    imageUrl = await signUrl(imageUrl);
                 }
 
                 return {
                     id: c.id || `temp-${index}-${Date.now()}`,
-                    // Use role as priority for name, then name (objects), then fallback
                     name: c.role || c.name || "Unknown Character",
                     description: description,
-                    imageUrl: existingAsset ? existingAsset.url : (c.image_url || null),
-                    approved: !!existingAsset, // Mark as approved if asset exists
-                    role: c.role // Pass role for UI context
+                    imageUrl: imageUrl,
+                    approved: !!existingAsset,
+                    role: c.role
                 };
-            });
+            }));
 
             // SCENE SCRAPING FALLBACK: If bible and objects fail, check scene consistency data
             if (characters.length === 0) {

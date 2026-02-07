@@ -9,7 +9,8 @@
 
 // Enhanced compileVeoPrompt with Character & Style Injection
 export const compileVeoPrompt = ({ narrativeBeat, project = {}, options = {} }) => {
-    let enhancedPrompt = narrativeBeat.trim();
+    // Strip timestamp markers like [00:01-00:05] which can trigger RAI filter sensitivities or confuse the model
+    let enhancedPrompt = narrativeBeat.replace(/\[\d{2}:\d{2}-\d{2}:\d{2}\]/g, '').trim();
     const assetSheet = project.metadata || {}; // Handle potential null metadata
 
     // 1. CHARACTER CONSISTENCY

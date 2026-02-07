@@ -5,6 +5,8 @@ import { logger } from '../logger.js';
 import { getPresignedDownloadUrl, getS3Client, getStorageConfig, extractKeyFromUrl } from '../services/storageService.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 
+// --- SHARED HELPERS ---
+
 // Helper to turn a raw DB URL into a Signed Playable URL
 const signUrl = async (rawUrl) => {
     if (!rawUrl) return rawUrl;
@@ -22,6 +24,48 @@ const signUrl = async (rawUrl) => {
         logger.error({ err, rawUrl }, "[Signer] Signing failed");
         return rawUrl;
     }
+};
+
+// Helper to find or synthesize charDef
+const getCharDef = (assetSheet, id) => {
+    const found = assetSheet.character_bible?.find(c => c.id === id);
+    if (found) return found;
+
+    // Fallback for scraped characters (e.g. "detective_noir")
+    return {
+        id: id,
+        role: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        name: id,
+        physical_description: {
+            distinctive_features: ["Character identified from script context"]
+        },
+        isFallback: true
+    };
+};
+
+// Helper to build natural language description for DALL-E
+const buildCharPrompt = (charDef) => {
+    const phys = charDef.physical_description || {};
+    const parts = [
+        charDef.role ? `Role: ${charDef.role}` : '',
+        charDef.age ? `Age: ${charDef.age}` : '',
+        charDef.gender ? `Gender: ${charDef.gender}` : '',
+        charDef.ethnicity ? `Ethnicity: ${charDef.ethnicity}` : '',
+        phys.height ? `Height: ${phys.height}` : '',
+        phys.build ? `Build: ${phys.build}` : '',
+        phys.hair ? `Hair: ${phys.hair}` : '',
+        phys.eyes ? `Eyes: ${phys.eyes}` : '',
+        phys.skin_tone ? `Skin: ${phys.skin_tone}` : '',
+        phys.clothing ? `Clothing: ${phys.clothing}` : '',
+        (phys.distinctive_features && phys.distinctive_features.length > 0)
+            ? `Distinctive features: ${phys.distinctive_features.join(', ')}`
+            : ''
+    ];
+    // If fallback with no details, use name (role) as prompt
+    if (parts.every(p => !p) && charDef.role) {
+        return `A cinematic portrait of ${charDef.role}`;
+    }
+    return parts.filter(p => p && p.trim() !== '').join('. ');
 };
 
 export const createProject = async (req, res) => {
@@ -366,7 +410,7 @@ export const decideVisualIdentity = async (req, res) => {
         const { id } = req.params;
         const project = await prisma.project.findFirst({
             where: { id, userId: req.user.id },
-            include: { scenes: true }
+            include: { scenes: true, assets: true } // Include assets here
         });
 
         if (!project) {
@@ -434,8 +478,8 @@ export const decideVisualIdentity = async (req, res) => {
             data: {
                 requiresHeroAssets: needsHero,
                 visualIdentityReason: reason,
-                // If we have characters, ensure they are in the assets table? 
-                // typically generateProjectAssets handles creation. 
+                // If we have characters, ensure they are in the assets table?
+                // typically generateProjectAssets handles creation.
             }
         });
 
@@ -447,6 +491,45 @@ export const decideVisualIdentity = async (req, res) => {
                 actorId: req.user.id,
                 reason
             });
+        } else {
+            // AUTO-GENERATE FIRST CHARACTER: Ensure the user sees an image immediately
+            const charAssets = project.assets?.filter(a => a.type === 'CHARACTER' && a.state === 'READY') || [];
+
+            if (charAssets.length === 0 && assetSheet) { // Only auto-generate if no assets exist and we have an assetSheet
+                const firstChar = bible[0] || getCharDef(assetSheet, "protagonist"); // Use top-level getCharDef
+                if (firstChar) {
+                    logger.info({ projectId: id, charId: firstChar.id }, "🎬 Auto-generating first character portrait...");
+                    try {
+                        const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
+                        const description = buildCharPrompt(firstChar); // Use top-level buildCharPrompt
+                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${firstChar.role}` : description;
+
+                        const portraitUrl = await generateCharacterPortrait(finalPrompt, style);
+
+                        const newAsset = await prisma.asset.create({
+                            data: {
+                                projectId: id,
+                                type: 'CHARACTER',
+                                state: 'READY',
+                                url: portraitUrl,
+                                metadata: JSON.stringify({
+                                    characterId: firstChar.id,
+                                    role: firstChar.role,
+                                    name: firstChar.role,
+                                    description: description || "Auto Generated",
+                                    source: 'auto-initial'
+                                })
+                            }
+                        });
+                        logger.info("✅ First character auto-generated successfully");
+
+                        // Add the new asset to the project.assets array for subsequent mapping
+                        project.assets.push(newAsset);
+                    } catch (genErr) {
+                        logger.error({ err: genErr }, "Auto-generation of first character failed (continuing to UI)");
+                    }
+                }
+            }
         }
 
         // 4. PREPARE CHARACTER DATA FOR FRONTEND
@@ -590,26 +673,9 @@ export const generateProjectAssets = async (req, res) => {
             return res.status(400).json({ error: 'Reference Asset Sheet not found. Please regenerate script.' });
         }
 
-        // Helper to find or synthesize charDef
-        const getCharDef = (id) => {
-            const found = assetSheet.character_bible?.find(c => c.id === id);
-            if (found) return found;
-
-            // Fallback for scraped characters (e.g. "detective_noir")
-            return {
-                id: id,
-                role: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-                name: id,
-                physical_description: {
-                    distinctive_features: ["Character identified from script context"]
-                },
-                isFallback: true
-            };
-        };
-
         // 1. Handle User Upload (Direct URL save)
         if (imageUrl && characterId) {
-            const charDef = getCharDef(characterId);
+            const charDef = getCharDef(assetSheet, characterId); // Use top-level getCharDef
             // No 404 check needed because getCharDef always returns something for fallback
 
             // Create or Update asset
@@ -631,34 +697,9 @@ export const generateProjectAssets = async (req, res) => {
             return res.json({ message: "Asset uploaded" });
         }
 
-        // Helper to build natural language description
-        const buildCharPrompt = (charDef) => {
-            const phys = charDef.physical_description || {};
-            const parts = [
-                charDef.role ? `Role: ${charDef.role}` : '',
-                charDef.age ? `Age: ${charDef.age}` : '',
-                charDef.gender ? `Gender: ${charDef.gender}` : '',
-                charDef.ethnicity ? `Ethnicity: ${charDef.ethnicity}` : '',
-                phys.height ? `Height: ${phys.height}` : '',
-                phys.build ? `Build: ${phys.build}` : '',
-                phys.hair ? `Hair: ${phys.hair}` : '',
-                phys.eyes ? `Eyes: ${phys.eyes}` : '',
-                phys.skin_tone ? `Skin: ${phys.skin_tone}` : '',
-                phys.clothing ? `Clothing: ${phys.clothing}` : '',
-                (phys.distinctive_features && phys.distinctive_features.length > 0)
-                    ? `Distinctive features: ${phys.distinctive_features.join(', ')}`
-                    : ''
-            ];
-            // If fallback with no details, use name as prompt
-            if (parts.every(p => !p) && charDef.role) {
-                return `A cinematic portrait of ${charDef.role}`;
-            }
-            return parts.filter(p => p && p.trim() !== '').join('. ');
-        };
-
         // 2. Handle Regeneration (Single Character)
         if (regenerate && characterId) {
-            const charDef = getCharDef(characterId);
+            const charDef = getCharDef(assetSheet, characterId); // Use top-level getCharDef
 
             const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
             // Pass userPrompt to influence generation

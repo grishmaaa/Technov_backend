@@ -544,6 +544,15 @@ export const decideVisualIdentity = async (req, res) => {
                 }));
 
                 logger.info("✅ Full cast auto-generated successfully");
+
+                // CRITICAL: Refresh project to include the new character assets we just created
+                project = await prisma.project.findUnique({
+                    where: { id },
+                    include: {
+                        assets: true,
+                        scenes: { orderBy: { orderIndex: 'asc' } }
+                    }
+                });
             }
         }
 

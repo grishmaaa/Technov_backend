@@ -619,10 +619,24 @@ const _stage2_generation = async (assetSheet, options = {}) => {
     // Extract scene progression blueprint
     const blueprint = assetSheet.scene_progression_blueprint || generateDefaultProgression(assetSheet.project_metadata.total_scenes);
 
+    const safetyDirective = `
+====================
+SAFETY & COMPLIANCE DIRECTIVE:
+====================
+The video engine (Veo 3.1) has strict safety filters. 
+DO NOT include any of the following in your prompts:
+- Weapons of any kind (guns, knives, explosives)
+- Physical violence, blood, or gore
+- Illegal acts, drug use, or extreme grit
+- Specific copyrighted logos or brand names
+Focus on atmospheric lighting, character mystery, and cinematic environment to convey tension without using prohibited elements.
+`;
+
     const prompt = `
 ${directorPersona}
 ${styleDirective}
 ${moodDirective}
+${safetyDirective}
 
 You are an expert Veo 3.1 prompt engineer. Generate ${assetSheet.project_metadata.total_scenes} UNIQUE 8-second video prompts.
 
@@ -1528,11 +1542,23 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
                 .split('Color Palette:')[0]
                 .trim();
 
+            // Additional Safety: Remove common "gritty" trigger words that often trip RAI
+            const safetyCleanup = (txt) => {
+                return txt
+                    .replace(/gun|pistol|weapon|knife|blood|kill|dead|corpse|violence|attack/gi, 'heavy shadow')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            };
+
+            sanitizedPrompt = safetyCleanup(sanitizedPrompt);
+
             // If the prompt didn't change (no metadata found), or became too short, fallback to a safe generic structure
             if (sanitizedPrompt === prompt || sanitizedPrompt.length < 10) {
                 logger.warn("Prompt stripping yielded no change or too short. Using generic fallback.");
-                sanitizedPrompt = `Cinematic scene, high quality, 4k. ${prompt.substring(0, 100)}...`;
+                sanitizedPrompt = `Cinematic scene, high quality, professional lighting, 4k. ${prompt.substring(0, 150)}...`;
             }
+
+            logger.info({ sanitizedPrompt, originalLength: prompt.length, newLength: sanitizedPrompt.length }, "Retrying with sanitized prompt");
 
             return generateVideo(sanitizedPrompt, heroImageUrl, { ...options, isRetry: true });
         }

@@ -67,7 +67,7 @@ export const getScenes = async (req, res) => {
 export const updateScene = async (req, res) => {
     try {
         const { sceneId } = req.params;
-        const { promptText, duration, orderIndex } = req.body;
+        const { promptText, actionDescription, duration, orderIndex } = req.body;
 
         const scene = await prisma.scene.findUnique({
             where: { id: sceneId },
@@ -79,13 +79,18 @@ export const updateScene = async (req, res) => {
         }
 
         if (!['SCENES_GENERATED', 'USER_REVIEW'].includes(scene.project.state) &&
-            (promptText || duration !== undefined || orderIndex !== undefined)) {
+            (promptText || actionDescription || duration !== undefined || orderIndex !== undefined)) {
             return res.status(400).json({ error: 'Can only edit scenes during review' });
         }
 
         const updatedScene = await prisma.scene.update({
             where: { id: sceneId },
-            data: { promptText, duration, orderIndex }
+            data: {
+                promptText: promptText || actionDescription,
+                actionDescription,
+                duration,
+                orderIndex
+            }
         });
 
         res.json(updatedScene);

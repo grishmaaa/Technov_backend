@@ -419,7 +419,7 @@ const requiresHeroAssets = (scenes) => {
 export const decideVisualIdentity = async (req, res) => {
     try {
         const { id } = req.params;
-        const project = await prisma.project.findFirst({
+        let project = await prisma.project.findFirst({
             where: { id, userId: req.user.id },
             include: { scenes: true, assets: true } // Include assets here
         });

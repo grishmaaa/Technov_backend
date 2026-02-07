@@ -835,8 +835,14 @@ export const getProjectMediaLinks = async (req, res) => {
             return res.status(404).json({ error: 'Video not found' });
         }
 
-        // Extract key from the stored URL
-        const urlObj = new URL(project.finalVideoUrl);
+        // Favor MP4 for downloads and shares to ensure maximum compatibility
+        let sourceUrl = project.finalVideoUrl;
+        if (project.metadata?.mp4_url) {
+            sourceUrl = project.metadata.mp4_url;
+        }
+
+        // Extract key from the selected URL
+        const urlObj = new URL(sourceUrl);
         const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
 
         let url;
@@ -878,26 +884,26 @@ export const streamProjectVideo = async (req, res) => {
             return res.status(404).json({ error: "Video not yet available" });
         }
 
-        console.log('[Stream] finalVideoUrl:', project.finalVideoUrl);
-
-        // Check for format override (Frontend fallback logic)
+        // Match Format: Default to MP4 for maximum browser compatible (Chrome/Firefox)
+        // unless HLS is explicitly requested or MP4 is missing.
         const formatOverride = req.query.format;
+        let sourceUrl = project.finalVideoUrl;
 
-        // Extract key correctly
+        if (formatOverride === 'mp4' || (!formatOverride && sourceUrl.endsWith('.m3u8'))) {
+            // Check for MP4 in metadata
+            if (project.metadata?.mp4_url) {
+                sourceUrl = project.metadata.mp4_url;
+                console.log('[Stream] Favoring MP4 for maximum compatibility');
+            } else if (sourceUrl.endsWith('.m3u8') && formatOverride === 'mp4') {
+                // Heuristic fallback if metadata is missing but MP4 requested
+                sourceUrl = sourceUrl.replace('.m3u8', '.mp4').replace('/hls/', '/');
+                console.log('[Stream] Heuristic replacement to .mp4');
+            }
+        }
+
+        // Extract key correctly from the selected sourceUrl
         let key;
         try {
-            // If fallback requested, prefer the MP4 metadata or replace extension
-            let sourceUrl = project.finalVideoUrl;
-            if (formatOverride === 'mp4') {
-                if (project.metadata?.mp4) {
-                    sourceUrl = project.metadata.mp4;
-                    console.log('[Stream] Format override: switching to MP4 metadata');
-                } else if (sourceUrl.endsWith('.m3u8')) {
-                    sourceUrl = sourceUrl.replace('.m3u8', '.mp4').replace('/hls/', '/'); // Try standard conversion
-                    console.log('[Stream] Format override: heuristic replacement to .mp4');
-                }
-            }
-
             const urlObj = new URL(sourceUrl);
             key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
         } catch (urlError) {
@@ -1066,13 +1072,18 @@ export const streamPublicVideo = async (req, res) => {
 
         // console.log('[PublicStream] Streaming public film:', project.title);
 
-        // Extract key from URL
+        // Extract key from URL - Favor MP4 for public sharing compatibility
+        let sourceUrl = project.finalVideoUrl;
+        if (sourceUrl.endsWith('.m3u8') && project.metadata?.mp4_url) {
+            sourceUrl = project.metadata.mp4_url;
+        }
+
         let key;
         try {
-            const urlObj = new URL(project.finalVideoUrl);
+            const urlObj = new URL(sourceUrl);
             key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
         } catch (urlError) {
-            key = project.finalVideoUrl;
+            key = sourceUrl;
         }
 
         const { bucket } = getStorageConfig();
@@ -1092,8 +1103,11 @@ export const streamPublicVideo = async (req, res) => {
             const response = await client.send(command);
             // console.log('[PublicStream] S3 Status:', response.$metadata.httpStatusCode);
 
-            // Set video headers
-            res.setHeader('Content-Type', 'video/mp4'); // Default to mp4 for public
+            // Set video headers - Dynamic Content-Type based on key
+            const contentType = key.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' :
+                key.endsWith('.ts') ? 'video/mp2t' : 'video/mp4';
+
+            res.setHeader('Content-Type', contentType);
             res.setHeader('Accept-Ranges', 'bytes');
             res.setHeader('Content-Disposition', 'inline');
             res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours

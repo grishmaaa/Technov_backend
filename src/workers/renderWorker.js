@@ -204,24 +204,64 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
         });
 
         // INJECT CHARACTER REFERENCE (Slide 3 Consistency)
-        // Find the first available character asset to use as a face reference
-        // Future: Match specific character ID from scene metadata if multiple characters exist
-        let heroAssetUrl = '';
+        // Find the most appropriate character assets for this shot (Up to 3)
+        let heroAssetUrls = [];
         if (project.assets && project.assets.length > 0) {
-            const charAsset = project.assets.find(a => a.type === 'CHARACTER' && a.state === 'READY');
-            if (charAsset) {
-                heroAssetUrl = charAsset.url;
-                // Sign URL if it's private storage
-                if (isStorageConfigured() && heroAssetUrl.includes('.storage.railway.app/')) {
+            const charAssets = project.assets.filter(a => a.type === 'CHARACTER' && a.state === 'READY');
+
+            if (charAssets.length > 0) {
+                // Try to find specific characters mentioned in the prompt
+                // Stage 2 prompts use character IDs/Roles in CAPS for consistency
+                const promptUpper = (shot.prompt || '').toUpperCase();
+                const matchingAssetsMap = new Map();
+
+                // Sort assets by role length descending to match more specific roles first 
+                // (e.g. "MAIN DETECTIVE" vs "DETECTIVE")
+                const sortedAssets = [...charAssets].sort((a, b) => {
+                    const rA = (a.role || '').length;
+                    const rB = (b.role || '').length;
+                    return rB - rA;
+                });
+
+                for (const asset of sortedAssets) {
                     try {
-                        const key = heroAssetUrl.split('.storage.railway.app/')[1];
-                        if (key) {
-                            heroAssetUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                        const meta = typeof asset.metadata === 'string' ? JSON.parse(asset.metadata) : asset.metadata;
+                        const charId = (meta.characterId || '').toUpperCase();
+                        const charRole = (meta.role || '').toUpperCase();
+
+                        // Match by ID or Role (whichever appears in the CAPS prompt)
+                        if ((charId && promptUpper.includes(charId)) || (charRole && promptUpper.includes(charRole))) {
+                            if (!matchingAssetsMap.has(charId)) {
+                                matchingAssetsMap.set(charId, asset);
+                                logger.info({ charId, charRole, shotId: shot.id }, "🎯 Matched character asset for shot");
+                            }
                         }
-                    } catch (e) {
-                        logger.warn({ err: e }, 'Failed to sign character asset URL');
-                    }
+                        if (matchingAssetsMap.size >= 3) break; // API limit
+                    } catch (e) { }
                 }
+
+                let selectedAssets = Array.from(matchingAssetsMap.values());
+
+                // Fallback to first character if no specific ones found
+                if (selectedAssets.length === 0) {
+                    selectedAssets = [charAssets[0]];
+                }
+
+                // Process and sign each URL
+                heroAssetUrls = await Promise.all(selectedAssets.map(async (asset) => {
+                    let url = asset.url;
+                    if (isStorageConfigured() && url && url.includes('.storage.railway.app/')) {
+                        try {
+                            const key = url.split('.storage.railway.app/')[1];
+                            if (key) {
+                                return await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                            }
+                        } catch (e) {
+                            logger.warn({ err: e }, 'Failed to sign character asset URL');
+                        }
+                    }
+                    return url;
+                }));
             }
         }
 
@@ -231,10 +271,10 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
             shotId: shot.id,
             promptLength: compiledPrompt.length,
             promptWordCount: compiledPrompt.split(' ').length,
-            hasHeroRef: !!heroAssetUrl
+            heroImageCount: heroAssetUrls.length
         }, "🎬 Sending compiled prompt to Veo");
 
-        const { video_url: videoUrl } = await generateVideo(compiledPrompt, heroAssetUrl, options);
+        const { video_url: videoUrl } = await generateVideo(compiledPrompt, heroAssetUrls, options);
         if (!videoUrl) {
             throw new Error('Video generation response missing video URL');
         }
@@ -423,7 +463,8 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 project: {
                     include: {
                         user: true, // Fetch user to check plan (Base/Pro/Elite)
-                        scenes: { orderBy: { orderIndex: 'asc' } }
+                        scenes: { orderBy: { orderIndex: 'asc' } },
+                        assets: true // Need assets for character references
                     }
                 }
             }

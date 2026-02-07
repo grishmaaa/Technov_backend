@@ -503,48 +503,47 @@ export const decideVisualIdentity = async (req, res) => {
                 reason
             });
         } else {
-            // AUTO-GENERATE FIRST CHARACTER: Ensure the user sees an image immediately
+            // AUTO-GENERATE CAST: Ensure the user sees the full cast immediately
             const charAssets = project.assets?.filter(a => a.type === 'CHARACTER' && a.state === 'READY') || [];
 
-            // Safety check: Only proceed if we have a way to define a character
-            if (charAssets.length === 0) {
-                const firstChar = (bible && bible.length > 0) ? bible[0] : getCharDef(assetSheet, "protagonist");
+            if (charAssets.length === 0 && bible.length > 0) {
+                logger.info({ projectId: id, castCount: bible.length }, "🎬 Auto-generating full cast portraits...");
 
-                if (firstChar) {
-                    logger.info({ projectId: id, charId: firstChar.id }, "🎬 Auto-generating first character portrait...");
+                // Generate up to 4 characters automatically to keep it snappy
+                const castToGenerate = bible.slice(0, 4);
+                const style = assetSheet?.tone_and_style?.film_reference || "Cinematic";
+
+                // Generate in parallel to stay within request timeouts
+                await Promise.all(castToGenerate.map(async (char) => {
                     try {
-                        const style = assetSheet?.tone_and_style?.film_reference || "Cinematic";
-                        const description = buildCharPrompt(firstChar);
-                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${firstChar.role || "Protagonist"}` : description;
+                        const description = buildCharPrompt(char);
+                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${char.role || "Character"}` : description;
 
                         const portraitUrl = await generateCharacterPortrait(finalPrompt, style);
 
                         if (portraitUrl) {
-                            const newAsset = await prisma.asset.create({
+                            await prisma.asset.create({
                                 data: {
                                     projectId: id,
                                     type: 'CHARACTER',
                                     state: 'READY',
                                     url: portraitUrl,
                                     metadata: JSON.stringify({
-                                        characterId: firstChar.id,
-                                        role: firstChar.role,
-                                        name: firstChar.role,
+                                        characterId: char.id,
+                                        role: char.role,
+                                        name: char.role,
                                         description: description || "Auto Generated",
-                                        source: 'auto-initial'
+                                        source: 'auto-initial-cast'
                                     })
                                 }
                             });
-                            logger.info("✅ First character auto-generated successfully");
-
-                            // Add the new asset to the project.assets array for subsequent mapping
-                            if (!project.assets) project.assets = [];
-                            project.assets.push(newAsset);
                         }
                     } catch (genErr) {
-                        logger.error({ err: genErr }, "Auto-generation of first character failed (continuing to UI)");
+                        logger.error({ err: genErr, charId: char.id }, "Auto-generation of character failed");
                     }
-                }
+                }));
+
+                logger.info("✅ Full cast auto-generated successfully");
             }
         }
 

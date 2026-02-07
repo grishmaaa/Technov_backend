@@ -1387,20 +1387,35 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         logger.info("No GCS bucket configured. Veo will return Base64 or default storage URI.");
     }
 
-    // If a hero image is provided, add it to the request
-    if (heroImageUrl) {
+    // Multi-Reference Image Support (Up to 3 images)
+    const heroImageUrls = Array.isArray(heroImageUrl) ? heroImageUrl : (heroImageUrl ? [heroImageUrl] : []);
+    if (heroImageUrls.length > 0) {
         try {
-            logger.info({ imageUrl: heroImageUrl }, "Fetching character reference image for Veo prompt.");
-            const imageResponse = await fetch(heroImageUrl);
-            if (imageResponse.ok) {
-                const imageBuffer = await imageResponse.arrayBuffer();
-                const base64Image = Buffer.from(imageBuffer).toString('base64');
-                veoRequest.instances[0].image = {
-                    bytesBase64Encoded: base64Image
-                };
+            const base64Images = [];
+            // Veo supports up to 3 reference images
+            for (const url of heroImageUrls.slice(0, 3)) {
+                logger.info({ imageUrl: url }, "Fetching character reference image for Veo prompt.");
+                const imageResponse = await fetch(url);
+                if (imageResponse.ok) {
+                    const imageBuffer = await imageResponse.arrayBuffer();
+                    const base64Image = Buffer.from(imageBuffer).toString('base64');
+                    const contentType = imageResponse.headers.get('content-type') || 'image/png';
+
+                    base64Images.push({
+                        bytesBase64Encoded: base64Image,
+                        mimeType: contentType
+                    });
+                }
+            }
+
+            if (base64Images.length > 0) {
+                // Veo 3.1: image field can repeat (represented as an array if multiple)
+                // If only one, object is fine. If multiple, send the array.
+                veoRequest.instances[0].image = base64Images.length === 1 ? base64Images[0] : base64Images;
+                logger.info({ imageCount: base64Images.length }, "Injected multiple character references into Veo request");
             }
         } catch (error) {
-            logger.error({ err: error }, "Failed to process character reference image; proceeding with text-only.");
+            logger.error({ err: error }, "Failed to process character reference image(s); proceeding with text-only.");
         }
     }
 
@@ -1484,7 +1499,7 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         const errorContext = {
             message: error.message,
             promptLength: prompt.length,
-            hasHeroImage: !!heroImageUrl,
+            heroImageCount: Array.isArray(heroImageUrl) ? heroImageUrl.length : (heroImageUrl ? 1 : 0),
             bucketConfigured: !!bucketName,
             attemptNumber: options.isRetry ? 2 : 1
         };

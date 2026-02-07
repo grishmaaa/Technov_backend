@@ -506,20 +506,45 @@ export const decideVisualIdentity = async (req, res) => {
                 };
             });
 
-            // FALLBACK: If we still have no characters but needsHero is true (e.g. matched keywords only)
+            // SCENE SCRAPING FALLBACK: If bible and objects fail, check scene consistency data
+            if (characters.length === 0) {
+                const uniqueCharIds = new Set();
+                project.scenes.forEach(scene => {
+                    const consistency = scene.consistency_check || {};
+                    if (Array.isArray(consistency.character_ids)) {
+                        consistency.character_ids.forEach(id => uniqueCharIds.add(id));
+                    }
+                });
+
+                if (uniqueCharIds.size > 0) {
+                    characters = Array.from(uniqueCharIds).map((charId, index) => ({
+                        id: charId, // Use the ID from the scene
+                        name: charId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), // "detective_noir" -> "Detective Noir"
+                        description: "Identified in script. Please generate visual reference.",
+                        imageUrl: null,
+                        approved: false,
+                        role: charId // Use ID as role
+                    }));
+                }
+            }
+
+            // FINAL FALLBACK: Keyword detection if absolutely nothing else found
             if (characters.length === 0) {
                 const keywordMatch = project.scenes.find(s =>
                     (s.promptText || '').toLowerCase().includes('alien') ||
                     (s.promptText || '').toLowerCase().includes('creature')
                 );
 
-                characters.push({
-                    id: `fallback-${Date.now()}`,
-                    name: keywordMatch ? "Detected Creature/Alien" : "Unknown Protagonist",
-                    description: "Automatically detected from story context. Please generate a reference image.",
-                    imageUrl: null,
-                    approved: false
-                });
+                // Only add this if we are SURE we need heroes but found none
+                if (needsHero) {
+                    characters.push({
+                        id: `fallback-${Date.now()}`,
+                        name: keywordMatch ? "Detected Creature/Alien" : "Unknown Protagonist",
+                        description: "Automatically detected from story context. Please generate a reference image.",
+                        imageUrl: null,
+                        approved: false
+                    });
+                }
             }
         }
 
@@ -552,23 +577,39 @@ export const generateProjectAssets = async (req, res) => {
             return res.status(400).json({ error: 'Reference Asset Sheet not found. Please regenerate script.' });
         }
 
+        // Helper to find or synthesize charDef
+        const getCharDef = (id) => {
+            const found = assetSheet.character_bible?.find(c => c.id === id);
+            if (found) return found;
+
+            // Fallback for scraped characters (e.g. "detective_noir")
+            return {
+                id: id,
+                role: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                name: id,
+                physical_description: {
+                    distinctive_features: ["Character identified from script context"]
+                },
+                isFallback: true
+            };
+        };
+
         // 1. Handle User Upload (Direct URL save)
         if (imageUrl && characterId) {
-            const charDef = assetSheet.character_bible.find(c => c.id === characterId);
-            if (!charDef) return res.status(404).json({ error: 'Character ID not found in bible' });
+            const charDef = getCharDef(characterId);
+            // No 404 check needed because getCharDef always returns something for fallback
 
             // Create or Update asset
-            // Note: In a real app we might want to delete the old asset file if it exists
             await prisma.asset.create({
                 data: {
                     projectId: id,
                     type: 'CHARACTER',
                     state: 'READY',
-                    url: imageUrl, // Assumes frontend uploaded and sent URL, or we handle upload separately
+                    url: imageUrl,
                     metadata: JSON.stringify({
                         characterId: charDef.id,
                         role: charDef.role,
-                        name: charDef.id,
+                        name: charDef.role, // Use role/name we derived
                         description: charDef.physical_description?.distinctive_features?.join(', ') || "Custom Upload",
                         source: 'upload'
                     })
@@ -595,19 +636,26 @@ export const generateProjectAssets = async (req, res) => {
                     ? `Distinctive features: ${phys.distinctive_features.join(', ')}`
                     : ''
             ];
+            // If fallback with no details, use name as prompt
+            if (parts.every(p => !p) && charDef.role) {
+                return `A cinematic portrait of ${charDef.role}`;
+            }
             return parts.filter(p => p && p.trim() !== '').join('. ');
         };
 
         // 2. Handle Regeneration (Single Character)
         if (regenerate && characterId) {
-            const charDef = assetSheet.character_bible.find(c => c.id === characterId);
-            if (!charDef) return res.status(404).json({ error: 'Character ID not found in bible' });
+            const charDef = getCharDef(characterId);
 
             const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
             // Pass userPrompt to influence generation
             const description = buildCharPrompt(charDef);
+
+            // If it's a fallback char w/o description, ensure we have a valid prompt
+            const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${charDef.role}` : description;
+
             const portraitUrl = await generateCharacterPortrait(
-                description,
+                finalPrompt,
                 style,
                 userPrompt
             );
@@ -621,8 +669,8 @@ export const generateProjectAssets = async (req, res) => {
                     metadata: JSON.stringify({
                         characterId: charDef.id,
                         role: charDef.role,
-                        name: charDef.id,
-                        description: charDef.physical_description?.distinctive_features?.join(', ') || "AI Generated",
+                        name: charDef.role,
+                        description: description || "AI Generated from Script ID",
                         source: 'regen'
                     })
                 }

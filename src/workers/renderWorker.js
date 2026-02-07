@@ -540,32 +540,41 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     postProcess: qualitySettings.postProcess
                 };
                 if (shot.state === 'COMPLETED') {
-                    const asset = await getLatestShotAsset(shot.id);
-                    if (!asset?.url) {
-                        throw new Error(`Shot ${shot.id} missing asset URL`);
-                    }
                     const localPath = path.join(jobDir, `shot-${shot.id}-processed.mp4`);
+                    const asset = await getLatestShotAsset(shot.id);
 
-                    let downloadUrl = asset.url;
-                    // FIX: If URL is a private Railway Storage URL, sign it before downloading
-                    if (isStorageConfigured() && downloadUrl.includes('.storage.railway.app/')) {
+                    if (!asset?.url) {
+                        logger.warn({ shotId: shot.id }, "Shot marked completed but missing asset URL, resetting to PENDING");
+                        await prisma.shot.update({ where: { id: shot.id }, data: { state: 'PENDING' } });
+                        // Proceed to generation
+                    } else {
                         try {
-                            // Extract key from https://bucket.storage.railway.app/key
-                            const key = downloadUrl.split('.storage.railway.app/')[1];
-                            if (key) {
-                                downloadUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
-                                logger.info({ original: asset.url, signed: downloadUrl }, 'Signed storage URL for shot reuse');
+                            let downloadUrl = asset.url;
+                            if (isStorageConfigured() && downloadUrl.includes('.storage.railway.app/')) {
+                                const key = downloadUrl.split('.storage.railway.app/')[1];
+                                if (key) {
+                                    downloadUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
+                                }
                             }
+
+                            logger.info({ shotId: shot.id, downloadUrl }, "Downloading completed shot for resume");
+                            await downloadFile(downloadUrl, localPath);
+
+                            // INTEGRITY CHECK: Ensure file isn't empty or tiny (corrupted)
+                            const stats = await fs.stat(localPath);
+                            if (stats.size < 1000) {
+                                throw new Error("Downloaded shot is too small/invalid");
+                            }
+
+                            shotVideoPaths.push(localPath);
+                            rawShotPaths.push(localPath);
+                            continue;
                         } catch (e) {
-                            logger.warn({ err: e }, 'Failed to sign storage URL, trying original');
+                            logger.error({ err: e, shotId: shot.id }, "Failed to reuse completed shot, falling back to regeneration");
+                            // If download fails, we fall through to generation
+                            await prisma.shot.update({ where: { id: shot.id }, data: { state: 'PENDING' } });
                         }
                     }
-
-                    await downloadFile(downloadUrl, localPath);
-                    shotVideoPaths.push(localPath);
-                    // For preview, use processed if raw unavailable
-                    rawShotPaths.push(localPath);
-                    continue;
                 }
 
                 if (shot.state !== 'PENDING') {
@@ -596,8 +605,16 @@ export const processGenerationJob = async (jobId, context = {}) => {
             }
 
             // --- PREVIEW GENERATION (Per Scene) ---
-            const scenePreviewPath = path.join(jobDir, `scene-${scene.orderIndex}-preview.mp4`);
-            await concatVideos({ inputPaths: rawShotPaths, outputPath: scenePreviewPath });
+            const scenePreviewPath = path.join(jobDir, `scene-${scene.id}-preview.mp4`);
+            if (rawShotPaths.length > 0) {
+                try {
+                    // Ensure jobDir exists (defensive for multi-attempt retries)
+                    await ensureDir(jobDir);
+                    await concatVideos({ inputPaths: rawShotPaths, outputPath: scenePreviewPath });
+                } catch (e) {
+                    logger.warn({ err: e, sceneId: scene.id }, "Failed to generate scene preview, continuing to final project assembly");
+                }
+            }
             rawSceneVideoPaths.push(scenePreviewPath);
 
             // --- FINAL GENERATION (Per Scene) ---

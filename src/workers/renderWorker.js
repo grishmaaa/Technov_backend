@@ -829,6 +829,21 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 actorId: null,
                 reason: error.message
             }).catch(() => undefined);
+
+            // Inform frontend of failure
+            const project = await prisma.project.findUnique({ where: { id: failedJob.projectId } });
+            if (project) {
+                await publishUpdate(project.userId, 'render-progress', {
+                    projectId: project.id,
+                    status: 'FAILED',
+                    percent: 0,
+                    currentScene: 0
+                });
+                await publishUpdate(project.userId, 'render-error', {
+                    projectId: project.id,
+                    error: error.message
+                });
+            }
         }
     } finally {
         if (jobDir) {

@@ -479,10 +479,10 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
         // --- TIER LOGIC: Model Selection ---
         // Base/Pro -> Standard | Elite -> Fast
-        // Note: Updated to Veo 3.1 model IDs
-        let videoModel = 'veo-3.1-generate-001'; // Standard for Base/Pro
+        // Note: Updated to Veo 3.1 model IDs (preview versions support "Ingredients" multi-image)
+        let videoModel = 'veo-3.1-generate-preview'; // Standard for Base/Pro
         if (userPlan === 'elite') {
-            videoModel = 'veo-3.1-fast-generate-001'; // Fast variant for Elite (cost-effective)
+            videoModel = 'veo-3.1-fast-generate-preview'; // Fast variant for Elite
         }
 
         const scenes = project.scenes;

@@ -1409,11 +1409,17 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             }
 
             if (base64Images.length > 0) {
-                // Veo 3.1: The 'image' field expects a single object with bytesBase64Encoded.
-                // Sending an array of images directly to the 'image' field causes "image is empty" errors.
-                // For now, we use the first (most relevant) character as the primary visual reference.
-                veoRequest.instances[0].image = base64Images[0];
-                logger.info({ imageCount: base64Images.length, usedPrimary: true }, "Injected primary character reference into Veo request");
+                // Veo 3.1 "Ingredients to Video" (Reference-to-Video)
+                // Supports up to 3 asset reference images to lock character/object identity.
+                veoRequest.instances[0].referenceImages = base64Images.map(img => ({
+                    image: img,
+                    type: "asset"
+                }));
+
+                logger.info({
+                    imageCount: base64Images.length,
+                    field: "referenceImages"
+                }, "Injected multi-image 'Ingredients' into Veo request");
             }
         } catch (error) {
             logger.error({ err: error }, "Failed to process character reference image(s); proceeding with text-only.");

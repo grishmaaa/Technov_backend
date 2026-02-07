@@ -28,7 +28,7 @@ const signUrl = async (rawUrl) => {
 
 // Helper to find or synthesize charDef
 const getCharDef = (assetSheet, id) => {
-    const found = assetSheet.character_bible?.find(c => c.id === id);
+    const found = assetSheet?.character_bible?.find(c => c.id === id);
     if (found) return found;
 
     // Fallback for scraped characters (e.g. "detective_noir")
@@ -495,36 +495,41 @@ export const decideVisualIdentity = async (req, res) => {
             // AUTO-GENERATE FIRST CHARACTER: Ensure the user sees an image immediately
             const charAssets = project.assets?.filter(a => a.type === 'CHARACTER' && a.state === 'READY') || [];
 
-            if (charAssets.length === 0 && assetSheet) { // Only auto-generate if no assets exist and we have an assetSheet
-                const firstChar = bible[0] || getCharDef(assetSheet, "protagonist"); // Use top-level getCharDef
+            // Safety check: Only proceed if we have a way to define a character
+            if (charAssets.length === 0) {
+                const firstChar = (bible && bible.length > 0) ? bible[0] : getCharDef(assetSheet, "protagonist");
+
                 if (firstChar) {
                     logger.info({ projectId: id, charId: firstChar.id }, "🎬 Auto-generating first character portrait...");
                     try {
-                        const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
-                        const description = buildCharPrompt(firstChar); // Use top-level buildCharPrompt
-                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${firstChar.role}` : description;
+                        const style = assetSheet?.tone_and_style?.film_reference || "Cinematic";
+                        const description = buildCharPrompt(firstChar);
+                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${firstChar.role || "Protagonist"}` : description;
 
                         const portraitUrl = await generateCharacterPortrait(finalPrompt, style);
 
-                        const newAsset = await prisma.asset.create({
-                            data: {
-                                projectId: id,
-                                type: 'CHARACTER',
-                                state: 'READY',
-                                url: portraitUrl,
-                                metadata: JSON.stringify({
-                                    characterId: firstChar.id,
-                                    role: firstChar.role,
-                                    name: firstChar.role,
-                                    description: description || "Auto Generated",
-                                    source: 'auto-initial'
-                                })
-                            }
-                        });
-                        logger.info("✅ First character auto-generated successfully");
+                        if (portraitUrl) {
+                            const newAsset = await prisma.asset.create({
+                                data: {
+                                    projectId: id,
+                                    type: 'CHARACTER',
+                                    state: 'READY',
+                                    url: portraitUrl,
+                                    metadata: JSON.stringify({
+                                        characterId: firstChar.id,
+                                        role: firstChar.role,
+                                        name: firstChar.role,
+                                        description: description || "Auto Generated",
+                                        source: 'auto-initial'
+                                    })
+                                }
+                            });
+                            logger.info("✅ First character auto-generated successfully");
 
-                        // Add the new asset to the project.assets array for subsequent mapping
-                        project.assets.push(newAsset);
+                            // Add the new asset to the project.assets array for subsequent mapping
+                            if (!project.assets) project.assets = [];
+                            project.assets.push(newAsset);
+                        }
                     } catch (genErr) {
                         logger.error({ err: genErr }, "Auto-generation of first character failed (continuing to UI)");
                     }

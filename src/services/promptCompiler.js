@@ -9,8 +9,18 @@
 
 // Enhanced compileVeoPrompt with Character & Style Injection
 export const compileVeoPrompt = ({ narrativeBeat, project = {}, options = {} }) => {
-    // Strip timestamp markers like [00:01-00:05] which can trigger RAI filter sensitivities or confuse the model
-    let enhancedPrompt = narrativeBeat.replace(/\[\d{2}:\d{2}-\d{2}:\d{2}\]/g, '').trim();
+    // Strip timestamp markers like [00:01-00:05] or [00:01 - 00:05] which can trigger RAI filter sensitivities.
+    // Enhanced regex to handle various dash types (en-dash, em-dash) and spaces.
+    let cleanNarrative = (narrativeBeat || '').replace(/\[\d{1,2}:\d{2}\s*[-–—]\s*\d{1,2}:\d{2}\]/g, '').trim();
+
+    // Proto-Sanitation: Clean common triggers before the first attempt to avoid repetitive blocks
+    cleanNarrative = cleanNarrative
+        .replace(/gun|pistol|weapon|knife|blade|blood|kill|dead|corpse|violence|attack|fight|punch|slap|hit/gi, 'action')
+        .replace(/smoke|cigarette|cigar|tobacco|wine|whiskey|alcohol|drunk|murder|crime|stolen|thief/gi, 'atmosphere')
+        .replace(/noir|gritty|dark alley|sinister|gloomy|darkness|scary/gi, 'cinematic ambient')
+        .replace(/detective|policeman|guard|soldier/gi, 'mysterious figure');
+
+    let enhancedPrompt = cleanNarrative;
     const assetSheet = project.metadata || {}; // Handle potential null metadata
 
     // 1. CHARACTER CONSISTENCY

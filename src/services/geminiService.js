@@ -1545,10 +1545,11 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             // Additional Safety: Remove common "gritty" trigger words that often trip RAI
             const safetyCleanup = (txt) => {
                 return txt
-                    .replace(/\[\d{2}:\d{2}-\d{2}:\d{2}\]/g, '') // Strip timestamps
-                    .replace(/gun|pistol|weapon|knife|blade|blood|kill|dead|corpse|violence|attack|fight|punch/gi, 'heavy shadow')
-                    .replace(/smoke|cigarette|cigar|tobacco|wine|whiskey|alcohol|drunk|murder|crime|stolen/gi, 'cinematic mystery')
-                    .replace(/noir|gritty|dark alley|sinister/gi, 'atmospheric mystery')
+                    .replace(/\[\d{1,2}:\d{2}\s*[-–—]\s*\d{1,2}:\d{2}\]/g, '') // Strip timestamps (flexible dash/space)
+                    .replace(/gun|pistol|weapon|knife|blade|blood|kill|dead|corpse|violence|attack|fight|punch|slap|hit/gi, 'action')
+                    .replace(/smoke|cigarette|cigar|tobacco|wine|whiskey|alcohol|drunk|murder|crime|stolen|thief/gi, 'atmosphere')
+                    .replace(/noir|gritty|dark alley|sinister|gloomy|darkness|scary/gi, 'cinematic cinematic ambient')
+                    .replace(/detective|policeman|guard|soldier/gi, 'mysterious figure')
                     .replace(/\s+/g, ' ')
                     .trim();
             };

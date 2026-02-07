@@ -256,14 +256,37 @@ const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
         }
         logger.info({ url: urlString }, 'Shot video uploaded successfully');
 
+        // HLS CONVERSION FOR SHOT (Fast Preview)
+        let hlsPlaylistUrl = null;
+        try {
+            const hlsOutputDir = path.join(jobDir, `hls-shot-${shot.id}`);
+            await generateHLS({ inputPath: processedPath, outputDir: hlsOutputDir });
+
+            // Upload HLS directory
+            // Key structure: projects/{projectId}/shots/{shotId}/hls/
+            const hlsKeyPrefix = `projects/${project.id}/shots/${shot.id}/hls`;
+            hlsPlaylistUrl = await uploadDirectoryToStorage({
+                dirPath: hlsOutputDir,
+                prefix: hlsKeyPrefix
+            });
+            logger.info({ hlsUrl: hlsPlaylistUrl }, 'Shot HLS generated and uploaded');
+        } catch (hlsError) {
+            logger.warn({ err: hlsError }, 'Failed to generate HLS for shot, falling back to MP4');
+        }
+
+        // Create Asset Record
+        // Prefer HLS for the main URL (streaming), keep MP4 in metadata for download
         await prisma.asset.create({
             data: {
                 projectId: project.id,
                 shotId: shot.id,
                 type: 'SHOT_VIDEO',
                 state: 'READY',
-                url: urlString,
+                url: hlsPlaylistUrl || urlString,
                 metadata: JSON.stringify({
+                    mp4_url: urlString,
+                    hls_url: hlsPlaylistUrl,
+                    format: hlsPlaylistUrl ? 'hls' : 'mp4',
                     duration: shot.duration,
                     fps: options.fps,
                     aspectRatio: options.aspectRatio
@@ -545,19 +568,41 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 throw new Error(`Invalid scene URL: ${sceneUrlString}`);
             }
 
+            // HLS for SCENE
+            let sceneHlsUrl = null;
+            try {
+                const hlsOutputDir = path.join(jobDir, `hls-scene-${scene.id}`);
+                await generateHLS({ inputPath: sceneOutputPath, outputDir: hlsOutputDir });
+                const hlsKeyPrefix = `projects/${project.id}/scenes/${scene.id}/hls`;
+                sceneHlsUrl = await uploadDirectoryToStorage({
+                    dirPath: hlsOutputDir,
+                    prefix: hlsKeyPrefix
+                });
+                logger.info({ hlsUrl: sceneHlsUrl }, 'Scene HLS generated');
+            } catch (err) {
+                logger.warn({ err }, 'Scene HLS generation failed');
+            }
+
             await prisma.asset.create({
                 data: {
                     projectId: project.id,
                     type: 'SCENE_VIDEO',
                     state: 'READY',
-                    url: sceneUrlString,
-                    metadata: JSON.stringify({ sceneId: scene.id })
+                    url: sceneHlsUrl || sceneUrlString,
+                    metadata: JSON.stringify({
+                        sceneId: scene.id,
+                        mp4_url: sceneUrlString,
+                        hls_url: sceneHlsUrl,
+                        format: sceneHlsUrl ? 'hls' : 'mp4'
+                    })
                 }
             });
 
             await prisma.scene.update({
                 where: { id: scene.id },
-                data: { videoUrl: sceneUrlString }
+                data: {
+                    videoUrl: sceneHlsUrl || sceneUrlString
+                }
             });
 
             sceneVideoPaths.push(sceneOutputPath);
@@ -650,8 +695,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
             await prisma.project.update({
                 where: { id: project.id },
                 data: {
-                    finalVideoUrl: finalUrlString, // Fix: Use MP4 for compatibility (Frontend doesn't support HLS yet)
-                    metadata: { hls: !!hlsUrl, mp4: finalUrlString }
+                    finalVideoUrl: hlsUrl || finalUrlString, // Prefer HLS for streaming
+                    metadata: {
+                        hls_url: hlsUrl,
+                        mp4_url: finalUrlString,
+                        format: hlsUrl ? 'hls' : 'mp4'
+                    }
                 }
             });
             await prisma.asset.create({
@@ -659,7 +708,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     projectId: project.id,
                     type: 'FINAL_VIDEO',
                     state: 'READY',
-                    url: finalUrlString
+                    url: hlsUrl || finalUrlString,
+                    metadata: JSON.stringify({
+                        mp4_url: finalUrlString,
+                        hls_url: hlsUrl,
+                        format: hlsUrl ? 'hls' : 'mp4'
+                    })
                 }
             });
 
@@ -676,14 +730,14 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 data: {
                     status: 'COMPLETED',
                     progress: 100,
-                    outputUrl: finalUrlString
+                    outputUrl: hlsUrl || finalUrlString
                 }
             });
 
             // Socket Emit: Final Ready
             await publishUpdate(project.userId, 'final-ready', {
                 projectId: project.id,
-                finalUrl: finalUrlString, // Fix: Use MP4 for compatibility
+                finalUrl: hlsUrl || finalUrlString,
                 quality: '1080p'
             });
 

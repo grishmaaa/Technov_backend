@@ -536,6 +536,27 @@ export const generateProjectAssets = async (req, res) => {
             return res.json({ message: "Asset uploaded" });
         }
 
+        // Helper to build natural language description
+        const buildCharPrompt = (charDef) => {
+            const phys = charDef.physical_description || {};
+            const parts = [
+                charDef.role ? `Role: ${charDef.role}` : '',
+                charDef.age ? `Age: ${charDef.age}` : '',
+                charDef.gender ? `Gender: ${charDef.gender}` : '',
+                charDef.ethnicity ? `Ethnicity: ${charDef.ethnicity}` : '',
+                phys.height ? `Height: ${phys.height}` : '',
+                phys.build ? `Build: ${phys.build}` : '',
+                phys.hair ? `Hair: ${phys.hair}` : '',
+                phys.eyes ? `Eyes: ${phys.eyes}` : '',
+                phys.skin_tone ? `Skin: ${phys.skin_tone}` : '',
+                phys.clothing ? `Clothing: ${phys.clothing}` : '',
+                (phys.distinctive_features && phys.distinctive_features.length > 0)
+                    ? `Distinctive features: ${phys.distinctive_features.join(', ')}`
+                    : ''
+            ];
+            return parts.filter(p => p && p.trim() !== '').join('. ');
+        };
+
         // 2. Handle Regeneration (Single Character)
         if (regenerate && characterId) {
             const charDef = assetSheet.character_bible.find(c => c.id === characterId);
@@ -543,8 +564,9 @@ export const generateProjectAssets = async (req, res) => {
 
             const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
             // Pass userPrompt to influence generation
+            const description = buildCharPrompt(charDef);
             const portraitUrl = await generateCharacterPortrait(
-                JSON.stringify(charDef.physical_description),
+                description,
                 style,
                 userPrompt
             );
@@ -558,7 +580,7 @@ export const generateProjectAssets = async (req, res) => {
                     metadata: JSON.stringify({
                         characterId: charDef.id,
                         role: charDef.role,
-                        name: charDef.id, // Use ID as name or add name field
+                        name: charDef.id,
                         description: charDef.physical_description?.distinctive_features?.join(', ') || "AI Generated",
                         source: 'regen'
                     })
@@ -592,7 +614,8 @@ export const generateProjectAssets = async (req, res) => {
             }
 
             const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
-            const portraitUrl = await generateCharacterPortrait(JSON.stringify(charDef.physical_description), style);
+            const description = buildCharPrompt(charDef);
+            const portraitUrl = await generateCharacterPortrait(description, style);
 
             const asset = await prisma.asset.create({
                 data: {

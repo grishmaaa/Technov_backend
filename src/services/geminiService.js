@@ -565,8 +565,10 @@ Generate the complete asset sheet now following the strict JSON schema.
     logger.info({
         scenes: parsed.project_metadata.total_scenes,
         duration: durationSeconds,
-        has_blueprint: !!parsed.scene_progression_blueprint
-    }, "✅ Stage 1 Complete");
+        has_blueprint: !!parsed.scene_progression_blueprint,
+        character_count: parsed.character_bible?.length || 0,
+        first_character: parsed.character_bible?.[0] ? { role: parsed.character_bible[0].role, id: parsed.character_bible[0].id } : 'None'
+    }, "✅ Stage 1 Complete - Asset Sheet Debug");
 
     return { assetSheet: parsed, usage: completion.usage };
 };

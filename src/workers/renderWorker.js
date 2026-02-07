@@ -377,8 +377,8 @@ const ensureShotsForScene = async ({ scene, project }) => {
         const primaryShot = existingShots[0];
 
         // Keep only the first shot as the canonical single render
-        // Logic Update: If shot FAILED previously, reset to PENDING to allow retry
-        if (primaryShot.state === 'FAILED') {
+        // Logic Update: If shot FAILED or was stuck in PROCESSING, reset to PENDING to allow retry
+        if (primaryShot.state === 'FAILED' || primaryShot.state === 'PROCESSING') {
             const updated = await prisma.shot.update({
                 where: { id: primaryShot.id },
                 data: { state: 'PENDING' }
@@ -455,15 +455,15 @@ export const processGenerationJob = async (jobId, context = {}) => {
             throw new Error(`Project ${project.id} not in VIDEO_GENERATION state`);
         }
 
-        // REMOVED STRICT LOCK CHECK:
-        // We allow processing scenes in any state (e.g. FAILED, SCENES_GENERATED)
-        // as long as the project is in VIDEO_GENERATION.
-        /*
-        const hasUnlocked = scenes.some((scene) => scene.state !== 'LOCKED');
-        if (hasUnlocked) {
-            throw new Error(`Project ${project.id} has scenes that are not locked`);
-        }
-        */
+        // Reset any stuck/failed shots for this project to PENDING
+        // This ensures the worker can pick them up even if a previous run crashed or failed
+        await prisma.shot.updateMany({
+            where: {
+                sceneId: { in: scenes.map(s => s.id) },
+                state: { in: ['FAILED', 'PROCESSING'] }
+            },
+            data: { state: 'PENDING' }
+        });
 
         await prisma.generationJob.update({
             where: { id: jobId },

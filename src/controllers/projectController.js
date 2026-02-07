@@ -774,6 +774,14 @@ export const streamProjectVideo = async (req, res) => {
             // AWS SDK v3 response.Body is a readable stream in Node.js
             response.Body.pipe(res);
 
+            // Handle client disconnect to prevent leaks
+            res.on('close', () => {
+                if (response.Body && typeof response.Body.destroy === 'function') {
+                    // console.log('[Stream] Client closed connection, destroying stream');
+                    response.Body.destroy();
+                }
+            });
+
             response.Body.on('error', (err) => {
                 console.error("[Stream] Stream pipe error:", err);
                 if (!res.headersSent) {
@@ -844,7 +852,7 @@ export const getPublicProject = async (req, res) => {
 export const streamPublicVideo = async (req, res) => {
     const { id } = req.params;
     try {
-        console.log('[PublicStream] Request for project:', id);
+        // console.log('[PublicStream] Request for project:', id);
 
         // Find project without user check
         const project = await prisma.project.findUnique({
@@ -866,7 +874,7 @@ export const streamPublicVideo = async (req, res) => {
             return res.status(404).json({ error: "Video not yet available" });
         }
 
-        console.log('[PublicStream] Streaming public film:', project.title);
+        // console.log('[PublicStream] Streaming public film:', project.title);
 
         // Extract key from URL
         let key;
@@ -879,32 +887,61 @@ export const streamPublicVideo = async (req, res) => {
 
         const { bucket } = getStorageConfig();
         const client = getS3Client();
-        const command = new GetObjectCommand({
+
+        // SUPPORT RANGE REQUESTS (Expected by browsers for video)
+        const commandParams = {
             Bucket: bucket,
-            Key: key
-        });
+            Key: key,
+            Range: req.headers.range, // Forward Range header
+            IfNoneMatch: req.headers['if-none-match']
+        };
 
-        const response = await client.send(command);
-        console.log('[PublicStream] S3 response, ContentLength:', response.ContentLength);
+        const command = new GetObjectCommand(commandParams);
 
-        // Set video headers
-        res.setHeader('Content-Type', 'video/mp4');
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Disposition', 'inline');
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+        try {
+            const response = await client.send(command);
+            // console.log('[PublicStream] S3 Status:', response.$metadata.httpStatusCode);
 
-        if (response.ContentLength) {
-            res.setHeader('Content-Length', response.ContentLength);
-        }
+            // Set video headers
+            res.setHeader('Content-Type', 'video/mp4'); // Default to mp4 for public
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Content-Disposition', 'inline');
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
 
-        response.Body.pipe(res);
-
-        response.Body.on('error', (err) => {
-            console.error("[PublicStream] Stream error:", err);
-            if (!res.headersSent) {
-                res.status(500).json({ error: "Stream failed" });
+            if (response.ContentLength) {
+                res.setHeader('Content-Length', response.ContentLength);
             }
-        });
+            if (response.ContentRange) {
+                res.setHeader('Content-Range', response.ContentRange);
+                res.status(206); // Partial Content
+            }
+            if (response.ETag) res.setHeader('ETag', response.ETag);
+            if (response.LastModified) res.setHeader('Last-Modified', response.LastModified.toUTCString());
+
+            response.Body.pipe(res);
+
+            // Handle client disconnect to prevent leaks
+            res.on('close', () => {
+                if (response.Body && typeof response.Body.destroy === 'function') {
+                    // console.log('[PublicStream] Client closed connection, destroying stream');
+                    response.Body.destroy();
+                }
+            });
+
+            response.Body.on('error', (err) => {
+                console.error("[PublicStream] Stream error:", err);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: "Stream failed" });
+                }
+            });
+
+        } catch (s3Error) {
+            // Handle 304 Not Modified
+            if (s3Error.$metadata && s3Error.$metadata.httpStatusCode === 304) {
+                return res.status(304).end();
+            }
+            throw s3Error;
+        }
 
     } catch (error) {
         console.error("[PublicStream] Error:", error.message);

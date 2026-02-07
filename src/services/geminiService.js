@@ -693,12 +693,12 @@ WORD COUNT REQUIREMENTS:
 ====================
 
 PER TIMESTAMP:
-- Minimum: 60 words
-- Maximum: 90 words
-- Target: 75 words
+- Minimum: 30 words
+- Maximum: 45 words
+- Target: 40 words
 
 PER SCENE:
-- Total: 240-360 words (4 timestamps × 75 words)
+- Total: 120-180 words (4 timestamps × 40 words)
 
 ====================
 STRUCTURE (75 words per timestamp):
@@ -735,7 +735,7 @@ If the answer to any is "no", revise the scene.
 MANDATORY REQUIREMENTS:
 ====================
 
-1. WORD COUNT: Each timestamp 60-90 words, total scene 240-360 words
+1. WORD COUNT: Each timestamp 30-45 words, total scene 120-180 words
 2. DISTINCTIVE FEATURES: CAPS in EVERY timestamp
 3. SHOT VARIETY WITHIN SCENE: Wide → Medium → Close-up → Dynamic
 4. SCENE VARIETY ACROSS VIDEO: Each scene shows unique narrative beat
@@ -788,7 +788,7 @@ Before submitting, verify:
 - [ ] No two scenes show the same action
 - [ ] Character performs different action in each scene
 - [ ] Camera angles vary between scenes
-- [ ] Each scene word count is 240-360 words
+- [ ] Each scene word count is 120-180 words
 - [ ] Distinctive features in CAPS in all timestamps across all scenes
 - [ ] Narrative progresses logically scene to scene
 
@@ -1504,11 +1504,13 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             attemptNumber: options.isRetry ? 2 : 1
         };
 
-        // Guardrail errors (Auto-Retry with sanitized prompt)
-        if (error.message.includes("GUARDRAIL_ERROR") && !options.isRetry) {
-            logger.warn({ ...errorContext, type: 'guardrail', originalPrompt: prompt }, "Guardrail triggered. Retrying with stripped prompt (removing metadata)...");
+        // Guardrail or Generic Generation errors (Auto-Retry with sanitized prompt)
+        const isGenericFailure = error.message.includes("Veo could not generate vid");
+        if ((error.message.includes("GUARDRAIL_ERROR") || isGenericFailure) && !options.isRetry) {
+            logger.warn({ ...errorContext, type: isGenericFailure ? 'generic_fail' : 'guardrail', originalPrompt: prompt },
+                "Veo generation failed. Retrying with stripped prompt (removing metadata) to rescue the core narrative...");
 
-            // Fallback strategy: Strip injected metadata (Character Info, Style, etc.) to rescue the core narrative.
+            // Fallback strategy: Strip injected metadata (Character Info, Style, etc.)
             // This attempts to keep the user's story while removing potential safety/copyright triggers in the bible.
             let sanitizedPrompt = prompt
                 .split('Character Information:')[0]

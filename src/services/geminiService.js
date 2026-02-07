@@ -693,12 +693,12 @@ WORD COUNT REQUIREMENTS:
 ====================
 
 PER TIMESTAMP:
-- Minimum: 30 words
-- Maximum: 45 words
-- Target: 40 words
+- Minimum: 100 words
+- Maximum: 150 words
+- Target: 125 words
 
 PER SCENE:
-- Total: 120-180 words (4 timestamps × 40 words)
+- Total: 400-600 words (4 timestamps × 125 words)
 
 ====================
 STRUCTURE (75 words per timestamp):
@@ -735,7 +735,7 @@ If the answer to any is "no", revise the scene.
 MANDATORY REQUIREMENTS:
 ====================
 
-1. WORD COUNT: Each timestamp 30-45 words, total scene 120-180 words
+1. WORD COUNT: Each timestamp 100-150 words, total scene 400-600 words
 2. DISTINCTIVE FEATURES: CAPS in EVERY timestamp
 3. SHOT VARIETY WITHIN SCENE: Wide → Medium → Close-up → Dynamic
 4. SCENE VARIETY ACROSS VIDEO: Each scene shows unique narrative beat
@@ -788,7 +788,7 @@ Before submitting, verify:
 - [ ] No two scenes show the same action
 - [ ] Character performs different action in each scene
 - [ ] Camera angles vary between scenes
-- [ ] Each scene word count is 120-180 words
+- [ ] Each scene word count is 400-600 words
 - [ ] Distinctive features in CAPS in all timestamps across all scenes
 - [ ] Narrative progresses logically scene to scene
 
@@ -819,13 +819,13 @@ Generate ${assetSheet.project_metadata.total_scenes} UNIQUE scenes now.
         sceneActions.push(sceneText);
 
         // Word count validation
-        if (totalWords > 360) {
+        if (totalWords > 600) {
             logger.error({
                 scene_number: scene.scene_number,
                 total_words: totalWords,
-                target: "240-360 words"
+                target: "400-600 words"
             }, "❌ Scene too long!");
-        } else if (totalWords < 240) {
+        } else if (totalWords < 400) {
             logger.warn({
                 scene_number: scene.scene_number,
                 total_words: totalWords

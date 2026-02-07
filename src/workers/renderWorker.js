@@ -546,6 +546,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     if (!asset?.url) {
                         logger.warn({ shotId: shot.id }, "Shot marked completed but missing asset URL, resetting to PENDING");
                         await prisma.shot.update({ where: { id: shot.id }, data: { state: 'PENDING' } });
+                        shot.state = 'PENDING';
                         // Proceed to generation
                     } else {
                         try {
@@ -573,6 +574,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                             logger.error({ err: e, shotId: shot.id }, "Failed to reuse completed shot, falling back to regeneration");
                             // If download fails, we fall through to generation
                             await prisma.shot.update({ where: { id: shot.id }, data: { state: 'PENDING' } });
+                            shot.state = 'PENDING'; // CRITICAL: Update local state to avoid throwing non-resumable error
                         }
                     }
                 }

@@ -351,6 +351,15 @@ export const createGenerationJob = async (req, res) => {
 
         logger.info({ jobId: job.id, projectId, userId: req.user.id }, 'Adding job to render queue');
 
+        // 3. Update project status before adding to queue to avoid race conditions
+        await transitionProjectState({
+            projectId,
+            toState: 'VIDEO_GENERATION',
+            actorType: 'system',
+            actorId: req.user.id,
+            reason: 'Generation job created'
+        });
+
         try {
             const bullJob = await renderQueue.add('render', { jobId: job.id, projectId, userId: req.user.id });
             logger.info({ jobId: job.id, bullJobId: bullJob.id }, 'Job successfully added to render queue');
@@ -373,15 +382,6 @@ export const createGenerationJob = async (req, res) => {
             });
             throw error;
         }
-
-        // Update project status
-        await transitionProjectState({
-            projectId,
-            toState: 'VIDEO_GENERATION',
-            actorType: 'system',
-            actorId: req.user.id,
-            reason: 'Generation job created'
-        });
 
         res.status(201).json({
             message: 'Generation job created',

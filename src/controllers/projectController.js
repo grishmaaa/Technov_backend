@@ -459,12 +459,52 @@ export const decideVisualIdentity = async (req, res) => {
                 rawCharacters.push(...livingObjects);
             }
 
-            characters = rawCharacters.map((c, index) => ({
-                id: c.id || `temp-${index}-${Date.now()}`, // Fallback ID if not in DB
-                name: c.name || "Unknown Character",
-                description: c.description || c.visual_prompt || "No description",
-                imageUrl: c.image_url || null // Should be null initially
-            }));
+            // ✅ FIX: Correct mapping for character_bible structure
+            characters = rawCharacters.map((c, index) => {
+                // Check if an image already exists for this character
+                const existingAsset = project.assets?.find(a => {
+                    try {
+                        const meta = JSON.parse(a.metadata || '{}');
+                        return meta.characterId === c.id && a.type === 'CHARACTER' && a.state === 'READY';
+                    } catch (e) {
+                        return false;
+                    }
+                });
+
+                // Build description from physical_description object
+                let description = "No description available";
+                if (c.physical_description) {
+                    const parts = [];
+
+                    if (c.age) parts.push(`${c.age} years old`);
+                    if (c.gender) parts.push(c.gender);
+                    if (c.ethnicity) parts.push(c.ethnicity);
+                    if (c.physical_description.height) parts.push(`${c.physical_description.height} tall`);
+                    if (c.physical_description.build) parts.push(`${c.physical_description.build} build`);
+                    if (c.physical_description.hair) parts.push(`${c.physical_description.hair} hair`);
+                    if (c.physical_description.eyes) parts.push(`${c.physical_description.eyes} eyes`);
+                    if (c.physical_description.skin_tone) parts.push(`${c.physical_description.skin_tone} skin`);
+
+                    if (c.physical_description.distinctive_features && Array.isArray(c.physical_description.distinctive_features)) {
+                        parts.push(`Features: ${c.physical_description.distinctive_features.join(', ')}`);
+                    }
+
+                    description = parts.join('. ');
+                } else if (c.description) {
+                    // Fallback for object-based characters or legacy data
+                    description = c.description;
+                }
+
+                return {
+                    id: c.id || `temp-${index}-${Date.now()}`,
+                    // Use role as priority for name, then name (objects), then fallback
+                    name: c.role || c.name || "Unknown Character",
+                    description: description,
+                    imageUrl: existingAsset ? existingAsset.url : (c.image_url || null),
+                    approved: !!existingAsset, // Mark as approved if asset exists
+                    role: c.role // Pass role for UI context
+                };
+            });
 
             // FALLBACK: If we still have no characters but needsHero is true (e.g. matched keywords only)
             if (characters.length === 0) {
@@ -477,7 +517,8 @@ export const decideVisualIdentity = async (req, res) => {
                     id: `fallback-${Date.now()}`,
                     name: keywordMatch ? "Detected Creature/Alien" : "Unknown Protagonist",
                     description: "Automatically detected from story context. Please generate a reference image.",
-                    imageUrl: null
+                    imageUrl: null,
+                    approved: false
                 });
             }
         }

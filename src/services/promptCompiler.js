@@ -12,22 +12,11 @@ export const compileVeoPrompt = ({ narrativeBeat, project = {}, options = {} }) 
     let enhancedPrompt = narrativeBeat.trim();
     const assetSheet = project.metadata || {}; // Handle potential null metadata
 
-    // 1. INJECT CHARACTER CONSISTENCY from Asset Sheet
-    if (assetSheet.character_bible && Array.isArray(assetSheet.character_bible) && assetSheet.character_bible.length > 0) {
-        const characterRefs = assetSheet.character_bible
-            .map(char => {
-                // Safely access nested properties
-                const features = char.physical_description?.distinctive_features || [];
-                const featureString = Array.isArray(features) ? features.join(', ') : features;
-                return `${char.id}: ${featureString}`;
-            })
-            .join(' | ');
-
-        if (characterRefs) {
-            // Append to prompt (Veo sees this as visual instruction)
-            enhancedPrompt += `\n\nCharacter Information: ${characterRefs}`;
-        }
-    }
+    // 1. CHARACTER CONSISTENCY
+    // Logic updated: We now use Image-to-Video via heroAssetUrls for character consistency.
+    // Injecting the entire Bible into every text prompt was causing "Veo could not generate vid" 
+    // errors due to excessive prompt length (2300+ characters).
+    // The visual reference is much more powerful and stable than text descriptions alone.
 
     // 2. INJECT STYLE TEMPLATE from Asset Sheet
     if (assetSheet.tone_and_style) {

@@ -1409,10 +1409,11 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             }
 
             if (base64Images.length > 0) {
-                // Veo 3.1: image field can repeat (represented as an array if multiple)
-                // If only one, object is fine. If multiple, send the array.
-                veoRequest.instances[0].image = base64Images.length === 1 ? base64Images[0] : base64Images;
-                logger.info({ imageCount: base64Images.length }, "Injected multiple character references into Veo request");
+                // Veo 3.1: The 'image' field expects a single object with bytesBase64Encoded.
+                // Sending an array of images directly to the 'image' field causes "image is empty" errors.
+                // For now, we use the first (most relevant) character as the primary visual reference.
+                veoRequest.instances[0].image = base64Images[0];
+                logger.info({ imageCount: base64Images.length, usedPrimary: true }, "Injected primary character reference into Veo request");
             }
         } catch (error) {
             logger.error({ err: error }, "Failed to process character reference image(s); proceeding with text-only.");

@@ -377,7 +377,12 @@ export const decideVisualIdentity = async (req, res) => {
         }
 
         // IMPROVED LOGIC: Check the Asset Sheet first
-        const assetSheet = project.metadata?.assetSheet;
+        // Handle BOTH storage formats: nested (metadata.assetSheet) and flat (metadata IS the assetSheet)
+        let assetSheet = project.metadata?.assetSheet;
+        if (!assetSheet && project.metadata?.character_bible) {
+            // Metadata was saved as assetSheet directly (flat structure)
+            assetSheet = project.metadata;
+        }
         const bible = assetSheet?.character_bible || [];
         const objects = assetSheet?.object_bible || [];
 
@@ -572,8 +577,12 @@ export const generateProjectAssets = async (req, res) => {
 
         if (!project) return res.status(404).json({ error: 'Project not found' });
 
-        const assetSheet = project.metadata?.assetSheet;
-        if (!assetSheet || !assetSheet.character_bible) {
+        // Handle BOTH storage formats (nested or flat)
+        let assetSheet = project.metadata?.assetSheet;
+        if (!assetSheet && project.metadata?.character_bible) {
+            assetSheet = project.metadata;
+        }
+        if (!assetSheet) {
             return res.status(400).json({ error: 'Reference Asset Sheet not found. Please regenerate script.' });
         }
 

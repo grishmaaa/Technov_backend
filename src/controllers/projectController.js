@@ -889,16 +889,20 @@ export const streamProjectVideo = async (req, res) => {
         const formatOverride = req.query.format;
         let sourceUrl = project.finalVideoUrl;
 
-        if (formatOverride === 'mp4' || (!formatOverride && sourceUrl.endsWith('.m3u8'))) {
-            // Check for MP4 in metadata
+        if (formatOverride === 'mp4') {
+            // Explicitly requested MP4
             if (project.metadata?.mp4_url) {
                 sourceUrl = project.metadata.mp4_url;
-                console.log('[Stream] Favoring MP4 for maximum compatibility');
-            } else if (sourceUrl.endsWith('.m3u8') && formatOverride === 'mp4') {
+                console.log('[Stream] User requested MP4, served from metadata');
+            } else if (sourceUrl.endsWith('.m3u8')) {
                 // Heuristic fallback if metadata is missing but MP4 requested
-                sourceUrl = sourceUrl.replace('.m3u8', '.mp4').replace('/hls/', '/');
-                console.log('[Stream] Heuristic replacement to .mp4');
+                sourceUrl = sourceUrl.replace('.m3u8', '.mp4').split('/hls/').join('/');
+                console.log('[Stream] User requested MP4, heuristic conversion used');
             }
+        } else if (!formatOverride && sourceUrl.endsWith('.mp4') && project.metadata?.hls_url) {
+            // Upgrade to HLS if available and no format specified
+            sourceUrl = project.metadata.hls_url;
+            console.log('[Stream] Upgrading to HLS for adaptive streaming');
         }
 
         // Extract key correctly from the selected sourceUrl

@@ -109,9 +109,9 @@ const postProcessClip = async ({ inputPath, outputPath, fps, enabled, targetDura
         args.push('-t', String(trimDuration));
     }
     if (enabled) {
-        args.push('-vf', filters, '-c:v', 'libx264', '-preset', 'fast', '-crf', '18');
+        args.push('-vf', filters, '-c:v', 'libx264', '-preset', 'slow', '-crf', '26', '-movflags', '+faststart');
     } else {
-        args.push('-c', 'copy');
+        args.push('-c', 'copy', '-movflags', '+faststart');
     }
     args.push(outputPath);
     await runFfmpeg(args);
@@ -374,6 +374,8 @@ const generateHLS = async ({ inputPath, outputDir }) => {
         '-hls_playlist_type', 'vod',
         '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
         '-start_number', '0',
+        '-crf', '26',
+        '-preset', 'veryfast',
         path.join(outputDir, 'playlist.m3u8')
     ];
 
@@ -383,7 +385,7 @@ const generateHLS = async ({ inputPath, outputDir }) => {
 
 const concatVideos = async ({ inputPaths, outputPath }) => {
     const listFilePath = await buildConcatFile({ inputPaths, outputPath });
-    const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listFilePath, '-c', 'copy', outputPath];
+    const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listFilePath, '-c', 'copy', '-movflags', '+faststart', outputPath];
     await runFfmpeg(args);
     return outputPath;
 };

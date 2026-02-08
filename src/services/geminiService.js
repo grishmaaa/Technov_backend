@@ -1425,16 +1425,19 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             if (base64Images.length > 0) {
                 // Veo 3.1 "Ingredients to Video" (Reference-to-Video)
                 // Supports up to 3 asset reference images to lock character/object identity.
-                // Note: v1beta1 REST API often requires snake_case for these specific sub-objects.
-                veoRequest.instances[0].reference_images = base64Images.map(img => ({
-                    bytes: img.bytesBase64Encoded,
-                    mime_type: img.mimeType,
-                    type: "asset"
+                // Note: v1beta1 REST API requires camelCase for these specific sub-objects in the predict body.
+                veoRequest.instances[0].referenceImages = base64Images.map((img, idx) => ({
+                    referenceId: `image_${idx}`,
+                    referenceType: "asset",
+                    image: {
+                        bytesBase64Encoded: img.bytesBase64Encoded,
+                        mimeType: img.mimeType
+                    }
                 }));
 
                 logger.info({
                     imageCount: base64Images.length,
-                    field: "reference_images"
+                    field: "referenceImages"
                 }, "Injected multi-image 'Ingredients' into Veo request");
             }
         } catch (error) {

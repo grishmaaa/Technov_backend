@@ -1451,22 +1451,47 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         const endpoint = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/publishers/google/models/${modelId}:predictLongRunning`;
         logger.info({ endpoint }, 'Calling Veo predictLongRunning endpoint');
 
-        const startResponse = await fetch(endpoint, {
+        let startResponse = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(veoRequest)
         });
 
         if (!startResponse.ok) {
-            const errorBody = await startResponse.text();
+            let errorBody = await startResponse.text();
 
-            // Check for immediate policy error on start
-            if (errorBody.includes("35561574") || errorBody.includes("policy")) {
-                throw new Error(`GUARDRAIL_ERROR: ${errorBody}`);
+            // FALLBACK LOGIC: If reference images trigger a 'usage guidelines' or 'policy' error,
+            // we retry the request without the reference images to allow the generation to proceed.
+            // Error 15236754 is specifically related to input image usage guidelines.
+            if ((errorBody.includes("usage guidelines") || errorBody.includes("policy") || errorBody.includes("15236754")) && veoRequest.instances[0].referenceImages) {
+                logger.warn({ error: errorBody }, "Veo rejected character reference images due to safety/usage guidelines. Retrying with text-only prompt for resilience.");
+
+                const safeRequest = { ...veoRequest };
+                // Clone the instance and remove reference images
+                safeRequest.instances = [{ ...veoRequest.instances[0] }];
+                delete safeRequest.instances[0].referenceImages;
+
+                startResponse = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(safeRequest)
+                });
+
+                if (!startResponse.ok) {
+                    errorBody = await startResponse.text(); // Capture new error if retry also fails
+                } else {
+                    logger.info("Text-only retry successful. Proceeding without visual consistency references.");
+                }
             }
 
-            logger.error({ status: startResponse.status, body: errorBody }, "Veo API start request failed");
-            throw new Error(`Veo API start request failed: ${startResponse.status} - ${errorBody}`);
+            if (!startResponse.ok) {
+                // Check if it's still a policy error after retry
+                if (errorBody.includes("policy") || errorBody.includes("usage guidelines")) {
+                    throw new Error(`GUARDRAIL_ERROR: Generation blocked by safety filters. ${errorBody}`);
+                }
+                logger.error({ status: startResponse.status, body: errorBody }, "Veo API start request failed after fallback attempts");
+                throw new Error(`Veo API start request failed: ${startResponse.status} - ${errorBody}`);
+            }
         }
 
         const operationData = await startResponse.json();

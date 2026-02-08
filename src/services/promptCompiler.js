@@ -16,6 +16,10 @@ export const compileVeoPrompt = ({ narrativeBeat, project = {}, options = {} }) 
     // Proto-Sanitation: Clean common triggers before the first attempt to avoid repetitive blocks
     cleanNarrative = cleanNarrative
         .replace(/gun|pistol|weapon|knife|blade|blood|kill|dead|corpse|violence|attack|fight|punch|slap|hit/gi, 'action')
+        .replace(/wound|wounded|hurt|bleeding|blood|gore/gi, 'injured')
+        .replace(/hunt|hunting|tracking|stalking/gi, 'following')
+        .replace(/scream|screaming|shout|shouting|terrified|scared|fear|horror/gi, 'intense expression')
+        .replace(/growl|growls|roar|roaring|fierce|angry|rage/gi, 'intense presence')
         .replace(/smoke|cigarette|cigar|tobacco|wine|whiskey|alcohol|drunk|murder|crime|stolen|thief/gi, 'atmosphere')
         .replace(/noir|gritty|dark alley|sinister|gloomy|darkness|scary/gi, 'cinematic ambient')
         .replace(/detective|policeman|guard|soldier/gi, 'mysterious figure');

@@ -1529,7 +1529,8 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
             if (pollData.done) {
                 if (pollData.error) {
                     const errMsg = pollData.error.message || 'Unknown Veo Error';
-                    if (errMsg.includes("third-party content") || errMsg.includes("policy") || errMsg.includes("35561574")) {
+                    // Catch policy, usage guidelines (15236754), and third-party content blocks
+                    if (errMsg.includes("third-party content") || errMsg.includes("policy") || errMsg.includes("usage guidelines") || errMsg.includes("15236754") || errMsg.includes("35561574")) {
                         throw new Error(`GUARDRAIL_ERROR: ${errMsg}`);
                     }
                     throw new Error(`Veo generation failed: ${errMsg}`);
@@ -1590,9 +1591,10 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
                 sanitizedPrompt = `Cinematic scene, high quality, professional lighting, 4k. ${prompt.substring(0, 150)}...`;
             }
 
-            logger.info({ sanitizedPrompt, originalLength: prompt.length, newLength: sanitizedPrompt.length }, "Retrying with sanitized prompt");
+            logger.info({ sanitizedPrompt, originalLength: prompt.length, newLength: sanitizedPrompt.length }, "Retrying with sanitized prompt and stripping images for safety fallback");
 
-            return generateVideo(sanitizedPrompt, heroImageUrl, { ...options, isRetry: true });
+            // Strip heroImageUrl on guardrail retry to avoid re-triggering image filters
+            return generateVideo(sanitizedPrompt, null, { ...options, isRetry: true });
         }
 
         // Internal/transient errors (retry once after delay)

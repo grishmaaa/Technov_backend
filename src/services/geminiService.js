@@ -1557,10 +1557,15 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
         };
 
         // Guardrail or Generic Generation errors (Auto-Retry with sanitized prompt)
-        const isGenericFailure = error.message.includes("Veo could not generate vid");
+        const isGenericFailure =
+            error.message.includes("Veo could not generate vid") ||
+            error.message.includes("successfully fulfilled") ||
+            error.message.includes("not be supported") ||
+            error.message.includes("Veo generation failed");
+
         if ((error.message.includes("GUARDRAIL_ERROR") || isGenericFailure) && !options.isRetry) {
             logger.warn({ ...errorContext, type: isGenericFailure ? 'generic_fail' : 'guardrail', originalPrompt: prompt },
-                "Veo generation failed. Retrying with stripped prompt (removing metadata) to rescue the core narrative...");
+                "Veo generation failed or was blocked. Retrying with stripped prompt and NO reference images to rescue the shot...");
 
             // Fallback strategy: Strip injected metadata (Character Info, Style, etc.)
             // This attempts to keep the user's story while removing potential safety/copyright triggers in the bible.
@@ -1591,10 +1596,17 @@ export const generateVideo = async (prompt, heroImageUrl, options = {}) => {
                 sanitizedPrompt = `Cinematic scene, high quality, professional lighting, 4k. ${prompt.substring(0, 150)}...`;
             }
 
-            logger.info({ sanitizedPrompt, originalLength: prompt.length, newLength: sanitizedPrompt.length }, "Retrying with sanitized prompt and stripping images for safety fallback");
+            logger.info({ sanitizedPrompt, originalLength: prompt.length, newLength: sanitizedPrompt.length }, "Retrying with sanitized prompt and model fallback for safety/complexity rescue");
 
-            // Strip heroImageUrl on guardrail retry to avoid re-triggering image filters
-            return generateVideo(sanitizedPrompt, null, { ...options, isRetry: true });
+            const retryOptions = { ...options, isRetry: true };
+            // Model Fallback: If the fast model failed, use the more robust standard model for the retry
+            if (options.videoModel && options.videoModel.includes('fast')) {
+                logger.info({ from: options.videoModel, to: 'veo-3.1-generate-preview' }, "Switching from fast to standard model for retry robustness");
+                retryOptions.videoModel = 'veo-3.1-generate-preview';
+            }
+
+            // Strip heroImageUrl on guardrail/complexity retry to avoid re-triggering model filters
+            return generateVideo(sanitizedPrompt, null, retryOptions);
         }
 
         // Internal/transient errors (retry once after delay)

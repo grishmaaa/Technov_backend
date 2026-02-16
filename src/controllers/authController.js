@@ -38,38 +38,29 @@ export const register = async (req, res) => {
             select: { id: true, email: true, name: true, role: true, plan: true, credits: true, isVerified: true, createdAt: true }
         });
 
-        // Send verification email (don't block registration if it fails)
+        // Send verification email
         try {
             await sendVerificationEmail({
                 to: user.email,
                 token: verificationToken,
                 name: user.name || user.email
             });
-            logger.info({ userId: user.id }, 'Verification email sent');
+            logger.info({ userId: user.id, email: user.email }, 'Verification email sent successfully');
         } catch (emailError) {
-            logger.error({ error: emailError, userId: user.id }, 'Failed to send verification email');
-            // Don't fail registration if email fails
+            logger.error({ error: emailError, userId: user.id, email: user.email, details: emailError.message }, 'Failed to send verification email');
+            // Still complete registration but user needs to resend verification
         }
 
-        const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-            expiresIn: process.env.JWT_EXPIRES_IN
-        });
-
-        const refreshToken = jwt.sign({ userId: user.id }, process.env.JWT_REFRESH_SECRET, {
-            expiresIn: process.env.JWT_REFRESH_EXPIRES_IN
-        });
-
-        await prisma.refreshToken.create({
-            data: {
-                token: refreshToken,
-                userId: user.id,
-                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-            }
-        });
-
+        // Don't return tokens - require email verification before login
         res.status(201).json({
-            user,
-            message: 'Registration successful. Please check your email to verify your account.'
+            success: true,
+            message: 'Registration successful! Please check your email to verify your account before logging in.',
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                isVerified: user.isVerified
+            }
         });
     } catch (error) {
         logger.error({ error }, 'Registration failed');

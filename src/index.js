@@ -150,7 +150,9 @@ app.use((req, res) => {
 });
 
 // Sentry error handler (must be before other error handlers)
-app.use(Sentry.Handlers.errorHandler());
+if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+}
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

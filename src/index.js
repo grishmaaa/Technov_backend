@@ -5,6 +5,13 @@ import prisma from './config/database.js';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 
+// Load environment variables first (needed for Sentry)
+dotenv.config();
+
+// Initialize Sentry (must be before other imports that might throw errors)
+import { initSentry, Sentry } from './config/sentry.js';
+initSentry();
+
 // Import routes
 import authRoutes from './routes/authRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
@@ -26,9 +33,6 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { httpLogger, logger } from './logger.js';
 import { connection as redis } from './queue/connection.js';
 
-// Load environment variables
-dotenv.config();
-
 const app = express();
 const PORT = process.env.PORT || 8000;
 
@@ -42,14 +46,24 @@ app.use(cors({
         // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
 
-        // Allow all origins during launch - can restrict later
-        // Allowed: technov.ai, localhost, railway.app
-        const allowedOrigins = ['https://technov.ai', 'http://localhost:8080', 'http://localhost:5173'];
-        if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.technov.ai') || origin.endsWith('.railway.app')) {
+        const allowedOrigins = [
+            'https://technov.ai',
+            'https://www.technov.ai',
+            'http://localhost:8080',
+            'http://localhost:5173',
+        ];
+
+        if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
+            allowedOrigins.push(process.env.FRONTEND_URL);
+        }
+
+        if (allowedOrigins.includes(origin) || origin.endsWith('.technov.ai') || origin.endsWith('.railway.app')) {
+            callback(null, true);
+        } else if (process.env.NODE_ENV !== 'production') {
+            // Only allow unknown origins in development
             callback(null, true);
         } else {
-            // During launch, allow everything
-            callback(null, true);
+            callback(new Error('Not allowed by CORS'));
         }
     },
     credentials: true,
@@ -135,6 +149,8 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
+// Sentry error handler (must be before other error handlers)
+app.use(Sentry.Handlers.errorHandler());
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

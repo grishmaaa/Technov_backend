@@ -1,7 +1,15 @@
 import { logger } from '../logger.js';
+import { captureException } from '../config/sentry.js';
 
 export const errorHandler = (err, req, res, next) => {
     logger.error({ err }, 'Request error');
+
+    // Capture error in Sentry
+    captureException(err, {
+        url: req.url,
+        method: req.method,
+        user: req.user?.id,
+    });
 
     if (err.name === 'PrismaClientKnownRequestError') {
         return res.status(400).json({

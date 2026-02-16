@@ -11,6 +11,10 @@ import { transitionProjectState } from '../services/projectStateService.js';
 import { compileVeoPrompt } from '../services/promptCompiler.js';
 import { logger } from '../logger.js';
 import { sendVideoReadyEmail } from '../services/emailService.js';
+import { initSentry, captureException } from '../config/sentry.js';
+
+// Initialize Sentry for worker process
+initSentry();
 
 const DEFAULT_VOLUME_PATH = path.join(os.tmpdir(), 'technov');
 const VOLUME_PATH = process.env.VOLUME_PATH || DEFAULT_VOLUME_PATH;
@@ -842,6 +846,15 @@ export const processGenerationJob = async (jobId, context = {}) => {
         logger.info({ jobId }, 'Render job finished');
     } catch (error) {
         logger.error({ jobId, err: error }, 'Render job failed');
+
+        // Capture error in Sentry
+        captureException(error, {
+            jobId,
+            context: 'render_worker',
+            workerId: context?.workerId,
+            attempt: context?.attempt,
+        });
+
         await prisma.generationJob.update({
             where: { id: jobId },
             data: {

@@ -22,10 +22,15 @@ model User {
   billingCycleStart DateTime? @map("billing_cycle_start")
   lastCreditReset   DateTime? @map("last_credit_reset")
   
-  // TODO: Add email verification fields
-  // verificationToken String?  @map("verification_token")
-  // isVerified        Boolean  @default(false) @map("is_verified")
-  // verifiedAt        DateTime? @map("verified_at")
+  // Email verification
+  isVerified                    Boolean   @default(false) @map("is_verified")
+  verifiedAt                    DateTime? @map("verified_at")
+  verificationToken             String?   @unique @map("verification_token")
+  verificationTokenExpiresAt    DateTime? @map("verification_token_expires_at")
+
+  // Password reset
+  passwordResetToken            String?   @unique @map("password_reset_token")
+  passwordResetTokenExpiresAt   DateTime? @map("password_reset_token_expires_at")
 
   projects Project[]
   refreshTokens RefreshToken[]

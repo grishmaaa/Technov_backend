@@ -10,6 +10,7 @@ import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey, uploadDir
 import { transitionProjectState } from '../services/projectStateService.js';
 import { compileVeoPrompt } from '../services/promptCompiler.js';
 import { logger } from '../logger.js';
+import { sendVideoReadyEmail } from '../services/emailService.js';
 
 const DEFAULT_VOLUME_PATH = path.join(os.tmpdir(), 'technov');
 const VOLUME_PATH = process.env.VOLUME_PATH || DEFAULT_VOLUME_PATH;
@@ -802,6 +803,22 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 finalUrl: hlsUrl || finalUrlString,
                 quality: '1080p'
             });
+
+            // Send video ready email notification
+            if (project.user?.email) {
+                try {
+                    await sendVideoReadyEmail({
+                        to: project.user.email,
+                        projectTitle: project.title || 'Your video',
+                        projectId: project.id,
+                        name: project.user.name || project.user.email
+                    });
+                    jobLogger.info({ userEmail: project.user.email }, 'Video ready email sent');
+                } catch (emailError) {
+                    jobLogger.error({ err: emailError }, 'Failed to send video ready email');
+                    // Don't fail the job if email fails
+                }
+            }
 
             jobLogger.info('Project marked as completed');
         } else {

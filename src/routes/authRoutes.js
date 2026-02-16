@@ -7,26 +7,34 @@ import {
     refreshAccessToken,
     updateProfile,
     changePassword,
-    deleteAccount
+    deleteAccount,
+    verifyEmail,
+    resendVerificationEmail,
+    forgotPassword,
+    resetPassword
 } from '../controllers/authController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Public authentication routes
 router.post('/register', register);
 router.post('/login', login);
 router.post('/logout', logout);
 router.post('/refresh', refreshAccessToken);
-router.get('/me', authMiddleware, getMe);
 
-// Update profile and change password
+// Email verification routes (public)
+router.post('/verify-email', verifyEmail);
+router.post('/resend-verification', resendVerificationEmail);
+
+// Password reset routes (public)
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
+
+// Protected routes
+router.get('/me', authMiddleware, getMe);
 router.put('/me', authMiddleware, updateProfile);
 router.post('/change-password', authMiddleware, changePassword);
 router.delete('/me', authMiddleware, deleteAccount);
-
-// TODO: Add email verification endpoints
-// - POST /auth/resend-verification - Resend verification email to user
-// - POST /auth/verify-email - Verify user's email with token from email link
-// Required for frontend VerifyEmailPending.tsx page to work properly
 
 export default router;

@@ -48,6 +48,7 @@
         "pino-http": "^9.0.0",
         "razorpay": "^2.9.6",
         "redis": "^5.10.0",
+        "resend": "^6.9.2",
         "socket.io": "^4.8.3",
         "tus-js-client": "^4.1.1"
     },

@@ -37,10 +37,12 @@ const sendEmail = async ({ to, subject, html }) => {
         });
 
         if (error) {
+            console.error('❌ Resend Error:', error);
             logger.error({ error, to, subject }, 'Resend API returned error');
             throw new Error(error.message || 'Failed to send email');
         }
 
+        console.log('✅ Resend Success:', data);
         logger.info({ emailId: data?.id, to, subject }, 'Email sent successfully');
         return data;
     } catch (err) {

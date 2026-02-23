@@ -425,6 +425,55 @@ const _stage0_safety_check = async (storyText) => {
 };
 
 /**
+ * STAGE 0.5: CREATIVE BRIEF
+ * Purpose: Extract the emotional and creative soul of the story before any production planning.
+ */
+const _stage05_creative_brief = async (storyText) => {
+    logger.info("🎭 Stage 0.5: Generating Creative Brief...");
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+            {
+                role: "system",
+                content: "You are the writer behind the most-shared short films of the last decade. You have a pathological hatred of generic content. When given a story concept you immediately find what is strange, specific, and human about it — the detail that makes someone stop scrolling. You write creative briefs that make directors cry because they finally understand what the story is actually about."
+            },
+            {
+                role: "user",
+                content: `Analyze this story concept and produce a creative brief as JSON.
+
+STORY: ${storyText}
+
+Return a JSON object with these exact fields:
+{
+  "emotional_core": "the feeling that should hit the viewer in the final 2 seconds",
+  "visual_hook": "the single most unexpected or striking image possible in this story",
+  "tension_engine": "what is the viewer subconsciously waiting to see happen",
+  "subtext": "what this story is REALLY about underneath the surface",
+  "signature_moments": ["3 hyper-specific details that could ONLY exist in THIS story, not any other story about this topic"],
+  "forbidden_clichés": ["4-5 generic shots or ideas that MUST be avoided for this specific story"],
+  "pacing_note": "explosive OR slow_burn OR contrast"
+}
+
+Be ruthlessly specific. No vague platitudes. Every field should make someone say "oh THAT's what this story is about."`
+            }
+        ],
+        temperature: 0.9,
+        response_format: { type: "json_object" }
+    });
+
+    const brief = JSON.parse(completion.choices[0].message.content);
+    logger.info({
+        emotional_core: brief.emotional_core,
+        pacing: brief.pacing_note,
+        forbidden_count: brief.forbidden_clichés?.length || 0
+    }, "✅ Stage 0.5 Complete - Creative Brief Generated");
+
+    return brief;
+};
+
+/**
  * STAGE 1: PLANNING
  * Purpose: Lock down all visual elements BEFORE generating scenes.
  */
@@ -437,7 +486,7 @@ const _stage0_safety_check = async (storyText) => {
 
 // STAGE 1 UPDATE: Add narrative progression blueprint
 
-export const stage1_planning = async (storyText, duration, category = 'creative') => {
+export const stage1_planning = async (storyText, duration, category = 'creative', creativeBrief = null) => {
     logger.info({ storyText, duration, category }, "🎬 Stage 1: Generating Asset Sheet...");
 
     // Parse duration
@@ -457,8 +506,22 @@ export const stage1_planning = async (storyText, duration, category = 'creative'
         calculation: `Math.ceil(${durationSeconds} / 8) = ${scenesNeeded}`
     }, "Scene calculation");
 
+    const creativeBriefBlock = creativeBrief ? `
+====================
+CREATIVE SOUL OF THIS PROJECT — every production decision must serve this:
+====================
+- EMOTIONAL CORE: ${creativeBrief.emotional_core}
+- VISUAL HOOK: ${creativeBrief.visual_hook}
+- TENSION ENGINE: ${creativeBrief.tension_engine}
+- SUBTEXT: ${creativeBrief.subtext}
+- SIGNATURE MOMENTS: ${(creativeBrief.signature_moments || []).join(' | ')}
+- FORBIDDEN CLICHÉS: ${(creativeBrief.forbidden_clichés || []).join(', ')}
+- PACING: ${creativeBrief.pacing_note}
+
+` : '';
+
     const prompt = `
-You are a professional film production planner. Create a detailed asset specification sheet.
+${creativeBriefBlock}You are a professional film production planner. Create a detailed asset specification sheet.
 
 USER BRIEF: ${storyText}
 DURATION: ${durationSeconds} seconds
@@ -608,7 +671,7 @@ const generateDefaultProgression = (sceneCount) => {
 // STAGE 2 UPDATE: Use blueprint to prevent repetition
 // ==========================================
 
-const _stage2_generation = async (assetSheet, options = {}) => {
+const _stage2_generation = async (assetSheet, options = {}, creativeBrief = null) => {
     logger.info("🎥 Stage 2: Generating Veo 3.1 Prompts...");
 
     const { plan = 'basic', productionStyle, visualMood } = options;
@@ -632,11 +695,31 @@ DO NOT include any of the following in your prompts:
 Focus on atmospheric lighting, character mystery, and cinematic environment to convey tension without using prohibited elements.
 `;
 
+    const creativeBriefDirective = creativeBrief ? `
+====================
+CREATIVE BRIEF — NON-NEGOTIABLE CREATIVE DIRECTIVES:
+====================
+EMOTIONAL TARGET: ${creativeBrief.emotional_core} — the viewer must feel this.
+VISUAL HOOK: Use "${creativeBrief.visual_hook}" as the most striking image in the video.
+FORBIDDEN in this video: ${(creativeBrief.forbidden_clichés || []).join(', ')}
+SIGNATURE DETAILS that MUST appear: ${(creativeBrief.signature_moments || []).join(' | ')}
+PACING: ${creativeBrief.pacing_note}
+` : '';
+
+    const densityRule = `
+====================
+DENSITY RULE (APPLIES TO EVERY SCENE):
+====================
+Every scene must be cuttable to 6 seconds and still hit hard. If a scene needs more than 6 seconds to make its point, rewrite it. Density over duration. Each scene = one emotional punch, not one camera movement.
+`;
+
     const prompt = `
 ${directorPersona}
 ${styleDirective}
 ${moodDirective}
 ${safetyDirective}
+${creativeBriefDirective}
+${densityRule}
 
 You are an expert Veo 3.1 prompt engineer. Generate ${assetSheet.project_metadata.total_scenes} UNIQUE 8-second video prompts.
 
@@ -894,7 +977,7 @@ Generate ${assetSheet.project_metadata.total_scenes} UNIQUE scenes now.
 // STAGE 3 UPDATE: Add repetition check to validation
 // ==========================================
 
-const _stage3_validation = async (assetSheet, scenesData) => {
+const _stage3_validation = async (assetSheet, scenesData, creativeBrief = null) => {
     logger.info("✅ Stage 3: Validating Quality...");
 
     const prompt = `
@@ -933,6 +1016,18 @@ VALIDATION CHECKLIST:
    - [ ] Shot variety within each scene
    - [ ] Different camera angles between scenes
    - [ ] No static or repetitive compositions
+
+====================
+CREATIVE BRIEF COMPLIANCE CHECK (if brief provided):
+====================
+VISUAL HOOK TO VERIFY: ${creativeBrief?.visual_hook || 'N/A'}
+FORBIDDEN CLICHÉS TO FLAG: ${(creativeBrief?.forbidden_clichés || []).join(', ')}
+EMOTIONAL CORE TO CONFIRM: ${creativeBrief?.emotional_core || 'N/A'}
+
+Additional checks:
+- Did the visual hook "${creativeBrief?.visual_hook}" appear at least once across all scenes? If not → CRITICAL issue, category: "creative_brief"
+- Did any forbidden cliché from the list appear in any scene? If yes → CRITICAL issue, category: "creative_brief"
+- Does the final scene land the emotional core: "${creativeBrief?.emotional_core}"? If not → MODERATE issue, category: "creative_brief"
 
 CRITICAL ISSUE EXAMPLES:
 
@@ -1074,16 +1169,25 @@ export const generateScript = async (storyText, options = {}) => {
     }
 
 
+    // --- CREATIVE BRIEF (Stage 0.5) ---
+    let creativeBrief = null;
+    try {
+        creativeBrief = await _stage05_creative_brief(storyText);
+    } catch (briefError) {
+        console.warn('Creative brief generation failed, proceeding without it:', briefError.message);
+        logger.warn({ err: briefError }, '⚠️ Creative brief failed — pipeline continues without creative directives');
+    }
+
     // --- EXECUTE PIPELINE ---
     return await callWithRetry(async () => {
-        // 2. Stage 1: Planning
-        const { assetSheet, usage: u1 } = await stage1_planning(storyText, durationString);
+        // 2. Stage 1: Planning (with creative brief)
+        const { assetSheet, usage: u1 } = await stage1_planning(storyText, durationString, 'creative', creativeBrief);
 
-        // 3. Stage 2: Generation (Injecting styles/moods)
-        const { scenesData, usage: u2 } = await _stage2_generation(assetSheet, tierOptions);
+        // 3. Stage 2: Generation (Injecting styles/moods + creative brief)
+        const { scenesData, usage: u2 } = await _stage2_generation(assetSheet, tierOptions, creativeBrief);
 
         // 4. Stage 3: Validation
-        const { validationReport, usage: u3 } = await _stage3_validation(assetSheet, scenesData);
+        const { validationReport, usage: u3 } = await _stage3_validation(assetSheet, scenesData, creativeBrief);
 
         // 5. Merge / Revision Logic (Improved merging)
         // Apply revisions BEFORE checking the final quality score

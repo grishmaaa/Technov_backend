@@ -11,7 +11,9 @@ import {
     verifyEmail,
     resendVerificationEmail,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    googleRedirect,
+    googleCallback
 } from '../controllers/authController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -22,6 +24,10 @@ router.post('/register', register);
 router.post('/login', login);
 router.post('/logout', logout);
 router.post('/refresh', refreshAccessToken);
+
+// Google OAuth routes (public)
+router.get('/google', googleRedirect);
+router.get('/google/callback', googleCallback);
 
 // Email verification routes (public)
 router.post('/verify-email', verifyEmail);

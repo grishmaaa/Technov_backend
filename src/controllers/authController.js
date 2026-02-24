@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import prisma from '../config/database.js';
 import {
     sendVerificationEmail,
@@ -8,6 +9,16 @@ import {
     sendPasswordResetEmail
 } from '../services/emailService.js';
 import { logger } from '../logger.js';
+
+function generateTokens(userId) {
+    const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_EXPIRES_IN || '15m'
+    });
+    const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, {
+        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+    });
+    return { accessToken, refreshToken };
+}
 
 export const register = async (req, res) => {
     try {
@@ -51,6 +62,17 @@ export const register = async (req, res) => {
             // Still complete registration but user needs to resend verification
         }
 
+        // Generate JWT tokens for auto-login
+        const { accessToken, refreshToken } = generateTokens(user.id);
+
+        await prisma.refreshToken.create({
+            data: {
+                token: refreshToken,
+                userId: user.id,
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            }
+        });
+
         res.status(201).json({
             user,
             accessToken,
@@ -70,6 +92,11 @@ export const login = async (req, res) => {
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Google-only users don't have a password
+        if (!user.password) {
+            return res.status(401).json({ error: 'This account uses Google sign-in. Please use "Continue with Google" instead.' });
         }
 
         const validPassword = await bcrypt.compare(password, user.password);
@@ -449,5 +476,126 @@ export const resetPassword = async (req, res) => {
     } catch (error) {
         logger.error({ error }, 'Password reset failed');
         res.status(500).json({ error: 'Failed to reset password', details: error.message });
+    }
+};
+
+/**
+ * Google OAuth: Redirect to Google consent screen
+ */
+export const googleRedirect = (req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const callbackUrl = process.env.GOOGLE_CALLBACK_URL;
+
+    if (!clientId || !callbackUrl) {
+        logger.error('Google OAuth not configured: missing GOOGLE_CLIENT_ID or GOOGLE_CALLBACK_URL');
+        return res.status(500).json({ error: 'Google login is not configured' });
+    }
+
+    const oauth2Client = new OAuth2Client(clientId, process.env.GOOGLE_CLIENT_SECRET, callbackUrl);
+
+    const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['openid', 'email', 'profile'],
+        prompt: 'select_account',
+    });
+
+    res.redirect(authUrl);
+};
+
+/**
+ * Google OAuth: Handle callback from Google
+ */
+export const googleCallback = async (req, res) => {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+
+    try {
+        const { code } = req.query;
+
+        if (!code) {
+            return res.redirect(`${frontendUrl}/login?error=No authorization code received`);
+        }
+
+        const oauth2Client = new OAuth2Client(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            process.env.GOOGLE_CALLBACK_URL
+        );
+
+        // Exchange code for tokens
+        const { tokens } = await oauth2Client.getToken(code);
+
+        // Verify the ID token
+        const ticket = await oauth2Client.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+
+        const payload = ticket.getPayload();
+        const googleId = payload.sub;
+        const email = payload.email;
+        const name = payload.name;
+
+        if (!email) {
+            return res.redirect(`${frontendUrl}/login?error=Google account has no email`);
+        }
+
+        // Find or create user
+        let user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { googleId },
+                    { email }
+                ]
+            }
+        });
+
+        if (user) {
+            // Link Google ID if existing user logged in with email before
+            if (!user.googleId) {
+                user = await prisma.user.update({
+                    where: { id: user.id },
+                    data: { googleId, isVerified: true, verifiedAt: user.verifiedAt || new Date() }
+                });
+            }
+        } else {
+            // Create new user
+            user = await prisma.user.create({
+                data: {
+                    email,
+                    name,
+                    googleId,
+                    isVerified: true,
+                    verifiedAt: new Date(),
+                }
+            });
+
+            // Send welcome email (non-blocking)
+            try {
+                await sendWelcomeEmail({ to: email, name: name || email });
+            } catch (emailError) {
+                logger.error({ error: emailError }, 'Failed to send welcome email for Google user');
+            }
+
+            logger.info({ userId: user.id, email }, 'New user created via Google OAuth');
+        }
+
+        // Generate JWT tokens
+        const { accessToken, refreshToken } = generateTokens(user.id);
+
+        await prisma.refreshToken.create({
+            data: {
+                token: refreshToken,
+                userId: user.id,
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            }
+        });
+
+        logger.info({ userId: user.id }, 'Google OAuth login successful');
+
+        // Redirect to frontend with tokens
+        res.redirect(`${frontendUrl}/dashboard?accessToken=${accessToken}&refreshToken=${refreshToken}`);
+    } catch (error) {
+        logger.error({ error: error.message }, 'Google OAuth callback failed');
+        res.redirect(`${frontendUrl}/login?error=Google login failed. Please try again.`);
     }
 };

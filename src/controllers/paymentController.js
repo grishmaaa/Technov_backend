@@ -33,14 +33,35 @@ const PLANS = {
 export const createOrder = async (req, res) => {
     try {
         const { plan } = req.body;
+        let planDetails;
+        let creditsToAdd;
+        let amountToCharge;
 
         logger.info({ plan, userId: req.user?.id }, 'Creating Razorpay order');
 
-        if (!PLANS[plan]) {
-            return res.status(400).json({ error: 'Invalid plan selected' });
+        if (plan === 'custom') {
+            const requestedAmount = parseInt(req.body.amount); // amount in cents/paise
+            if (!requestedAmount || requestedAmount < 5000) {
+                return res.status(400).json({ error: 'Minimum custom top-up is $50' });
+            }
+            amountToCharge = requestedAmount;
+            // Reward high top-ups with better rates
+            const dollars = amountToCharge / 100;
+            creditsToAdd = Math.floor(dollars * 25); // Elite-level rate for custom top-up
+            planDetails = {
+                name: `Custom Top-up ($${dollars})`,
+                amount: amountToCharge,
+                currency: 'USD',
+                credits: creditsToAdd
+            };
+        } else {
+            if (!PLANS[plan]) {
+                return res.status(400).json({ error: 'Invalid plan selected' });
+            }
+            planDetails = PLANS[plan];
+            amountToCharge = planDetails.amount;
+            creditsToAdd = planDetails.credits;
         }
-
-        const planDetails = PLANS[plan];
 
         // LOGGING DEBUG INFO
         logger.info({
@@ -50,13 +71,13 @@ export const createOrder = async (req, res) => {
 
         // Standard Checkout: Create Order (Required for Popup)
         const options = {
-            amount: planDetails.amount,
+            amount: amountToCharge,
             currency: planDetails.currency,
             receipt: `rcpt_${Date.now()}`,
             notes: {
                 plan: plan,
                 user_id: String(req.user.id),
-                credits: String(planDetails.credits)
+                credits: String(creditsToAdd)
             }
         };
 

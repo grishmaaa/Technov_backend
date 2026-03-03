@@ -45,6 +45,7 @@ export const register = async (req, res) => {
                 password: hashedPassword,
                 verificationToken,
                 verificationTokenExpiresAt,
+                credits: 15, // 3 free video generations
             },
             select: { id: true, email: true, name: true, role: true, plan: true, credits: true, isVerified: true, createdAt: true }
         });
@@ -566,6 +567,7 @@ export const googleCallback = async (req, res) => {
                     googleId,
                     isVerified: true,
                     verifiedAt: new Date(),
+                    credits: 15,
                 }
             });
 

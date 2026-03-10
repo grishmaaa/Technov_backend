@@ -22,53 +22,53 @@ let googleGenAIClient = null;
 let useAIStudio = false;
 
 const getGenerativeClient = () => {
-    // 1. Check for standard Gemini AI Studio Key First
+    // 1. Check for Vertex AI (GCP) credentials FIRST — this uses $300 free trial credits
+    if (!vertexClient) {
+        let projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+
+        if (!projectId && process.env.GCP_SA_KEY) {
+            try {
+                const saKey = JSON.parse(process.env.GCP_SA_KEY);
+                projectId = saKey.project_id;
+            } catch (e) {
+                logger.warn('Could not parse GCP_SA_KEY for project_id');
+            }
+        }
+
+        if (!projectId) {
+            try {
+                const keyPath = path.resolve('./vertex-key.json');
+                if (fs.existsSync(keyPath)) {
+                    process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
+                    const keyData = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+                    projectId = keyData.project_id;
+                }
+            } catch (e) {
+                logger.warn('Could not load vertex-key.json');
+            }
+        }
+
+        if (projectId) {
+            const location = process.env.GCP_LOCATION || 'us-central1';
+            vertexClient = new VertexAI({ project: projectId, location });
+            logger.info({ projectId, location }, 'Vertex AI client initialized for LLM');
+        }
+    }
+
+    // Return Vertex AI if available
+    if (vertexClient) return { client: vertexClient, type: 'vertex' };
+
+    // 2. Fallback to Google AI Studio (GEMINI_API_KEY)
     if (process.env.GEMINI_API_KEY) {
         if (!googleGenAIClient) {
             googleGenAIClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            useAIStudio = true;
             const maskedKey = process.env.GEMINI_API_KEY.substring(0, 6) + '...';
-            logger.info({ maskedKey }, 'Initialized Google Generative AI with GEMINI_API_KEY');
+            logger.info({ maskedKey }, 'Initialized Google Generative AI with GEMINI_API_KEY (AI Studio fallback)');
         }
         return { client: googleGenAIClient, type: 'aistudio' };
     }
 
-    // 2. Fallback to Vertex AI (GCP)
-    if (vertexClient) return { client: vertexClient, type: 'vertex' };
-
-    let projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-
-    if (!projectId && process.env.GCP_SA_KEY) {
-        try {
-            const saKey = JSON.parse(process.env.GCP_SA_KEY);
-            projectId = saKey.project_id;
-        } catch (e) {
-            logger.warn('Could not parse GCP_SA_KEY for project_id');
-        }
-    }
-
-    if (!projectId) {
-        try {
-            const keyPath = path.resolve('./vertex-key.json');
-            if (fs.existsSync(keyPath)) {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
-                const keyData = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-                projectId = keyData.project_id;
-            }
-        } catch (e) {
-            logger.warn('Could not load vertex-key.json');
-        }
-    }
-
-    if (!projectId) {
-        throw new Error('Neither GEMINI_API_KEY nor GCP_PROJECT_ID provided — needed for Gemini LLM');
-    }
-
-    const location = process.env.GCP_LOCATION || 'us-central1';
-    vertexClient = new VertexAI({ project: projectId, location });
-    logger.info({ projectId, location }, 'Vertex AI client initialized for LLM');
-
-    return { client: vertexClient, type: 'vertex' };
+    throw new Error('Neither GCP_SA_KEY/GCP_PROJECT_ID nor GEMINI_API_KEY provided — needed for Gemini LLM');
 };
 
 // --- Retry Logic ---

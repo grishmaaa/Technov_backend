@@ -190,7 +190,7 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
                 try {
                     parsed = JSON.parse(text);
                 } catch (parseErr) {
-                    logger.warn({ model, textLength: text.length }, 'Failed to parse structured output as JSON');
+                    logger.warn({ apiModel, textLength: text.length }, 'Failed to parse structured output as JSON');
                     // Try to extract JSON from markdown code blocks
                     const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
                     if (jsonMatch) {
@@ -203,11 +203,11 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
                 }
             }
 
-            logger.info({ model, usage, hasSchema: !!schema }, 'Gemini LLM call completed');
+            logger.info({ apiModel, usage, hasSchema: !!schema }, 'Gemini LLM call completed');
 
             return { text, parsed, usage };
         } catch (err) {
-            logger.error({ err, model, promptSnippet: userPrompt.substring(0, 100) }, 'Gemini LLM call failed in llmService');
+            logger.error({ err, apiModel, promptSnippet: userPrompt.substring(0, 100) }, 'Gemini LLM call failed in llmService');
             throw err;
         }
     });

@@ -116,7 +116,7 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
     } = options;
 
     // Use the model name directly from tier config
-    const apiModel = options.model || 'gemini-3.1-flash-lite';
+    const apiModel = options.model || 'gemini-2.5-flash';
 
     const { client, type } = getGenerativeClient();
 
@@ -234,7 +234,7 @@ Return a structured safety assessment.`;
         systemPrompt,
         `Review this story for safety:\n\n"${storyText}"`,
         schema,
-        { model: options.model || 'gemini-3.1-flash-lite', temperature: 0.1, maxTokens: 512 },
+        { model: options.model || 'gemini-2.5-flash', temperature: 0.1, maxTokens: 512 },
     );
 
     return parsed || { safe: true, severity: 'SAFE', violations: [], suggested_alternative: null };
@@ -270,7 +270,7 @@ The edited prompt should be optimized for AI video generation (clear, visual, ac
         systemPrompt,
         userPrompt,
         schema,
-        { model: options.model || 'gemini-3.1-flash-lite', temperature: 0.6, maxTokens: 2048 },
+        { model: options.model || 'gemini-2.5-flash', temperature: 0.6, maxTokens: 2048 },
     );
 
     return {

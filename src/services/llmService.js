@@ -266,12 +266,21 @@ export const editScene = async (currentScenePrompt, editInstruction, fullScript,
         required: ['edited_prompt', 'edited_description', 'changes_made'],
     };
 
-    const systemPrompt = `You are a cinematic script editor. You receive a scene from a larger script and a user edit instruction. 
-Modify ONLY the specified scene, keeping it consistent with the rest of the script.
-Maintain the same duration, overall story arc, and visual style.
-The edited prompt should be optimized for AI video generation (clear, visual, action-oriented).`;
+    const systemPrompt = `You are a cinematic script editor in the tradition of Roger Deakins. You receive a scene from a larger script and a user edit instruction.
 
-    const userPrompt = `Full Script Context:\n${fullScript}\n\nScene to Edit:\n${currentScenePrompt}\n\nUser's Edit Request:\n${editInstruction}\n\nReturn the edited scene.`;
+SACRED TEXT RULE: The user's original script details are sacred. Do NOT change, substitute, or "improve" any specific words, names, dialogue, or details that the user has NOT asked you to change. If the script says "THRESHOLD" — keep THRESHOLD. If it says "exact change for coffee he never ordered" — that detail stays.
+You are editing the scene, not rewriting it. Preserve every unmentioned detail EXACTLY.
+
+FOUR QUESTIONS (answer internally before editing):
+1. What is the emotional truth of this scene that must be preserved?
+2. What does the user's edit instruction actually want to FEEL different?
+3. Which specific details carry emotional weight and must NOT be touched?
+4. How does this edit affect the audience's experience, not just the visual?
+
+Modify ONLY what the user asks. Keep duration, overall story arc, visual style, and all unmentioned details intact.
+The edited prompt should describe what the audience FEELS, not just what the camera sees.`;
+
+    const userPrompt = `Full Script Context:\n${fullScript}\n\nScene to Edit:\n${currentScenePrompt}\n\nUser's Edit Request:\n${editInstruction}\n\nReturn the edited scene. Preserve all details not mentioned in the edit request.`;
 
     const { parsed } = await generateStructuredOutput(
         systemPrompt,

@@ -112,7 +112,7 @@ Match the movement speed and type to the EMOTIONAL VELOCITY of the moment, not j
 Total target duration: ${finalDuration} seconds. Split into ${sceneCount} scenes of ~8s each.
 Visual style: ${visualStyle || 'cinematic'}.
 For each scene provide:
-- prompt: A cinematic image prompt describing the frame with emotional intent (for the image/video generation model)
+- prompt: A cinematic image prompt describing the frame with emotional intent (for the image/video generation model). CRITICAL: If the scene contains any readable text (crossword answers, signs, notes, titles), include that text VERBATIM in the prompt. Example: "the word THRESHOLD is written in cursive in the 7-ACROSS box" — do NOT omit or substitute the specific text.
 - directors_note: What the audience should feel, why this frame matters, what the camera is doing TO the viewer
 - emotional_beat: The subtext underneath — what's happening beneath the surface that the image carries`;
 
@@ -407,33 +407,31 @@ export const generateCharacters = async (req, res) => {
             return res.json({ characters: [], message: 'No characters found, skipping to storyboard' });
         }
 
-        // Generate portraits for each existing character record
+        // Generate portraits in parallel — they're independent operations
         const visualStyle = project.metadata?.visual_style || 'cinematic';
-        const characters = [];
 
-        for (const charRecord of existingCharacters) {
-            try {
+        const portraitResults = await Promise.allSettled(
+            existingCharacters.map(async (charRecord) => {
                 const portrait = await generateCharacterPortrait(
                     charRecord.description,
                     visualStyle,
                     tierConfig.image,
                 );
-
-                // Update existing record with portrait URL
-                const updated = await prisma.character.update({
+                return prisma.character.update({
                     where: { id: charRecord.id },
-                    data: {
-                        portraitUrl: portrait.url,
-                    },
+                    data: { portraitUrl: portrait.url },
                 });
+            })
+        );
 
-                characters.push(updated);
-            } catch (charErr) {
-                logger.error({ err: charErr, character: charRecord.name }, 'Character portrait generation failed');
-                // Keep existing record as-is (no portrait)
-                characters.push(charRecord);
+        const characters = portraitResults.map((result, i) => {
+            if (result.status === 'fulfilled') {
+                return result.value;
+            } else {
+                logger.error({ err: result.reason, character: existingCharacters[i].name }, 'Character portrait generation failed');
+                return existingCharacters[i]; // Keep record as-is
             }
-        }
+        });
 
         await transitionProjectState({
             projectId: id,
@@ -692,7 +690,20 @@ export const regenerateStoryboardFrame = async (req, res) => {
 
         let prompt = scene.promptText;
         if (editInstruction) {
-            prompt = `${editInstruction}. Original scene: ${scene.promptText}`;
+            // Route through the LLM pipeline — Sacred Text + Four Questions
+            const allScenes = await prisma.scene.findMany({
+                where: { projectId: id },
+                orderBy: { orderIndex: 'asc' },
+            });
+            const fullScript = allScenes.map(s => `Scene ${s.orderIndex + 1}: ${s.promptText}`).join('\n\n');
+            const result = await editScene(scene.promptText, editInstruction, fullScript, tierConfig.llmEdit);
+            prompt = result.editedPrompt;
+
+            // Update the scene's prompt with the LLM-edited version
+            await prisma.scene.update({
+                where: { id: sceneId },
+                data: { promptText: prompt, actionDescription: result.editedDescription },
+            });
         }
 
         const frame = await generateStoryboardFrame(
@@ -765,5 +776,39 @@ export const approveStoryboard = async (req, res) => {
     } catch (error) {
         logger.error({ err: error }, 'Storyboard approval failed');
         res.status(500).json({ error: 'Storyboard approval failed' });
+    }
+};
+
+/**
+ * POST /api/projects/:id/storyboard/:sceneId/approve
+ * Approve a single storyboard frame.
+ */
+export const approveStoryboardFrame = async (req, res) => {
+    try {
+        const { id, sceneId } = req.params;
+
+        const scene = await prisma.scene.findUnique({ where: { id: sceneId } });
+        if (!scene || scene.projectId !== id) {
+            return res.status(404).json({ error: 'Scene not found' });
+        }
+
+        if (!scene.storyboardUrl) {
+            return res.status(400).json({ error: 'Scene has no storyboard frame to approve' });
+        }
+
+        const updated = await prisma.scene.update({
+            where: { id: sceneId },
+            data: { storyboardApproved: true },
+        });
+
+        res.json({
+            scene: {
+                id: updated.id,
+                storyboardApproved: true,
+            },
+        });
+    } catch (error) {
+        logger.error({ err: error }, 'Storyboard frame approval failed');
+        res.status(500).json({ error: 'Storyboard frame approval failed' });
     }
 };

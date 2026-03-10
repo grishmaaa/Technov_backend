@@ -21,6 +21,7 @@ import {
     generateStoryboard,
     regenerateStoryboardFrame,
     approveStoryboard,
+    approveStoryboardFrame,
 } from '../controllers/pipelineController.js';
 
 const router = Router();
@@ -46,6 +47,7 @@ router.post('/projects/:id/characters/approve-all', approveAllCharacters);
 // --- Stage 4: Storyboard ---
 router.post('/projects/:id/storyboard/generate', generateStoryboard);
 router.post('/projects/:id/storyboard/:sceneId/regenerate', regenerateStoryboardFrame);
+router.post('/projects/:id/storyboard/:sceneId/approve', approveStoryboardFrame);
 router.post('/projects/:id/storyboard/approve-all', approveStoryboard);
 
 export default router;

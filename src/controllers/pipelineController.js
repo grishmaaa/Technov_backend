@@ -56,12 +56,28 @@ export const generateScript = async (req, res) => {
         }
 
         // Generate cinematic scene document
-        const systemPrompt = `You are a master cinematographer and screenwriter. 
-Convert the user's story into a cinematic scene-by-scene breakdown. 
+        const systemPrompt = `You are a master cinematographer, screenwriter, and emotional architect.
+
+LAYER 1 — TECHNICAL CINEMA:
+Convert the user's story into a cinematic scene-by-scene breakdown.
 Think in shots: camera angle, lighting, motion, mood, sound design.
-Write in director language — clear, visual, evocative. NOT AI prompt language.
+Write in director language — clear, visual, evocative. NOT generic AI prompt language.
+
+LAYER 2 — EMOTIONAL SUBTEXT:
+After identifying each shot, ask yourself: what is the EMOTIONAL TRUTH of this moment?
+What should the audience FEEL, not just see? How does the camera movement serve that feeling?
+A close-up isn't just "close-up of face" — it's "hold on her stillness long enough for the audience to feel the wrongness before she does."
+Identify the small details that ARE the scene — the coins left for a coffee never ordered, the handwriting that shouldn't exist. These details carry more weight than any wide shot. Make them the anchor.
+
+LAYER 3 — PACING & BREATH:
+Know when to hold and when to cut. Not every moment needs motion. Sometimes the most powerful shot is stillness — letting the audience sit in discomfort. 
+Don't explain subtext. Let images carry meaning. If a detail tells the audience something the character doesn't know yet, HOLD ON IT. Don't cut away.
+The difference between coverage and cinema is intention. Every frame must earn its seconds.
+
+CONSTRAINTS:
 Total target duration: ${finalDuration} seconds. Split into ${Math.min(Math.ceil(finalDuration / 8), tierConfig.maxScenes)} scenes of ~8s each.
-Visual style: ${visualStyle || 'cinematic'}.`;
+Visual style: ${visualStyle || 'cinematic'}.
+For each scene, provide: a cinematic image prompt (what the frame looks like), AND a director's note (what the audience should feel and why this shot matters).`;
 
         const sceneSchema = {
             type: 'OBJECT',
@@ -76,13 +92,15 @@ Visual style: ${visualStyle || 'cinematic'}.`;
                             title: { type: 'STRING' },
                             description: { type: 'STRING' },
                             prompt: { type: 'STRING' },
+                            directors_note: { type: 'STRING' },
+                            emotional_beat: { type: 'STRING' },
                             duration: { type: 'INTEGER' },
                             camera: { type: 'STRING' },
                             lighting: { type: 'STRING' },
                             mood: { type: 'STRING' },
                             audio: { type: 'STRING' },
                         },
-                        required: ['scene_number', 'title', 'description', 'prompt', 'duration'],
+                        required: ['scene_number', 'title', 'description', 'prompt', 'directors_note', 'duration'],
                     },
                 },
                 characters: {
@@ -177,6 +195,8 @@ Visual style: ${visualStyle || 'cinematic'}.`;
                 title: parsed.scenes[i].title,
                 description: parsed.scenes[i].description,
                 prompt: s.promptText,
+                directorsNote: parsed.scenes[i].directors_note,
+                emotionalBeat: parsed.scenes[i].emotional_beat,
                 duration: s.duration,
                 camera: parsed.scenes[i].camera,
                 lighting: parsed.scenes[i].lighting,

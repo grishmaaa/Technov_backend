@@ -10,6 +10,7 @@
  */
 
 import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../logger.js';
 import path from 'path';
 import fs from 'fs';
@@ -17,13 +18,25 @@ import fs from 'fs';
 // --- Authentication ---
 
 let vertexClient = null;
+let googleGenAIClient = null;
+let useAIStudio = false;
 
-const getVertexClient = () => {
-    if (vertexClient) return vertexClient;
+const getGenerativeClient = () => {
+    // 1. Check for standard Gemini AI Studio Key First
+    if (process.env.GEMINI_API_KEY) {
+        if (!googleGenAIClient) {
+            googleGenAIClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            useAIStudio = true;
+            logger.info('Initialized Google Generative AI with GEMINI_API_KEY');
+        }
+        return { client: googleGenAIClient, type: 'aistudio' };
+    }
+
+    // 2. Fallback to Vertex AI (GCP)
+    if (vertexClient) return { client: vertexClient, type: 'vertex' };
 
     let projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
 
-    // Try to extract project_id from service account key
     if (!projectId && process.env.GCP_SA_KEY) {
         try {
             const saKey = JSON.parse(process.env.GCP_SA_KEY);
@@ -33,7 +46,6 @@ const getVertexClient = () => {
         }
     }
 
-    // Fallback to vertex-key.json
     if (!projectId) {
         try {
             const keyPath = path.resolve('./vertex-key.json');
@@ -48,14 +60,14 @@ const getVertexClient = () => {
     }
 
     if (!projectId) {
-        throw new Error('GCP_PROJECT_ID not configured — needed for Gemini LLM');
+        throw new Error('Neither GEMINI_API_KEY nor GCP_PROJECT_ID provided — needed for Gemini LLM');
     }
 
     const location = process.env.GCP_LOCATION || 'us-central1';
     vertexClient = new VertexAI({ project: projectId, location });
     logger.info({ projectId, location }, 'Vertex AI client initialized for LLM');
 
-    return vertexClient;
+    return { client: vertexClient, type: 'vertex' };
 };
 
 // --- Retry Logic ---
@@ -103,7 +115,7 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
         maxTokens = 8192,
     } = options;
 
-    const vertex = getVertexClient();
+    const { client, type } = getGenerativeClient();
 
     const generationConfig = {
         maxOutputTokens: maxTokens,
@@ -111,23 +123,37 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
         topP: 0.95,
     };
 
-    // Add JSON schema enforcement if provided
     if (schema) {
         generationConfig.responseMimeType = 'application/json';
         generationConfig.responseSchema = schema;
     }
 
-    const generativeModel = vertex.getGenerativeModel({
-        model,
-        generationConfig,
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        safetySettings: [
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-        ],
-    });
+    let generativeModel;
+    if (type === 'aistudio') {
+        generativeModel = client.getGenerativeModel({
+            model,
+            generationConfig,
+            systemInstruction: systemPrompt,
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+            ],
+        });
+    } else {
+        generativeModel = client.getGenerativeModel({
+            model,
+            generationConfig,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+            ],
+        });
+    }
 
     return await callWithRetry(async () => {
         const result = await generativeModel.generateContent({

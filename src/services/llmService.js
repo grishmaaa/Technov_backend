@@ -96,13 +96,6 @@ const callWithRetry = async (fn, maxRetries = 3, baseDelay = 1000) => {
     }
 };
 
-// --- Model Mapping (Branding to API) ---
-
-const MODEL_MAP = {
-    'gemini-3.1-flash-lite': 'gemini-1.5-flash',
-    'gemini-3.1-pro': 'gemini-1.5-pro',
-};
-
 // --- Core LLM Functions ---
 
 /**
@@ -122,8 +115,8 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
         maxTokens = 8192,
     } = options;
 
-    // Use mapped model for API call, but default to literal if not in map
-    const apiModel = MODEL_MAP[options.model] || options.model || 'gemini-1.5-flash';
+    // Use the model name directly from tier config
+    const apiModel = options.model || 'gemini-3.1-flash-lite';
 
     const { client, type } = getGenerativeClient();
 

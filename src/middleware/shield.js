@@ -22,7 +22,7 @@ export const validateStoryInput = (req, res, next) => {
     }
 
     // 2. Token Budgeting: Character Cap (increased for Pro users)
-    const MAX_CHARS = 2500;
+    const MAX_CHARS = 25000;
     if (story.length > MAX_CHARS) {
         return res.status(413).json({
             error: `Story is too long. Limit: ${MAX_CHARS} characters. Current: ${story.length}`

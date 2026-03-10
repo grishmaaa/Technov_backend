@@ -24,9 +24,10 @@ let useAIStudio = false;
 const getGenerativeClient = () => {
     // 1. Check for Vertex AI (GCP) credentials FIRST — this uses $300 free trial credits
     if (!vertexClient) {
-        let projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+        let projectId = null;
 
-        if (!projectId && process.env.GCP_SA_KEY) {
+        // 1. Try to get project ID from the Service Account Key first (most reliable)
+        if (process.env.GCP_SA_KEY) {
             try {
                 const saKey = JSON.parse(process.env.GCP_SA_KEY);
                 projectId = saKey.project_id;
@@ -35,6 +36,12 @@ const getGenerativeClient = () => {
             }
         }
 
+        // 2. Fallback to direct environment variables
+        if (!projectId) {
+            projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+        }
+
+        // 3. Fallback to local key file
         if (!projectId) {
             try {
                 const keyPath = path.resolve('./vertex-key.json');

@@ -27,7 +27,8 @@ const getGenerativeClient = () => {
         if (!googleGenAIClient) {
             googleGenAIClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
             useAIStudio = true;
-            logger.info('Initialized Google Generative AI with GEMINI_API_KEY');
+            const maskedKey = process.env.GEMINI_API_KEY.substring(0, 6) + '...';
+            logger.info({ maskedKey }, 'Initialized Google Generative AI with GEMINI_API_KEY');
         }
         return { client: googleGenAIClient, type: 'aistudio' };
     }
@@ -156,45 +157,50 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
     }
 
     return await callWithRetry(async () => {
-        const result = await generativeModel.generateContent({
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        });
+        try {
+            const result = await generativeModel.generateContent({
+                contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            });
 
-        const response = result.response;
+            const response = result.response;
 
-        if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
-            const blockReason = response?.candidates?.[0]?.finishReason;
-            throw new Error(`Gemini returned no content. Finish reason: ${blockReason || 'unknown'}`);
-        }
+            if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                const blockReason = response?.candidates?.[0]?.finishReason;
+                throw new Error(`Gemini returned no content. Finish reason: ${blockReason || 'unknown'}`);
+            }
 
-        const text = response.candidates[0].content.parts[0].text;
-        const usage = {
-            promptTokens: response.usageMetadata?.promptTokenCount || 0,
-            completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-            totalTokens: response.usageMetadata?.totalTokenCount || 0,
-        };
+            const text = response.candidates[0].content.parts[0].text;
+            const usage = {
+                promptTokens: response.usageMetadata?.promptTokenCount || 0,
+                completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+                totalTokens: response.usageMetadata?.totalTokenCount || 0,
+            };
 
-        let parsed = null;
-        if (schema) {
-            try {
-                parsed = JSON.parse(text);
-            } catch (parseErr) {
-                logger.warn({ model, textLength: text.length }, 'Failed to parse structured output as JSON');
-                // Try to extract JSON from markdown code blocks
-                const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-                if (jsonMatch) {
-                    try {
-                        parsed = JSON.parse(jsonMatch[1]);
-                    } catch (e) {
-                        throw new Error(`Failed to parse Gemini structured output: ${parseErr.message}`);
+            let parsed = null;
+            if (schema) {
+                try {
+                    parsed = JSON.parse(text);
+                } catch (parseErr) {
+                    logger.warn({ model, textLength: text.length }, 'Failed to parse structured output as JSON');
+                    // Try to extract JSON from markdown code blocks
+                    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+                    if (jsonMatch) {
+                        try {
+                            parsed = JSON.parse(jsonMatch[1]);
+                        } catch (e) {
+                            throw new Error(`Failed to parse Gemini structured output: ${parseErr.message}`);
+                        }
                     }
                 }
             }
+
+            logger.info({ model, usage, hasSchema: !!schema }, 'Gemini LLM call completed');
+
+            return { text, parsed, usage };
+        } catch (err) {
+            logger.error({ err, model, promptSnippet: userPrompt.substring(0, 100) }, 'Gemini LLM call failed in llmService');
+            throw err;
         }
-
-        logger.info({ model, usage, hasSchema: !!schema }, 'Gemini LLM call completed');
-
-        return { text, parsed, usage };
     });
 };
 

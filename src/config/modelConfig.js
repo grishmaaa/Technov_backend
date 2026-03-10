@@ -22,8 +22,8 @@ export const MODEL_TIERS = {
     pro: {
         video: { provider: 'evolink', model: 'kling-v3.0', quality: 'professional' },
         image: { provider: 'fal', model: 'fal-ai/flux-2/dev', steps: 25 },
-        llm: { provider: 'google', model: 'gemini-3.1-pro-preview' },
-        llmEdit: { provider: 'google', model: 'gemini-3.1-flash-lite-preview' },
+        llm: { provider: 'google', model: 'gemini-2.5-pro' },
+        llmEdit: { provider: 'google', model: 'gemini-2.5-flash' },
         safety: { provider: 'google', model: 'gemini-2.5-flash' },
         maxResolution: '4K',
         maxDuration: 60,
@@ -34,8 +34,8 @@ export const MODEL_TIERS = {
     studio: {
         video: { provider: 'evolink', model: 'seedance-2.0', quality: 'professional' },
         image: { provider: 'fal', model: 'fal-ai/flux-2/pro-v1.1', steps: 30 },
-        llm: { provider: 'google', model: 'gemini-3.1-pro-preview' },
-        llmEdit: { provider: 'google', model: 'gemini-3.1-pro-preview' },
+        llm: { provider: 'google', model: 'gemini-2.5-pro' },
+        llmEdit: { provider: 'google', model: 'gemini-2.5-pro' },
         safety: { provider: 'google', model: 'gemini-2.5-flash' },
         maxResolution: '4K',
         maxDuration: 120,

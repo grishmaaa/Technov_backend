@@ -29,8 +29,8 @@ export const validateStoryInput = (req, res, next) => {
         });
     }
 
-    if (story.length < 10) {
-        return res.status(400).json({ error: 'Story is too short. Min 10 characters.' });
+    if (story.length < 1) {
+        return res.status(400).json({ error: 'Story is too short. Please provide some content.' });
     }
 
     // 3. Apply the "Bouncer" to sanitize the story

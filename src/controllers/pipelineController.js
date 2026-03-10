@@ -60,7 +60,7 @@ export const generateScript = async (req, res) => {
 Convert the user's story into a cinematic scene-by-scene breakdown. 
 Think in shots: camera angle, lighting, motion, mood, sound design.
 Write in director language — clear, visual, evocative. NOT AI prompt language.
-Total target duration: ${finalDuration} seconds. Split into ${Math.ceil(finalDuration / 8)} scenes of ~8s each.
+Total target duration: ${finalDuration} seconds. Split into ${Math.min(Math.ceil(finalDuration / 8), tierConfig.maxScenes)} scenes of ~8s each.
 Visual style: ${visualStyle || 'cinematic'}.`;
 
         const sceneSchema = {
@@ -329,17 +329,17 @@ export const generateCharacters = async (req, res) => {
 
         const project = await prisma.project.findUnique({
             where: { id },
-            include: { scenes: true },
+            include: { scenes: true, characters: true },
         });
 
         if (!project) {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Extract characters from metadata (set during script generation)
-        const characterData = project.metadata?.characters || [];
+        // Read characters from the DB table (created during generateScript)
+        const existingCharacters = project.characters || [];
 
-        if (characterData.length === 0) {
+        if (existingCharacters.length === 0) {
             // No characters — skip to storyboard
             await transitionProjectState({
                 projectId: id,
@@ -350,43 +350,31 @@ export const generateCharacters = async (req, res) => {
             return res.json({ characters: [], message: 'No characters found, skipping to storyboard' });
         }
 
-        // Generate portraits for each character
+        // Generate portraits for each existing character record
         const visualStyle = project.metadata?.visual_style || 'cinematic';
         const characters = [];
 
-        for (const charData of characterData) {
+        for (const charRecord of existingCharacters) {
             try {
                 const portrait = await generateCharacterPortrait(
-                    charData.description,
+                    charRecord.description,
                     visualStyle,
                     tierConfig.image,
                 );
 
-                const character = await prisma.character.create({
+                // Update existing record with portrait URL
+                const updated = await prisma.character.update({
+                    where: { id: charRecord.id },
                     data: {
-                        projectId: id,
-                        name: charData.name,
-                        role: charData.role,
-                        description: charData.description,
                         portraitUrl: portrait.url,
-                        metadata: charData,
                     },
                 });
 
-                characters.push(character);
+                characters.push(updated);
             } catch (charErr) {
-                logger.error({ err: charErr, character: charData.name }, 'Character portrait generation failed');
-                // Create character record without portrait
-                const character = await prisma.character.create({
-                    data: {
-                        projectId: id,
-                        name: charData.name,
-                        role: charData.role,
-                        description: charData.description,
-                        metadata: charData,
-                    },
-                });
-                characters.push(character);
+                logger.error({ err: charErr, character: charRecord.name }, 'Character portrait generation failed');
+                // Keep existing record as-is (no portrait)
+                characters.push(charRecord);
             }
         }
 

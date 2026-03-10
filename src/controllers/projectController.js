@@ -138,6 +138,15 @@ export const getProject = async (req, res) => {
             }
         }
 
+        // SIGN CHARACTER PORTRAITS
+        if (project.characters) {
+            for (let char of project.characters) {
+                if (char.portraitUrl) {
+                    char.portraitUrl = await signUrl(char.portraitUrl);
+                }
+            }
+        }
+
         // SIGN HERO ASSET
         if (project.assets) {
             for (let asset of project.assets) {

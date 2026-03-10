@@ -1,37 +1,34 @@
-//renderworker.js
+/**
+ * renderWorker.js (v2)
+ * 
+ * Storyboard-driven video generation using EvoLink (Kling/Seedance).
+ * Each scene: storyboard frame + character refs → video clip.
+ * Clips appear progressively via Socket.IO.
+ * Post-processing: MP4 faststart only (no HLS).
+ */
+
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
 import { spawn } from 'child_process';
 import prisma from '../config/database.js';
-import { generateVideo } from '../services/geminiService.js';
+import { generateVideo } from '../services/evolinkService.js';
 import { uploadFile } from '../services/fileHostingService.js';
-import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey, uploadDirectoryToStorage } from '../services/storageService.js';
+import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey, uploadBufferToStorage } from '../services/storageService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
-import { compileVeoPrompt } from '../services/promptCompiler.js';
+import { getTierConfig } from '../config/modelConfig.js';
 import { logger } from '../logger.js';
 import { sendVideoReadyEmail } from '../services/emailService.js';
 import { initSentry, captureException } from '../config/sentry.js';
+import { connection as redis } from '../queue/connection.js';
 
 // Initialize Sentry for worker process
 initSentry();
 
 const DEFAULT_VOLUME_PATH = path.join(os.tmpdir(), 'technov');
 const VOLUME_PATH = process.env.VOLUME_PATH || DEFAULT_VOLUME_PATH;
-const TMP_DIR = path.join(VOLUME_PATH, 'tmp');
-const FALLBACK_SHOT_DURATION_SECONDS = Number(process.env.DEFAULT_SCENE_DURATION || 8);
-const DEFAULT_ASPECT_RATIO = process.env.DEFAULT_ASPECT_RATIO || '16:9';
-const DEFAULT_FPS = Number(process.env.DEFAULT_FPS || 24);
 
-const QUALITY_PRESETS = {
-    basic: { postProcess: true },
-    cinematic: { postProcess: true }
-};
-
-const getQualitySettings = (project) => {
-    const tier = (project?.qualityTier || 'cinematic').toLowerCase();
-    return QUALITY_PRESETS[tier] || QUALITY_PRESETS.cinematic;
-};
+// --- Helpers ---
 
 const ensureDir = async (dirPath) => {
     await fs.mkdir(dirPath, { recursive: true });
@@ -50,855 +47,338 @@ const runFfmpeg = (args) => new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', args, { stdio: 'inherit' });
     ffmpeg.on('error', reject);
     ffmpeg.on('close', (code) => {
-        if (code === 0) {
-            resolve();
-        } else {
-            reject(new Error(`ffmpeg exited with code ${code}`));
-        }
-    });
-});
-
-const runFfprobe = (args) => new Promise((resolve, reject) => {
-    const ffprobe = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = '';
-    let errorOutput = '';
-    ffprobe.stdout.on('data', (data) => { output += data.toString(); });
-    ffprobe.stderr.on('data', (data) => { errorOutput += data.toString(); });
-    ffprobe.on('error', reject);
-    ffprobe.on('close', (code) => {
-        if (code === 0) {
-            resolve(output);
-        } else {
-            reject(new Error(`ffprobe exited with code ${code}: ${errorOutput}`));
-        }
+        if (code === 0) resolve();
+        else reject(new Error(`ffmpeg exited with code ${code}`));
     });
 });
 
 const getDurationSeconds = async (filePath) => {
-    try {
-        const output = await runFfprobe([
+    return new Promise((resolve) => {
+        const ffprobe = spawn('ffprobe', [
             '-v', 'error',
             '-show_entries', 'format=duration',
-            '-of', 'json',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
             filePath
-        ]);
-        const parsed = JSON.parse(output);
-        const duration = Number(parsed?.format?.duration);
-        return Number.isFinite(duration) ? duration : null;
-    } catch (error) {
-        logger.warn({ err: error }, 'ffprobe failed');
-        return null;
-    }
-};
-
-const postProcessClip = async ({ inputPath, outputPath, fps, enabled, targetDurationSeconds }) => {
-    const trimDuration = Number(targetDurationSeconds);
-    const shouldTrim = Number.isFinite(trimDuration) && trimDuration > 0;
-
-    if (!enabled && !shouldTrim) {
-        await fs.copyFile(inputPath, outputPath);
-        return outputPath;
-    }
-
-    const lutPath = process.env.LUT_PATH;
-    const filters = [
-        `minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`,
-        'scale=iw*1.5:ih*1.5:flags=lanczos',
-        lutPath ? `lut3d=${lutPath}` : null,
-        'noise=alls=8:allf=t+u',
-        'format=yuv420p'
-    ].filter(Boolean).join(',');
-
-    const args = ['-y', '-i', inputPath];
-    if (shouldTrim) {
-        args.push('-t', String(trimDuration));
-    }
-    if (enabled) {
-        args.push('-vf', filters, '-c:v', 'libx264', '-preset', 'slow', '-crf', '26', '-movflags', '+faststart');
-    } else {
-        args.push('-c', 'copy', '-movflags', '+faststart');
-    }
-    args.push(outputPath);
-    await runFfmpeg(args);
-    return outputPath;
-};
-
-const validateClip = async ({ filePath, targetDurationSeconds }) => {
-    const duration = await getDurationSeconds(filePath);
-    if (!Number.isFinite(duration)) {
-        throw new Error('Validation failed: duration unavailable');
-    }
-
-    // Only reject if video is too short (less than 1s = likely corrupt)
-    // AI models like Kling have max 10s limit, so accept whatever they return
-    if (duration < 1) {
-        throw new Error(`Validation failed: Video is too short (${duration.toFixed(2)}s)`);
-    }
-
-    console.log(`[Validation] Accepted clip: ${duration.toFixed(2)}s (Target was ${targetDurationSeconds}s)`);
-};
-
-const getLatestShotAsset = async (shotId) => {
-    return await prisma.asset.findFirst({
-        where: { shotId, state: 'READY' },
-        orderBy: { createdAt: 'desc' }
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let output = '';
+        ffprobe.stdout.on('data', (d) => { output += d.toString(); });
+        ffprobe.on('close', () => resolve(parseFloat(output) || 0));
     });
 };
 
-// --- REDIS PUBLISHER ---
-import { createClient } from 'redis';
-let redisPublisher = null;
-
-const getRedisPublisher = async () => {
-    if (!process.env.REDIS_URL) return null;
-    if (!redisPublisher) {
-        redisPublisher = createClient({ url: process.env.REDIS_URL });
-        await redisPublisher.connect();
-    }
-    return redisPublisher;
-};
-
-const publishUpdate = async (userId, type, payload) => {
+/**
+ * Publish real-time progress updates to frontend via Redis pub/sub.
+ */
+const publishProgress = async (projectId, data) => {
     try {
-        const publisher = await getRedisPublisher();
-        if (publisher) {
-            await publisher.publish('job-updates', JSON.stringify({ userId, type, payload }));
-        }
-    } catch (e) {
-        logger.warn({ err: e }, 'Failed to publish redis update');
-    }
-};
-// -----------------------
-
-const recordApiCall = async ({ jobId, projectId, costUsd }) => {
-    const cost = Number(costUsd || 0);
-    await prisma.generationJob.update({
-        where: { id: jobId },
-        data: {
-            apiCallCount: { increment: 1 },
-            apiCost: { increment: cost }
-        }
-    });
-    await prisma.project.update({
-        where: { id: projectId },
-        data: {
-            apiCallCount: { increment: 1 },
-            totalApiCost: { increment: cost }
-        }
-    });
-};
-
-const generateShotVideo = async ({ shot, project, options, jobDir, jobId }) => {
-    const rawPath = path.join(jobDir, `shot-${shot.id}-raw.mp4`);
-    const processedPath = path.join(jobDir, `shot-${shot.id}-processed.mp4`);
-
-    await prisma.shot.update({
-        where: { id: shot.id },
-        data: { state: 'PROCESSING' }
-    });
-
-    try {
-        const apiCostUsd = Number(process.env.COST_PER_SHOT_USD || 0);
-        await recordApiCall({ jobId, projectId: project.id, costUsd: apiCostUsd });
-
-        // COMPILE MASTER PROMPT (Veo Optimization)
-        const compiledPrompt = compileVeoPrompt({
-            narrativeBeat: shot.prompt,
-            project: project,
-            options: options
-        });
-
-        // INJECT CHARACTER REFERENCE (Slide 3 Consistency)
-        // Find the most appropriate character assets for this shot (Up to 3)
-        let heroAssetUrls = [];
-        if (project.assets && project.assets.length > 0) {
-            const charAssets = project.assets.filter(a => a.type === 'CHARACTER' && a.state === 'READY');
-
-            if (charAssets.length > 0) {
-                // Try to find specific characters mentioned in the prompt
-                // Stage 2 prompts use character IDs/Roles in CAPS for consistency
-                const promptUpper = (shot.prompt || '').toUpperCase();
-                const matchingAssetsMap = new Map();
-
-                // Sort assets by role length descending to match more specific roles first 
-                // (e.g. "MAIN DETECTIVE" vs "DETECTIVE")
-                const sortedAssets = [...charAssets].sort((a, b) => {
-                    const rA = (a.role || '').length;
-                    const rB = (b.role || '').length;
-                    return rB - rA;
-                });
-
-                for (const asset of sortedAssets) {
-                    try {
-                        const meta = typeof asset.metadata === 'string' ? JSON.parse(asset.metadata) : asset.metadata;
-                        const charId = (meta.characterId || '').toUpperCase();
-                        const charRole = (meta.role || '').toUpperCase();
-
-                        // Match by ID or Role (whichever appears in the CAPS prompt)
-                        if ((charId && promptUpper.includes(charId)) || (charRole && promptUpper.includes(charRole))) {
-                            if (!matchingAssetsMap.has(charId)) {
-                                matchingAssetsMap.set(charId, asset);
-                                logger.info({ charId, charRole, shotId: shot.id }, "🎯 Matched character asset for shot");
-                            }
-                        }
-                        if (matchingAssetsMap.size >= 3) break; // API limit
-                    } catch (e) { }
-                }
-
-                let selectedAssets = Array.from(matchingAssetsMap.values());
-
-                // Fallback to first character if no specific ones found
-                if (selectedAssets.length === 0) {
-                    selectedAssets = [charAssets[0]];
-                }
-
-                // Process and sign each URL
-                heroAssetUrls = await Promise.all(selectedAssets.map(async (asset) => {
-                    let url = asset.url;
-                    if (isStorageConfigured() && url && url.includes('.storage.railway.app/')) {
-                        try {
-                            const key = url.split('.storage.railway.app/')[1];
-                            if (key) {
-                                return await getPresignedDownloadUrl({ key, expiresIn: 3600 });
-                            }
-                        } catch (e) {
-                            logger.warn({ err: e }, 'Failed to sign character asset URL');
-                        }
-                    }
-                    return url;
-                }));
-            }
-        }
-
-        // Use compiled prompt instead of raw shot.prompt
-        logger.info({
-            sceneId: shot.sceneId,
-            shotId: shot.id,
-            promptLength: compiledPrompt.length,
-            promptWordCount: compiledPrompt.split(' ').length,
-            heroImageCount: heroAssetUrls.length
-        }, "🎬 Sending compiled prompt to Veo");
-
-        const { video_url: videoUrl } = await generateVideo(compiledPrompt, heroAssetUrls, options);
-        if (!videoUrl) {
-            throw new Error('Video generation response missing video URL');
-        }
-
-        await downloadFile(videoUrl, rawPath);
-        await postProcessClip({
-            inputPath: rawPath,
-            outputPath: processedPath,
-            fps: options.fps,
-            enabled: options.postProcess,
-            targetDurationSeconds: shot.duration
-        });
-        await validateClip({ filePath: processedPath, targetDurationSeconds: shot.duration });
-
-        const publicUrl = await uploadFile(processedPath);
-        const urlString = String(publicUrl || '');
-        if (!urlString || urlString === 'undefined' || urlString.includes('Function')) {
-            throw new Error(`Invalid URL returned from uploadFile: ${urlString}`);
-        }
-        logger.info({ url: urlString }, 'Shot video uploaded successfully');
-
-        // HLS CONVERSION FOR SHOT (Fast Preview)
-        let hlsPlaylistUrl = null;
-        try {
-            const hlsOutputDir = path.join(jobDir, `hls-shot-${shot.id}`);
-            await generateHLS({ inputPath: processedPath, outputDir: hlsOutputDir });
-
-            // Upload HLS directory
-            // Key structure: projects/{projectId}/shots/{shotId}/hls/
-            const hlsKeyPrefix = `projects/${project.id}/shots/${shot.id}/hls`;
-            hlsPlaylistUrl = await uploadDirectoryToStorage({
-                dirPath: hlsOutputDir,
-                prefix: hlsKeyPrefix
-            });
-            logger.info({ hlsUrl: hlsPlaylistUrl }, 'Shot HLS generated and uploaded');
-        } catch (hlsError) {
-            logger.warn({ err: hlsError }, 'Failed to generate HLS for shot, falling back to MP4');
-        }
-
-        // Create Asset Record
-        // Prefer HLS for the main URL (streaming), keep MP4 in metadata for download
-        await prisma.asset.create({
-            data: {
-                projectId: project.id,
-                shotId: shot.id,
-                type: 'SHOT_VIDEO',
-                state: 'READY',
-                url: hlsPlaylistUrl || urlString,
-                metadata: JSON.stringify({
-                    mp4_url: urlString,
-                    hls_url: hlsPlaylistUrl,
-                    format: hlsPlaylistUrl ? 'hls' : 'mp4',
-                    duration: shot.duration,
-                    fps: options.fps,
-                    aspectRatio: options.aspectRatio
-                })
-            }
-        });
-
-        await prisma.shot.update({
-            where: { id: shot.id },
-            data: { state: 'COMPLETED' }
-        });
-
-        return { publicUrl, localPath: processedPath };
-    } catch (error) {
-        await prisma.shot.update({
-            where: { id: shot.id },
-            data: { state: 'FAILED' }
-        });
-        throw error;
+        await redis.publish(`project:${projectId}`, JSON.stringify(data));
+    } catch (err) {
+        logger.warn({ err, projectId }, 'Failed to publish progress update');
     }
 };
 
-const buildConcatFile = async ({ inputPaths, outputPath }) => {
-    const listFilePath = `${outputPath}.txt`;
-    const listFileContents = inputPaths.map((filePath) => `file '${filePath}'`).join('\n');
-    await fs.writeFile(listFilePath, listFileContents);
-    return listFilePath;
-};
+// --- Main Worker ---
 
-
-
-// HLS GENERATION
-const generateHLS = async ({ inputPath, outputDir }) => {
-    await ensureDir(outputDir);
-
-    // Create HLS playlist and segments
-    // -hls_time 4: 4 second segments
-    // -hls_list_size 0: Include all segments in playlist
-    // -f hls: Output format HLS
-    const args = [
-        '-y', '-i', inputPath,
-        '-codec:v', 'libx264',
-        '-codec:a', 'aac',
-        '-hls_time', '4',
-        '-hls_playlist_type', 'vod',
-        '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
-        '-start_number', '0',
-        '-crf', '26',
-        '-preset', 'veryfast',
-        path.join(outputDir, 'playlist.m3u8')
-    ];
-
-    await runFfmpeg(args);
-    return outputDir;
-};
-
-const concatVideos = async ({ inputPaths, outputPath }) => {
-    const listFilePath = await buildConcatFile({ inputPaths, outputPath });
-    const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listFilePath, '-c', 'copy', '-movflags', '+faststart', outputPath];
-    await runFfmpeg(args);
-    return outputPath;
-};
-
-const ensureShotsForScene = async ({ scene, project }) => {
-    const existingShots = await prisma.shot.findMany({
-        where: { sceneId: scene.id },
-        orderBy: { orderIndex: 'asc' }
-    });
-
-    const desiredDuration = scene.duration || FALLBACK_SHOT_DURATION_SECONDS;
-
-    // This is the core action description from the original script
-    const corePrompt = scene.actionDescription || scene.promptText;
-
-    // Pass the full context to the enhanced prompt compiler
-    const singleShotPrompt = corePrompt;
-    /* 
-    Deprecated: Compilation now happens at render time via compileVeoPrompt
-    const singleShotPrompt = compileShotPrompt({
-        project, // Full project with tier settings
-        scene,
-        shot: { // Shot object with core details
-            prompt: corePrompt,
-            duration: desiredDuration
-        }
-    });
-    */
-
-    if (existingShots.length > 0) {
-        const primaryShot = existingShots[0];
-
-        // Keep only the first shot as the canonical single render
-        // Logic Update: If shot FAILED or was stuck in PROCESSING, reset to PENDING to allow retry
-        if (primaryShot.state === 'FAILED' || primaryShot.state === 'PROCESSING') {
-            const updated = await prisma.shot.update({
-                where: { id: primaryShot.id },
-                data: { state: 'PENDING' }
-            });
-            return [updated];
-        }
-
-        if (primaryShot.duration !== desiredDuration || primaryShot.prompt !== singleShotPrompt) {
-            const updated = await prisma.shot.update({
-                where: { id: primaryShot.id },
-                data: { duration: desiredDuration, prompt: singleShotPrompt, state: 'PENDING' }
-            });
-            return [updated];
-        }
-
-        return [primaryShot];
-    }
-
-    const shot = await prisma.shot.create({
-        data: {
-            sceneId: scene.id,
-            orderIndex: 1,
-            duration: desiredDuration,
-            prompt: singleShotPrompt,
-            state: 'PENDING'
-        }
-    });
-
-    return [shot];
-};
-
+/**
+ * Process a video generation job.
+ * This is called by the BullMQ worker when a job is dequeued.
+ */
 export const processGenerationJob = async (jobId, context = {}) => {
-    let jobDir = null;
-    const { workerId, attempt } = context;
+    const jobDir = path.join(VOLUME_PATH, 'jobs', jobId);
+    await ensureDir(jobDir);
+
+    logger.info({ jobId }, '🎬 Starting video generation job (v2 — EvoLink + Storyboard)');
+
     try {
-        logger.info({ jobId, workerId, attempt }, 'Starting render job');
-        await ensureDir(TMP_DIR);
+        // 1. Fetch job and project data
+        const job = await prisma.generationJob.findUnique({ where: { id: jobId } });
+        if (!job) throw new Error(`Job ${jobId} not found`);
 
-        const job = await prisma.generationJob.findUnique({
-            where: { id: jobId },
+        const project = await prisma.project.findUnique({
+            where: { id: job.projectId },
             include: {
-                project: {
-                    include: {
-                        user: true, // Fetch user to check plan (Base/Pro/Elite)
-                        scenes: { orderBy: { orderIndex: 'asc' } },
-                        assets: true // Need assets for character references
-                    }
-                }
-            }
-        });
-
-        if (!job) {
-            throw new Error(`Job ${jobId} not found`);
-        }
-
-        const project = job.project;
-        const userPlan = (project.user?.plan || 'free').toLowerCase();
-
-        // --- TIER LOGIC: Model Selection ---
-        // Base/Pro -> Standard | Elite -> Fast
-        // Note: Updated to Veo 3.1 model IDs (preview versions support "Ingredients" multi-image)
-        let videoModel = 'veo-3.1-generate-preview'; // Standard for Base/Pro
-        if (userPlan === 'elite') {
-            videoModel = 'veo-3.1-fast-generate-preview'; // Fast variant for Elite
-        }
-
-        const scenes = project.scenes;
-        const totalScenes = scenes.length;
-        const qualitySettings = getQualitySettings(project);
-        const jobLogger = logger.child({ jobId, projectId: project.id, userId: project.userId, plan: userPlan, model: videoModel });
-
-        jobLogger.info({ totalScenes }, 'Processing render job');
-
-        if (project.state !== 'VIDEO_GENERATION') {
-            throw new Error(`Project ${project.id} not in VIDEO_GENERATION state`);
-        }
-
-        // Reset any stuck/failed shots for this project to PENDING
-        // This ensures the worker can pick them up even if a previous run crashed or failed
-        await prisma.shot.updateMany({
-            where: {
-                sceneId: { in: scenes.map(s => s.id) },
-                state: { in: ['FAILED', 'PROCESSING'] }
+                scenes: { orderBy: { orderIndex: 'asc' } },
+                characters: { where: { approved: true } },
+                user: true,
             },
-            data: { state: 'PENDING' }
         });
+        if (!project) throw new Error(`Project ${job.projectId} not found`);
 
+        const userPlan = project.user?.plan || 'free';
+        const tierConfig = getTierConfig(userPlan);
+
+        // 2. Mark job as processing
         await prisma.generationJob.update({
             where: { id: jobId },
-            data: {
-                status: 'PROCESSING',
-                progress: 5,
-                startedAt: new Date(),
-                lockedAt: new Date(),
-                lockedBy: workerId || null,
-                attemptCount: Number.isFinite(attempt) ? attempt : { increment: 1 }
-            }
+            data: { status: 'PROCESSING', startedAt: new Date() },
         });
 
-        jobDir = path.join(TMP_DIR, jobId);
-        await ensureDir(jobDir);
+        const sceneVideos = []; // { sceneId, rawPath, processedPath }
+        const totalScenes = project.scenes.length;
 
-        const sceneVideoPaths = []; // Final paths (post-processed)
-        const rawSceneVideoPaths = []; // Preview paths (raw)
+        // 3. Generate video for each scene (all scene submitted, progressive reveal)
+        for (let i = 0; i < project.scenes.length; i++) {
+            const scene = project.scenes[i];
+            const sceneNum = i + 1;
 
-        for (let sceneIndex = 0; sceneIndex < totalScenes; sceneIndex += 1) {
-            const scene = scenes[sceneIndex];
-            const shots = await ensureShotsForScene({ scene, project });
+            logger.info({ sceneNum, totalScenes, sceneId: scene.id }, `Processing scene ${sceneNum}/${totalScenes}`);
 
-            const shotVideoPaths = [];
-            const rawShotPaths = []; // Collect raw shots for preview
+            // Publish progress
+            const progress = Math.round((i / totalScenes) * 90);
+            await publishProgress(project.id, {
+                type: 'scene-progress',
+                sceneNumber: sceneNum,
+                totalScenes,
+                progress,
+                status: 'generating',
+            });
 
-            for (const shot of shots) {
-                const options = {
-                    durationSeconds: shot.duration,
-                    videoModel: videoModel, // Pass the determined model
-                    aspectRatio: project.aspectRatio || DEFAULT_ASPECT_RATIO,
-                    fps: project.fps || DEFAULT_FPS,
-                    postProcess: qualitySettings.postProcess
-                };
-                if (shot.state === 'COMPLETED') {
-                    const localPath = path.join(jobDir, `shot-${shot.id}-processed.mp4`);
-                    const asset = await getLatestShotAsset(shot.id);
+            await prisma.generationJob.update({
+                where: { id: jobId },
+                data: { progress },
+            });
 
-                    if (!asset?.url) {
-                        logger.warn({ shotId: shot.id }, "Shot marked completed but missing asset URL, resetting to PENDING");
-                        await prisma.shot.update({ where: { id: shot.id }, data: { state: 'PENDING' } });
-                        shot.state = 'PENDING';
-                        // Proceed to generation
-                    } else {
-                        try {
-                            let downloadUrl = asset.url;
-                            if (isStorageConfigured() && downloadUrl.includes('.storage.railway.app/')) {
-                                const key = downloadUrl.split('.storage.railway.app/')[1];
-                                if (key) {
-                                    downloadUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
-                                }
-                            }
+            try {
+                // Build video prompt from scene
+                let prompt = scene.promptText;
 
-                            logger.info({ shotId: shot.id, downloadUrl }, "Downloading completed shot for resume");
-                            await downloadFile(downloadUrl, localPath);
-
-                            // INTEGRITY CHECK: Ensure file isn't empty or tiny (corrupted)
-                            const stats = await fs.stat(localPath);
-                            if (stats.size < 1000) {
-                                throw new Error("Downloaded shot is too small/invalid");
-                            }
-
-                            shotVideoPaths.push(localPath);
-                            rawShotPaths.push(localPath);
-                            continue;
-                        } catch (e) {
-                            logger.error({ err: e, shotId: shot.id }, "Failed to reuse completed shot, falling back to regeneration");
-                            // If download fails, we fall through to generation
-                            await prisma.shot.update({ where: { id: shot.id }, data: { state: 'PENDING' } });
-                            shot.state = 'PENDING'; // CRITICAL: Update local state to avoid throwing non-resumable error
-                        }
-                    }
+                // Add character context if present
+                if (project.characters.length > 0) {
+                    const charDesc = project.characters
+                        .map(c => `${c.name}: ${c.description}`)
+                        .join('. ');
+                    prompt += ` Characters: ${charDesc}`;
                 }
 
-                if (shot.state !== 'PENDING') {
-                    throw new Error(`Shot ${shot.id} in non-resumable state ${shot.state}`);
+                // Generate video via EvoLink
+                // Storyboard frame = start frame (image-to-video)
+                // Character portraits not passed as direct image refs — they're handled by Kling Custom Elements
+                const videoResult = await generateVideo(prompt, {
+                    model: tierConfig.video.model,
+                    imageUrl: scene.storyboardUrl || undefined,  // Storyboard as start frame
+                    duration: Math.min(scene.duration || 8, 10), // Kling supports 5-10s
+                    aspectRatio: project.aspectRatio || '16:9',
+                    quality: tierConfig.video.quality,
+                    onProgress: (p, status) => {
+                        publishProgress(project.id, {
+                            type: 'scene-progress',
+                            sceneNumber: sceneNum,
+                            progress: Math.round((i / totalScenes) * 90 + (p / totalScenes) * 0.9),
+                            status: `Scene ${sceneNum}: ${status}`,
+                        });
+                    },
+                });
+
+                // Download the raw video
+                const rawVideoPath = path.join(jobDir, `scene_${sceneNum}_raw.mp4`);
+                await downloadFile(videoResult.video_url, rawVideoPath);
+
+                // Validate clip
+                const duration = await getDurationSeconds(rawVideoPath);
+                if (duration < 1) {
+                    logger.warn({ sceneNum, duration }, 'Generated clip too short, likely corrupt');
+                    throw new Error(`Scene ${sceneNum}: Generated clip under 1s (${duration}s)`);
                 }
 
-                try {
-                    const result = await generateShotVideo({ shot, project, options, jobDir, jobId });
-                    shotVideoPaths.push(result.localPath);
-                    // Assumption: generateShotVideo always creates raw at this path
-                    const rawPath = path.join(jobDir, `shot-${shot.id}-raw.mp4`);
-                    rawShotPaths.push(rawPath);
-                } catch (error) {
-                    await prisma.scene.update({
-                        where: { id: scene.id },
-                        data: { state: 'FAILED' }
-                    });
-                    throw new Error(`Shot ${shot.id} failed: ${error.message}`);
-                }
-            }
+                // Post-process: MP4 faststart
+                const processedPath = path.join(jobDir, `scene_${sceneNum}.mp4`);
+                await runFfmpeg([
+                    '-i', rawVideoPath,
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '23',
+                    '-movflags', '+faststart',
+                    '-y', processedPath,
+                ]);
 
-            if (shotVideoPaths.length === 0) {
+                // Upload processed scene video
+                const sceneKey = buildObjectKey({ userId: project.userId, extension: 'mp4' });
+                let sceneVideoUrl;
+
+                if (isStorageConfigured()) {
+                    sceneVideoUrl = await uploadFile(processedPath, { objectKey: sceneKey });
+                } else {
+                    sceneVideoUrl = videoResult.video_url;
+                }
+
+                // Update scene record
                 await prisma.scene.update({
                     where: { id: scene.id },
-                    data: { state: 'FAILED' }
-                });
-                throw new Error(`Scene ${scene.id} has no completed shots`);
-            }
-
-            // --- PREVIEW GENERATION (Per Scene) ---
-            const scenePreviewPath = path.join(jobDir, `scene-${scene.id}-preview.mp4`);
-            if (rawShotPaths.length > 0) {
-                try {
-                    // Ensure jobDir exists (defensive for multi-attempt retries)
-                    await ensureDir(jobDir);
-                    await concatVideos({ inputPaths: rawShotPaths, outputPath: scenePreviewPath });
-                } catch (e) {
-                    logger.warn({ err: e, sceneId: scene.id }, "Failed to generate scene preview, continuing to final project assembly");
-                }
-            }
-            rawSceneVideoPaths.push(scenePreviewPath);
-
-            // --- FINAL GENERATION (Per Scene) ---
-            const sceneOutputPath = path.join(jobDir, `scene-${scene.orderIndex}.mp4`);
-            await concatVideos({ inputPaths: shotVideoPaths, outputPath: sceneOutputPath });
-            const scenePublicUrl = await uploadFile(sceneOutputPath);
-            const sceneUrlString = String(scenePublicUrl || '');
-            if (!sceneUrlString || sceneUrlString === 'undefined' || sceneUrlString.includes('Function')) {
-                throw new Error(`Invalid scene URL: ${sceneUrlString}`);
-            }
-
-            // HLS for SCENE
-            let sceneHlsUrl = null;
-            try {
-                const hlsOutputDir = path.join(jobDir, `hls-scene-${scene.id}`);
-                await generateHLS({ inputPath: sceneOutputPath, outputDir: hlsOutputDir });
-                const hlsKeyPrefix = `projects/${project.id}/scenes/${scene.id}/hls`;
-                sceneHlsUrl = await uploadDirectoryToStorage({
-                    dirPath: hlsOutputDir,
-                    prefix: hlsKeyPrefix
-                });
-                logger.info({ hlsUrl: sceneHlsUrl }, 'Scene HLS generated');
-            } catch (err) {
-                logger.warn({ err }, 'Scene HLS generation failed');
-            }
-
-            await prisma.asset.create({
-                data: {
-                    projectId: project.id,
-                    type: 'SCENE_VIDEO',
-                    state: 'READY',
-                    url: sceneHlsUrl || sceneUrlString,
-                    metadata: JSON.stringify({
-                        sceneId: scene.id,
-                        mp4_url: sceneUrlString,
-                        hls_url: sceneHlsUrl,
-                        format: sceneHlsUrl ? 'hls' : 'mp4'
-                    })
-                }
-            });
-
-            await prisma.scene.update({
-                where: { id: scene.id },
-                data: {
-                    videoUrl: sceneHlsUrl || sceneUrlString
-                }
-            });
-
-            sceneVideoPaths.push(sceneOutputPath);
-
-            const progress = Math.round(((sceneIndex + 1) / totalScenes) * 90) + 5;
-            await prisma.generationJob.update({
-                where: { id: jobId },
-                data: { progress }
-            });
-
-            // Emit progress
-            await publishUpdate(project.userId, 'render-progress', {
-                projectId: project.id,
-                percent: progress,
-                status: 'rendering'
-            });
-        }
-
-        // --- 1. PREVIEW ASSEMBLY (FAST) ---
-        if (rawSceneVideoPaths.length > 0) {
-            try {
-                jobLogger.info('Assembling Preview Video...');
-                const previewOutputPath = path.join(jobDir, 'preview-full.mp4');
-                await concatVideos({ inputPaths: rawSceneVideoPaths, outputPath: previewOutputPath });
-
-                const previewUrl = await uploadFile(previewOutputPath);
-                const previewUrlString = String(previewUrl || '');
-
-                await prisma.project.update({
-                    where: { id: project.id },
-                    data: {
-                        previewUrl: previewUrlString,
-                        state: 'PREVIEW_READY'
-                    }
+                    data: { videoUrl: sceneVideoUrl, state: 'COMPLETED' },
                 });
 
-                await publishUpdate(project.userId, 'preview-ready', {
-                    projectId: project.id,
-                    previewUrl: previewUrlString
+                sceneVideos.push({ sceneId: scene.id, rawPath: rawVideoPath, processedPath });
+
+                // Publish completed scene (progressive reveal)
+                await publishProgress(project.id, {
+                    type: 'scene-complete',
+                    sceneNumber: sceneNum,
+                    videoUrl: sceneVideoUrl,
+                    totalScenes,
                 });
-                jobLogger.info({ previewUrlString }, 'Preview Ready');
-            } catch (e) {
-                jobLogger.warn({ err: e }, 'Preview assembly failed');
+
+                logger.info({ sceneNum, duration, sceneVideoUrl }, `Scene ${sceneNum} complete`);
+
+            } catch (sceneErr) {
+                logger.error({ err: sceneErr, sceneNum }, `Scene ${sceneNum} failed`);
+                captureException(sceneErr, { sceneNum, jobId });
+
+                // Mark scene as failed but continue with others
+                await prisma.scene.update({
+                    where: { id: scene.id },
+                    data: { state: 'FAILED' },
+                });
             }
         }
 
-        if (sceneVideoPaths.length > 0) {
-            await transitionProjectState({
-                projectId: project.id,
-                toState: 'POST_PROCESSING',
-                actorType: 'system',
-                actorId: null,
-                reason: 'All shots generated; assembling final video'
-            });
+        // 4. Check if we have enough successful scenes
+        const successfulScenes = sceneVideos.filter(sv => sv.processedPath);
+        if (successfulScenes.length === 0) {
+            throw new Error('All scenes failed — no videos generated');
+        }
 
-            const finalOutputPath = path.join(jobDir, 'final.mp4');
-            await concatVideos({ inputPaths: sceneVideoPaths, outputPath: finalOutputPath });
-            const finalPublicUrl = await uploadFile(finalOutputPath);
-            const finalUrlString = String(finalPublicUrl || '');
-            if (!finalUrlString || finalUrlString === 'undefined' || finalUrlString.includes('Function')) {
-                throw new Error(`Invalid final video URL: ${finalUrlString}`);
-            }
+        // 5. Concatenate all scene videos into final video
+        await transitionProjectState({
+            projectId: project.id,
+            toState: 'POST_PROCESSING',
+            actorType: 'SYSTEM',
+            reason: `${successfulScenes.length}/${totalScenes} scenes generated`,
+        });
 
-            // --- HLS TRANSCODING START ---
-            let hlsUrl = null;
-            try {
-                jobLogger.info('Starting HLS transcoding');
-                const hlsOutputDir = path.join(jobDir, 'hls');
-                await generateHLS({ inputPath: finalOutputPath, outputDir: hlsOutputDir });
+        const finalVideoPath = path.join(jobDir, 'final.mp4');
 
-                // Upload HLS directory
-                const hlsKey = buildObjectKey({ userId: project.userId, prefix: 'hls' }); // Get base key (folder path)
-                // Note: uploadDirectoryToStorage expects a prefix, not a full key with filename
-                // We'll use the UUID from buildObjectKey but remove the extension if any
-                const hlsPrefix = hlsKey.substring(0, hlsKey.lastIndexOf('/'));
-
-                hlsUrl = await uploadDirectoryToStorage({
-                    dirPath: hlsOutputDir,
-                    prefix: hlsKey // Use unique key as the folder prefix
-                });
-
-                jobLogger.info({ hlsUrl }, 'HLS transcoding complete');
-            } catch (hlsError) {
-                jobLogger.warn({ err: hlsError }, 'HLS transcoding failed, falling back to MP4 only');
-            }
-            // --- HLS TRANSCODING END ---
-
-            logger.info({ url: finalUrlString, hlsUrl }, 'Final video uploaded successfully');
-
-            await prisma.project.update({
-                where: { id: project.id },
-                data: {
-                    finalVideoUrl: hlsUrl || finalUrlString, // Prefer HLS for streaming
-                    metadata: {
-                        hls_url: hlsUrl,
-                        mp4_url: finalUrlString,
-                        format: hlsUrl ? 'hls' : 'mp4'
-                    }
-                }
-            });
-            await prisma.asset.create({
-                data: {
-                    projectId: project.id,
-                    type: 'FINAL_VIDEO',
-                    state: 'READY',
-                    url: hlsUrl || finalUrlString,
-                    metadata: JSON.stringify({
-                        mp4_url: finalUrlString,
-                        hls_url: hlsUrl,
-                        format: hlsUrl ? 'hls' : 'mp4'
-                    })
-                }
-            });
-
-            await transitionProjectState({
-                projectId: project.id,
-                toState: 'COMPLETE',
-                actorType: 'system',
-                actorId: null,
-                reason: 'Final video assembled'
-            });
-
-            await prisma.generationJob.update({
-                where: { id: jobId },
-                data: {
-                    status: 'COMPLETED',
-                    progress: 100,
-                    outputUrl: hlsUrl || finalUrlString
-                }
-            });
-
-            // Socket Emit: Final Ready
-            await publishUpdate(project.userId, 'final-ready', {
-                projectId: project.id,
-                finalUrl: hlsUrl || finalUrlString,
-                quality: '1080p'
-            });
-
-            // Send video ready email notification
-            if (project.user?.email) {
-                try {
-                    await sendVideoReadyEmail({
-                        to: project.user.email,
-                        projectTitle: project.title || 'Your video',
-                        projectId: project.id,
-                        name: project.user.name || project.user.email
-                    });
-                    jobLogger.info({ userEmail: project.user.email }, 'Video ready email sent');
-                } catch (emailError) {
-                    jobLogger.error({ err: emailError }, 'Failed to send video ready email');
-                    // Don't fail the job if email fails
-                }
-            }
-
-            jobLogger.info('Project marked as completed');
+        if (successfulScenes.length === 1) {
+            // Single scene — just copy
+            await fs.copyFile(successfulScenes[0].processedPath, finalVideoPath);
         } else {
-            await prisma.generationJob.update({
-                where: { id: jobId },
-                data: {
-                    status: 'FAILED',
-                    errorMessage: 'No scenes could be processed'
-                }
-            });
-            await transitionProjectState({
-                projectId: project.id,
-                toState: 'FAILED',
-                actorType: 'system',
-                actorId: null,
-                reason: 'No scenes could be processed'
-            });
-            await publishUpdate(project.userId, 'render-error', { projectId: project.id, error: 'No scenes processed' });
+            // Concatenate multiple scenes
+            const fileListPath = path.join(jobDir, 'filelist.txt');
+            const fileListContent = successfulScenes
+                .map(sv => `file '${sv.processedPath}'`)
+                .join('\n');
+            await fs.writeFile(fileListPath, fileListContent);
+
+            await runFfmpeg([
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', fileListPath,
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-crf', '23',
+                '-movflags', '+faststart',
+                '-y', finalVideoPath,
+            ]);
         }
 
-        logger.info({ jobId }, 'Render job finished');
-    } catch (error) {
-        logger.error({ jobId, err: error }, 'Render job failed');
+        // 6. Upload final video
+        let finalVideoUrl;
+        if (isStorageConfigured()) {
+            const finalKey = buildObjectKey({ userId: project.userId, extension: 'mp4' });
+            finalVideoUrl = await uploadFile(finalVideoPath, { objectKey: finalKey });
 
-        // Capture error in Sentry
-        captureException(error, {
-            jobId,
-            context: 'render_worker',
-            workerId: context?.workerId,
-            attempt: context?.attempt,
+            // Get presigned URL for immediate playback
+            try {
+                const signedUrl = await getPresignedDownloadUrl({ key: finalKey, expiresIn: 86400 });
+                finalVideoUrl = signedUrl;
+            } catch (signErr) {
+                logger.warn({ err: signErr }, 'Failed to generate signed URL for final video');
+            }
+        }
+
+        // 7. Update project to COMPLETE
+        await prisma.project.update({
+            where: { id: project.id },
+            data: {
+                finalVideoUrl,
+                renderProgress: 100,
+            },
         });
 
         await prisma.generationJob.update({
             where: { id: jobId },
             data: {
-                status: 'FAILED',
-                errorMessage: error.message
-            }
+                status: 'COMPLETED',
+                progress: 100,
+                outputUrl: finalVideoUrl,
+                finishedAt: new Date(),
+            },
         });
 
-        const failedJob = await prisma.generationJob.findUnique({
-            where: { id: jobId }
+        await transitionProjectState({
+            projectId: project.id,
+            toState: 'COMPLETE',
+            actorType: 'SYSTEM',
+            reason: `Video generation complete — ${successfulScenes.length} scenes`,
         });
 
-        if (failedJob?.projectId) {
-            await prisma.project.update({
-                where: { id: failedJob.projectId },
-                data: { errorLog: error.message }
-            }).catch(() => undefined);
+        // 8. Notify user
+        await publishProgress(project.id, {
+            type: 'final-ready',
+            videoUrl: finalVideoUrl,
+            progress: 100,
+        });
 
-            await transitionProjectState({
-                projectId: failedJob.projectId,
-                toState: 'FAILED',
-                actorType: 'system',
-                actorId: null,
-                reason: error.message
-            }).catch(() => undefined);
-
-            // Inform frontend of failure
-            const project = await prisma.project.findUnique({ where: { id: failedJob.projectId } });
-            if (project) {
-                await publishUpdate(project.userId, 'render-progress', {
+        // Send email notification
+        if (project.user?.email) {
+            try {
+                await sendVideoReadyEmail(project.user.email, {
+                    projectTitle: project.title,
                     projectId: project.id,
+                });
+            } catch (emailErr) {
+                logger.warn({ err: emailErr }, 'Failed to send video ready email');
+            }
+        }
+
+        logger.info({
+            jobId,
+            projectId: project.id,
+            scenesGenerated: successfulScenes.length,
+            totalScenes,
+            finalVideoUrl,
+        }, '✅ Video generation job completed');
+
+        // 9. Cleanup temp files
+        try {
+            await fs.rm(jobDir, { recursive: true, force: true });
+        } catch (cleanupErr) {
+            logger.warn({ err: cleanupErr }, 'Failed to clean up job directory');
+        }
+
+        return { status: 'completed', outputUrl: finalVideoUrl };
+
+    } catch (error) {
+        logger.error({ err: error, jobId }, '❌ Video generation job failed');
+        captureException(error, { jobId });
+
+        try {
+            await prisma.generationJob.update({
+                where: { id: jobId },
+                data: {
                     status: 'FAILED',
-                    percent: 0,
-                    currentScene: 0
+                    errorMessage: error.message,
+                    finishedAt: new Date(),
+                },
+            });
+
+            const job = await prisma.generationJob.findUnique({ where: { id: jobId } });
+            if (job) {
+                await transitionProjectState({
+                    projectId: job.projectId,
+                    toState: 'FAILED',
+                    actorType: 'SYSTEM',
+                    reason: error.message,
                 });
-                await publishUpdate(project.userId, 'render-error', {
-                    projectId: project.id,
-                    error: error.message
+
+                await publishProgress(job.projectId, {
+                    type: 'error',
+                    error: error.message,
                 });
             }
+        } catch (updateErr) {
+            logger.error({ err: updateErr }, 'Failed to update job status on error');
         }
-    } finally {
-        if (jobDir) {
-            await fs.rm(jobDir, { recursive: true, force: true }).catch(() => undefined);
-        }
+
+        throw error;
     }
 };

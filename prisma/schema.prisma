@@ -89,6 +89,7 @@ model Project {
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   scenes Scene[]
+  characters Character[]
   jobs   GenerationJob[]
   assets Asset[]
   stateEvents ProjectStateEvent[]
@@ -106,6 +107,11 @@ model Scene {
   audioDirective   String?  @map("audio_directive")
   duration         Int      @default(5)
   state            String   @default("DRAFT") @map("status")
+  approved         Boolean  @default(false)
+  approvedAt       DateTime?
+  storyboardUrl    String?  @map("storyboard_url")
+  storyboardPrompt String?  @map("storyboard_prompt")
+  storyboardApproved Boolean @default(false)
   videoUrl         String?  @map("video_url")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
@@ -114,6 +120,25 @@ model Scene {
   shots   Shot[]
 
   @@map("scenes")
+}
+
+model Character {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  role        String
+  description String
+  portraitUrl  String?  @map("portrait_url")
+  approved    Boolean  @default(false)
+  approvedAt  DateTime?
+  elementId   String?  @map("element_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("characters")
 }
 
 model Shot {

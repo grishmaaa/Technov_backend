@@ -23,6 +23,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import clipScoreRoutes from './routes/clipScoreRoutes.js';
 import storageRoutes from './routes/storageRoutes.js';
 import usageRoutes from './routes/usageRoutes.js';
+import pipelineRoutes from './routes/pipelineRoutes.js';
 
 // Import jobs
 import { startCreditResetJob } from './jobs/creditResetJob.js';
@@ -138,6 +139,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api', sceneRoutes); // /api/projects/:id/scenes
 app.use('/api', jobRoutes);   // /api/projects/:id/generate
+app.use('/api/pipeline', pipelineRoutes); // /api/pipeline/projects/:id/*
 app.use('/api/payments', paymentRoutes); // /api/payments/*
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);

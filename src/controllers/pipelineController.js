@@ -129,15 +129,31 @@ Visual style: ${visualStyle || 'cinematic'}.`;
             )
         );
 
+        // Create characters in DB for persistence
+        if (parsed.characters?.length > 0) {
+            await Promise.all(
+                parsed.characters.map(char =>
+                    prisma.character.create({
+                        data: {
+                            projectId: id,
+                            name: char.name,
+                            role: char.role,
+                            description: char.description,
+                            approved: false,
+                        },
+                    })
+                )
+            );
+        }
+
         // Update project with title, story, and metadata
         await prisma.project.update({
             where: { id },
             data: {
-                title: parsed.title || project.title,
+                title: parsed.title || `Project ${new Date().toLocaleDateString()}`,
                 story,
                 metadata: {
                     asset_sheet: parsed.asset_sheet || {},
-                    characters: parsed.characters || [],
                     visual_style: visualStyle,
                     safety_check: safety,
                     llm_usage: usage,

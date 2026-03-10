@@ -115,6 +115,7 @@ export const getProject = async (req, res) => {
             where: { id, userId: req.user.id },
             include: {
                 scenes: { orderBy: { orderIndex: 'asc' } },
+                characters: true,
                 assets: true
             }
         });

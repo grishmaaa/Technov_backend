@@ -26,8 +26,8 @@ export const generateScript = async (req, res) => {
         const { id } = req.params;
         const { story, visualStyle, length } = req.body;
 
-        if (!story || story.trim().length < 10) {
-            return res.status(400).json({ error: 'Story must be at least 10 characters' });
+        if (!story || story.trim().length < 1) {
+            return res.status(400).json({ error: 'Story content is required' });
         }
 
         const userPlan = req.user?.plan || 'free';

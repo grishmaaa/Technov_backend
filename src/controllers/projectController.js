@@ -1,5 +1,4 @@
 import prisma from '../config/database.js';
-import { generateScript, generateCharacterPortrait, generateHeroImage, generateTitle } from '../services/geminiService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
 import { getPresignedDownloadUrl, getS3Client, getStorageConfig, extractKeyFromUrl } from '../services/storageService.js';

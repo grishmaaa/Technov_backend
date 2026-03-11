@@ -145,13 +145,11 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                         type: 'OBJECT',
                         properties: {
                             clip_number: { type: 'INTEGER' },
-                            title: { type: 'STRING' },
                             prompt: { type: 'STRING', description: 'The exact 4-line format: Line 1: Wide, Line 2: [cut] Close-up, Line 3: [cut] Detail, Line 4: Audio' },
                             continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the exact first frame of the next clip' },
                             duration: { type: 'INTEGER', description: 'Must be 4, 6, or 8' },
-                            directors_note: { type: 'STRING' },
                         },
-                        required: ['clip_number', 'title', 'prompt', 'continuity_hook', 'duration', 'directors_note'],
+                        required: ['clip_number', 'prompt', 'continuity_hook', 'duration'],
                     },
                 },
                 characters: {

@@ -39,7 +39,7 @@ const getProjectId = () => {
             // Ignore if missing or malformed
         }
     }
-    return projectId;
+    return projectId ? projectId.trim() : null;
 };
 
 const getGoogleAuth = async () => {

@@ -630,18 +630,17 @@ export const generateStoryboard = async (req, res) => {
             try {
                 let scenePrompt = scene.promptText;
 
-                // Inject global locks for maximum visual consistency
-                if (project.metadata?.worldLock) {
-                    scenePrompt += ` Setting Details: ${project.metadata.worldLock} `;
+                // Use the base characters rather than the massive `characterLock` to prevent Vertex AI from rejecting >480 chars
+                if (project.characters.length > 0) {
+                    const charContext = project.characters
+                        .map(c => `${c.name}: ${c.description.substring(0, 80)}`)
+                        .join('. ');
+                    scenePrompt += ` Chars: ${charContext}`;
                 }
 
-                if (project.metadata?.characterLock) {
-                    scenePrompt += ` Character Details: ${project.metadata.characterLock} `;
-                } else if (project.characters.length > 0) {
-                    const charContext = project.characters
-                        .map(c => `${c.name} (${c.role}): ${c.description} `)
-                        .join('. ');
-                    scenePrompt += ` Characters present: ${charContext} `;
+                // Strictly truncate to 300 chars so the googleImageService wrapper doesn't exceed 480 limit
+                if (scenePrompt.length > 300) {
+                    scenePrompt = scenePrompt.substring(0, 300);
                 }
 
                 const frame = await generateStoryboardFrame(
@@ -660,6 +659,9 @@ export const generateStoryboard = async (req, res) => {
                     },
                 });
                 frameResults.push({ status: 'fulfilled', value: updated });
+
+                // Sleep for 3.5 seconds to respect Google Vertex AI 15 QPM limits
+                await new Promise(resolve => setTimeout(resolve, 3500));
             } catch (error) {
                 logger.error({ err: error, sceneId: scene.id }, 'Storyboard frame generation failed');
                 frameResults.push({ status: 'rejected', reason: error });
@@ -734,18 +736,16 @@ export const regenerateStoryboardFrame = async (req, res) => {
         }
 
         let finalStoryboardPrompt = prompt;
-        // Inject global locks for maximum visual consistency
-        if (project.metadata?.worldLock) {
-            finalStoryboardPrompt += ` Setting Details: ${project.metadata.worldLock} `;
+
+        if (project.characters?.length > 0) {
+            const charContext = project.characters
+                .map(c => `${c.name}: ${c.description.substring(0, 80)}`)
+                .join('. ');
+            finalStoryboardPrompt += ` Chars: ${charContext}`;
         }
 
-        if (project.metadata?.characterLock) {
-            finalStoryboardPrompt += ` Character Details: ${project.metadata.characterLock} `;
-        } else if (project.characters?.length > 0) {
-            const charContext = project.characters
-                .map(c => `${c.name} (${c.role}): ${c.description} `)
-                .join('. ');
-            finalStoryboardPrompt += ` Characters present: ${charContext} `;
+        if (finalStoryboardPrompt.length > 300) {
+            finalStoryboardPrompt = finalStoryboardPrompt.substring(0, 300);
         }
 
         const frame = await generateStoryboardFrame(

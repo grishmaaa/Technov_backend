@@ -186,7 +186,6 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                     data: {
                         projectId: id,
                         orderIndex: clip.clip_number !== undefined ? clip.clip_number - 1 : index,
-                        title: clip.title || `Clip ${index + 1}`,
                         promptText: clip.prompt, // The 5-part Veo formula
                         actionDescription: clip.continuity_hook, // Storing continuity hook here temporarily
                         duration: clip.duration_seconds || 8,
@@ -244,7 +243,7 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
             scenes: scenes.map((s, i) => ({
                 id: s.id,
                 sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1, // Expose sceneNumber for frontend mapping
-                title: s.title,
+                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
                 description: s.actionDescription, // Mapped to continuity_hook
                 prompt: s.promptText,       // Mapped to 5-part formula
                 directorsNote: s.directorsNote,

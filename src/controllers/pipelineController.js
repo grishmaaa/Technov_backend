@@ -611,11 +611,10 @@ export const generateStoryboard = async (req, res) => {
         }
 
         const visualStyle = project.metadata?.visual_style || 'cinematic';
-        const updatedScenes = [];
 
-        for (const scene of project.scenes) {
-            try {
-                // Build scene prompt with character context
+        // Generate all frames in parallel — they're independent
+        const frameResults = await Promise.allSettled(
+            project.scenes.map(async (scene) => {
                 let scenePrompt = scene.promptText;
                 if (project.characters.length > 0) {
                     const charContext = project.characters
@@ -631,7 +630,7 @@ export const generateStoryboard = async (req, res) => {
                     project.aspectRatio,
                 );
 
-                const updated = await prisma.scene.update({
+                return prisma.scene.update({
                     where: { id: scene.id },
                     data: {
                         storyboardUrl: frame.url,
@@ -639,13 +638,17 @@ export const generateStoryboard = async (req, res) => {
                         storyboardApproved: false,
                     },
                 });
+            })
+        );
 
-                updatedScenes.push(updated);
-            } catch (frameErr) {
-                logger.error({ err: frameErr, sceneId: scene.id }, 'Storyboard frame generation failed');
-                updatedScenes.push(scene); // Keep original on failure
+        const updatedScenes = frameResults.map((result, i) => {
+            if (result.status === 'fulfilled') {
+                return result.value;
+            } else {
+                logger.error({ err: result.reason, sceneId: project.scenes[i].id }, 'Storyboard frame generation failed');
+                return project.scenes[i];
             }
-        }
+        });
 
         await transitionProjectState({
             projectId: id,

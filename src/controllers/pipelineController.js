@@ -108,6 +108,7 @@ export const generateScript = async (req, res) => {
 The user's script is SACRED. Do NOT change, substitute, or "improve" any specific words, names, dialogue, or details from their script.
 - If the script says "THRESHOLD" — you must include "the word 'THRESHOLD'" in the action description.
 - DIALOGUE IS THE ANCHOR: If a scene centers around a climactic line (e.g., "Today is the last Wednesday"), you MUST factor that emotional weight into the action or style.
+- DIALOGUE SACRED TEXT RULE: Every spoken line in the output must match the user's script verbatim, word for word, including ellipses, pauses, and sentence fragments. You are never permitted to truncate, paraphrase, summarize, or invent dialogue. If a line in the script is "Today is the last Wednesday. Not forever. Just... yours." — that exact string appears in the audio field, nothing removed. If a scene has no dialogue in the source script, the audio field contains no spoken line. You cannot add dialogue that doesn't exist in the script.
 
 ═══ LOCKED STRINGS (CONTINUITY) ═══
 To prevent the model from hallucinating different clothes or settings across clips, you must define "Locked Strings" for the main characters and the primary world/location. These will be automatically prepended to every clip's prompt.

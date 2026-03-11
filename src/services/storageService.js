@@ -1,9 +1,7 @@
-//storageservice.js
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import crypto from 'crypto';
+import { Storage } from '@google-cloud/storage';
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 
 const getEnvValue = (keys) => {
     for (const key of keys) {
@@ -14,98 +12,59 @@ const getEnvValue = (keys) => {
 };
 
 export const getStorageConfig = () => {
-    // Railway storage uses various env var names - check all possibilities
-    const bucket = getEnvValue([
-        'BUCKET',
-        'STORAGE_BUCKET',
-        'S3_BUCKET',
-        'RAILWAY_BUCKET_NAME',
-        'BUCKET_NAME'
-    ]);
-    const region = getEnvValue(['STORAGE_REGION', 'RAILWAY_BUCKET_REGION', 'S3_REGION', 'AWS_REGION', 'REGION']);
-    const endpoint = getEnvValue([
-        'STORAGE_ENDPOINT',
-        'RAILWAY_BUCKET_ENDPOINT',
-        'S3_ENDPOINT',
-        'ENDPOINT',
-        'RAILWAY_STORAGE_ENDPOINT'
-    ]);
-    const accessKeyId = getEnvValue([
-        'STORAGE_ACCESS_KEY_ID',
-        'RAILWAY_BUCKET_ACCESS_KEY_ID',
-        'AWS_ACCESS_KEY_ID',
-        'ACCESS_KEY_ID',
-        'RAILWAY_STORAGE_ACCESS_KEY_ID'
-    ]);
-    const secretAccessKey = getEnvValue([
-        'STORAGE_SECRET_ACCESS_KEY',
-        'RAILWAY_BUCKET_SECRET_ACCESS_KEY',
-        'AWS_SECRET_ACCESS_KEY',
-        'SECRET_ACCESS_KEY',
-        'RAILWAY_STORAGE_SECRET_ACCESS_KEY'
-    ]);
-    const publicBaseUrl = getEnvValue([
-        'STORAGE_PUBLIC_BASE_URL',
-        'RAILWAY_BUCKET_PUBLIC_BASE_URL',
-        'S3_PUBLIC_BASE_URL'
-    ]);
-    const objectPrefix = (getEnvValue([
-        'STORAGE_OBJECT_PREFIX',
-        'RAILWAY_BUCKET_OBJECT_PREFIX',
-        'S3_OBJECT_PREFIX'
-    ]) || 'generated').replace(/\/+$/g, '');
+    const bucket = getEnvValue(['GCP_BUCKET_NAME', 'GOOGLE_CLOUD_BUCKET']);
+    const objectPrefix = (getEnvValue(['GCP_BUCKET_PREFIX', 'STORAGE_OBJECT_PREFIX']) || 'generated').replace(/\/+$/g, '');
+    let projectId = getEnvValue(['GCP_PROJECT_ID', 'GOOGLE_CLOUD_PROJECT']);
+    let gcpSaKeyRaw = process.env.GCP_SA_KEY;
 
-    // Debug log on first call to help diagnose issues
-    console.log('[StorageConfig] bucket:', bucket, 'endpoint:', endpoint, 'hasAccessKey:', !!accessKeyId);
+    // Auto-parse Project ID from the Service Account JSON if it is missing
+    if (!projectId && gcpSaKeyRaw) {
+        try {
+            const parsedKey = JSON.parse(gcpSaKeyRaw);
+            projectId = parsedKey.project_id;
+        } catch (e) {
+            // Ignore parse errors
+        }
+    }
 
-    return {
-        bucket,
-        region,
-        endpoint,
-        accessKeyId,
-        secretAccessKey,
-        publicBaseUrl,
-        objectPrefix
-    };
+    if (projectId) projectId = projectId.trim();
+
+    return { bucket, projectId, objectPrefix, gcpSaKeyRaw };
 };
 
-export const getS3Client = () => {
-    let { region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
+export const getGcsClient = () => {
+    const config = getStorageConfig();
 
-    // Railway uses 'auto' region - default to 'us-east-1' for S3 SDK compatibility
-    if (!region || region === 'auto') {
-        region = 'us-east-1';
+    const clientConfig = {};
+    if (config.projectId) {
+        clientConfig.projectId = config.projectId;
     }
 
-    console.log('[S3Client] Using endpoint:', endpoint, 'region:', region);
-
-    const config = {
-        region,
-        endpoint: endpoint || undefined,
-        // Railway dashboard explicitly states: "Use virtual-hosted-style URLs."
-        forcePathStyle: false
-    };
-    if (accessKeyId && secretAccessKey) {
-        config.credentials = { accessKeyId, secretAccessKey };
+    if (config.gcpSaKeyRaw) {
+        try {
+            clientConfig.credentials = JSON.parse(config.gcpSaKeyRaw);
+        } catch (e) {
+            console.error('[Storage] Failed to parse GCP_SA_KEY JSON');
+        }
+    } else {
+        // Fallback to local key file for development
+        const keyPath = path.resolve(process.cwd(), 'vertex-key.json');
+        clientConfig.keyFilename = keyPath;
     }
-    return new S3Client(config);
+
+    return new Storage(clientConfig);
 };
 
 export const isStorageConfigured = () => {
-    const { bucket, region, endpoint, accessKeyId, secretAccessKey } = getStorageConfig();
-    const configured = Boolean(bucket && region);
+    const { bucket } = getStorageConfig();
+    const configured = Boolean(bucket);
 
-    // Log storage config status on first check
     if (!isStorageConfigured._logged) {
+        console.log('[StorageConfig] Using Google Cloud Storage');
         console.log('[StorageConfig] bucket:', bucket ? 'SET' : 'MISSING');
-        console.log('[StorageConfig] region:', region ? 'SET' : 'MISSING');
-        console.log('[StorageConfig] endpoint:', endpoint ? 'SET' : 'MISSING');
-        console.log('[StorageConfig] accessKeyId:', accessKeyId ? 'SET' : 'MISSING');
-        console.log('[StorageConfig] secretAccessKey:', secretAccessKey ? 'SET' : 'MISSING');
         console.log('[StorageConfig] configured:', configured);
         isStorageConfigured._logged = true;
     }
-
     return configured;
 };
 
@@ -120,55 +79,26 @@ export const getObjectPrefix = () => {
 };
 
 export const getPublicUrl = (key) => {
-    const { bucket, endpoint, publicBaseUrl } = getStorageConfig();
-    if (publicBaseUrl) {
-        return `${publicBaseUrl.replace(/\/+$/, '')}/${key}`;
-    }
-    if (endpoint) {
-        const cleanEndpoint = endpoint.replace(/\/+$/, '');
-
-        // Extract protocol
-        let protocol = 'https://';
-        let host = cleanEndpoint;
-        if (cleanEndpoint.startsWith('http://')) {
-            protocol = 'http://';
-            host = cleanEndpoint.replace('http://', '');
-        } else if (cleanEndpoint.startsWith('https://')) {
-            protocol = 'https://';
-            host = cleanEndpoint.replace('https://', '');
-        }
-
-        // Railway bucket endpoints often already include the bucket name as a subdomain
-        // Format should be: https://bucket-name.endpoint-domain.dev/key
-        if (host.startsWith(`${bucket}.`)) {
-            return `${protocol}${host}/${key}`;
-        } else {
-            return `${protocol}${bucket}.${host}/${key}`;
-        }
-    }
-    return `https://${bucket}.storage.railway.app/${key}`;
+    const { bucket } = getStorageConfig();
+    return `https://storage.googleapis.com/${bucket}/${key}`;
 };
 
 export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     const { bucket } = getStorageConfig();
-    if (!bucket) {
-        throw new Error('Storage bucket is not configured');
-    }
+    if (!bucket) throw new Error('Storage bucket is not configured');
 
-    // Read file fully into memory to avoid S3 stream reset errors
-    const fileBuffer = await fs.readFile(filePath);
+    const storage = getGcsClient();
+    const bucketObj = storage.bucket(bucket);
+    const file = bucketObj.file(key);
 
-    const client = getS3Client();
-    const command = new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: fileBuffer,
-        ContentType: 'video/mp4', // FORCE BROWSER TO SEE VIDEO
-        ContentDisposition: 'inline', // TELL BROWSER TO PLAY IT
-        ACL: 'public-read', // Ensure public access for worker download
+    await file.save(await fs.readFile(filePath), {
+        metadata: {
+            contentType: contentType || getContentTypeForPath(filePath),
+            contentDisposition: 'inline',
+        },
+        public: true, // Make publicly readable
+        resumable: false
     });
-
-    await client.send(command);
 
     return getPublicUrl(key);
 };
@@ -177,28 +107,28 @@ export const uploadDirectoryToStorage = async ({ dirPath, prefix }) => {
     const { bucket } = getStorageConfig();
     if (!bucket) throw new Error('Storage bucket is not configured');
 
-    const client = getS3Client();
-    const files = await fs.readdir(dirPath);
+    const storage = getGcsClient();
+    const bucketObj = storage.bucket(bucket);
+    const dirFiles = await fs.readdir(dirPath);
     let masterUrl = '';
 
-    for (const file of files) {
-        const filePath = path.join(dirPath, file);
+    for (const fileName of dirFiles) {
+        const filePath = path.join(dirPath, fileName);
         const fileContent = await fs.readFile(filePath);
-        const key = `${prefix}/${file}`;
+        const key = `${prefix}/${fileName}`;
 
         let contentType = 'application/octet-stream';
-        if (file.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
-        else if (file.endsWith('.ts')) contentType = 'video/mp2t';
+        if (fileName.endsWith('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+        else if (fileName.endsWith('.ts')) contentType = 'video/mp2t';
 
-        await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: fileContent,
-            ContentType: contentType,
-            ACL: 'public-read'
-        }));
+        const file = bucketObj.file(key);
+        await file.save(fileContent, {
+            metadata: { contentType },
+            public: true,
+            resumable: false
+        });
 
-        if (file.endsWith('.m3u8')) {
+        if (fileName.endsWith('.m3u8')) {
             masterUrl = getPublicUrl(key);
         }
     }
@@ -208,106 +138,86 @@ export const uploadDirectoryToStorage = async ({ dirPath, prefix }) => {
 
 export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
     const { bucket } = getStorageConfig();
-    if (!bucket) {
-        throw new Error('Storage bucket is not configured');
-    }
+    if (!bucket) throw new Error('Storage bucket is not configured');
 
-    const client = getS3Client();
-    const command = new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: buffer,
-        ContentType: contentType || 'application/octet-stream',
-        ContentDisposition: 'inline',
-        // ACL: 'public-read', // Removed to prevent failures on buckets with ACLs disabled
+    const storage = getGcsClient();
+    const bucketObj = storage.bucket(bucket);
+    const file = bucketObj.file(key);
+
+    await file.save(buffer, {
+        metadata: {
+            contentType: contentType || 'application/octet-stream',
+            contentDisposition: 'inline',
+        },
+        public: true, // Make publicly readable
+        resumable: false
     });
-
-    await client.send(command);
 
     return getPublicUrl(key);
 };
 
+export const getContentTypeForPath = (filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    switch (ext) {
+        case '.mp4': return 'video/mp4';
+        case '.mov': return 'video/quicktime';
+        case '.png': return 'image/png';
+        case '.jpg':
+        case '.jpeg': return 'image/jpeg';
+        case '.webp': return 'image/webp';
+        default: return 'application/octet-stream';
+    }
+};
+
+// Polvfill AWS SDK presigned functions by converting them to Google Signed URLs
 export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 }) => {
     const { bucket } = getStorageConfig();
-    if (!bucket) {
-        throw new Error('Storage bucket is not configured');
-    }
-    const client = getS3Client();
-    const command = new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        ContentType: contentType || 'application/octet-stream'
+    if (!bucket) throw new Error('Storage bucket is not configured');
+
+    const storage = getGcsClient();
+    const [url] = await storage.bucket(bucket).file(key).getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: Date.now() + (expiresIn * 1000),
+        contentType: contentType || 'application/octet-stream'
     });
-    return getSignedUrl(client, command, { expiresIn });
+    return url;
 };
 
 export const extractKeyFromUrl = (url) => {
     if (!url) return null;
     try {
         const urlObj = new URL(url);
-        // Extracts path after first slash, e.g. /generated/file.png -> generated/file.png
-        let path = urlObj.pathname;
-        if (path.startsWith('/')) path = path.substring(1);
-        return path;
+        let p = urlObj.pathname;
+        if (p.startsWith('/')) p = p.substring(1);
+
+        // Strip bucket name from path if using `storage.googleapis.com`/bucket/key format
+        const { bucket } = getStorageConfig();
+        if (bucket && p.startsWith(`${bucket}/`)) {
+            return p.substring(bucket.length + 1);
+        }
+        return p;
     } catch (e) {
-        // If it's already a key, return it
         return url;
     }
 };
 
 export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download = false, contentType = null }) => {
     const { bucket } = getStorageConfig();
-    if (!bucket) {
-        throw new Error('Storage bucket is not configured');
-    }
-    const client = getS3Client();
+    if (!bucket) throw new Error('Storage bucket is not configured');
 
-    // Guess content type if not provided
-    let responseContentType = contentType;
-    if (!responseContentType) {
-        const ext = path.extname(key).toLowerCase();
-        if (ext === '.m3u8') responseContentType = 'application/vnd.apple.mpegurl';
-        else if (ext === '.ts') responseContentType = 'video/mp2t';
-        else if (ext === '.mp4') responseContentType = 'video/mp4';
-        else if (ext === '.png') responseContentType = 'image/png';
-        else if (ext === '.jpg' || ext === '.jpeg') responseContentType = 'image/jpeg';
-        else if (ext === '.webp') responseContentType = 'image/webp';
-    }
-
-    const commandParams = {
-        Bucket: bucket,
-        Key: key,
-        ResponseCacheControl: 'max-age=3600',
+    const storage = getGcsClient();
+    const options = {
+        version: 'v4',
+        action: 'read',
+        expires: Date.now() + (expiresIn * 1000)
     };
-
-    if (responseContentType) {
-        commandParams.ResponseContentType = responseContentType;
-    }
 
     if (download) {
         const ext = path.extname(key) || '.mp4';
-        commandParams.ResponseContentDisposition = `attachment; filename="technov-asset-${Date.now()}${ext}"`;
+        options.responseDisposition = `attachment; filename="technov-asset-${Date.now()}${ext}"`;
     }
 
-    const command = new GetObjectCommand(commandParams);
-    return getSignedUrl(client, command, { expiresIn });
-};
-
-export const getContentTypeForPath = (filePath) => {
-    const ext = path.extname(filePath).toLowerCase();
-    switch (ext) {
-        case '.mp4':
-            return 'video/mp4';
-        case '.mov':
-            return 'video/quicktime';
-        case '.png':
-            return 'image/png';
-        case '.jpg':
-        case '.jpeg':
-            return 'image/jpeg';
-        case '.webp':
-            return 'image/webp';
-        default:
-            return 'application/octet-stream';
-    }
+    const [url] = await storage.bucket(bucket).file(key).getSignedUrl(options);
+    return url;
 };

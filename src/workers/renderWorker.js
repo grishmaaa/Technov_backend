@@ -139,8 +139,19 @@ export const processGenerationJob = async (jobId, context = {}) => {
             });
 
             try {
-                // Build video prompt from scene
-                let prompt = scene.promptText;
+                // Build video prompt from scene (Injecting Locked Strings)
+                let basePrompt = scene.promptText;
+
+                // Prepend continuity locked strings if available in project metadata
+                let lockedStrings = '';
+                if (project.metadata?.worldLock) {
+                    lockedStrings += `[WORLD: ${project.metadata.worldLock}] `;
+                }
+                if (project.metadata?.characterLock) {
+                    lockedStrings += `[CHARACTERS: ${project.metadata.characterLock}] `;
+                }
+
+                let prompt = `${lockedStrings}${basePrompt}`.trim();
 
                 // Add character context if present
                 if (project.characters.length > 0) {
@@ -150,12 +161,18 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     prompt += ` Characters: ${charDesc}`;
                 }
 
+                // Determine Start Frame for Continuity Chaining
+                // 1. If we have a lastFrameUrl from the PREVIOUS clip, use it to ensure perfect continuity.
+                // 2. Otherwise (Clip 1), fall back to the generated storyboard image.
+                const previousClipIndex = i - 1;
+                const previousLastFrameUrl = previousClipIndex >= 0 ? project.scenes[previousClipIndex].lastFrameUrl : null;
+                const startingImageUrl = previousLastFrameUrl || scene.storyboardUrl || undefined;
+
                 // Generate video via EvoLink
-                // Storyboard frame = start frame (image-to-video)
-                // Character portraits not passed as direct image refs — they're handled by Kling Custom Elements
+                // Note: EvoLink/Kling must support 'imageUrl' functioning as either a static storyboard OR the actual last frame of the previous video
                 const videoResult = await generateVideo(prompt, {
                     model: tierConfig.video.model,
-                    imageUrl: scene.storyboardUrl || undefined,  // Storyboard as start frame
+                    imageUrl: startingImageUrl,
                     duration: Math.min(scene.duration || 8, 10), // Kling supports 5-10s
                     aspectRatio: project.aspectRatio || '16:9',
                     quality: tierConfig.video.quality,
@@ -201,11 +218,47 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     sceneVideoUrl = videoResult.video_url;
                 }
 
-                // Update scene record
+                // Wait, we need the last frame of THIS newly generated video to pass to the next clip.
+                // For now, if the EvoLink API doesn't return a specific thumbnail/last frame URL out of the box, 
+                // we simulate it. Ideally, you extract the last frame via FFmpeg here and upload it.
+                // Assuming we use FFmpeg to extract the last frame:
+                const lastFrameRawPath = path.join(jobDir, `scene_${sceneNum}_last_frame.jpg`);
+                let lastFrameUrlLocation = null;
+
+                try {
+                    await runFfmpeg([
+                        '-sseof', '-3', // seek to last 3 seconds
+                        '-i', processedPath,
+                        '-update', '1', // overwrite
+                        '-q:v', '1',    // high quality
+                        '-vframes', '1',// one frame
+                        // Just look right before the end
+                        '-y', lastFrameRawPath
+                    ]);
+                    // Upload the frame
+                    const frameKey = buildObjectKey({ userId: project.userId, extension: 'jpg' });
+                    if (isStorageConfigured()) {
+                        lastFrameUrlLocation = await uploadFile(lastFrameRawPath, { objectKey: frameKey });
+                    } else {
+                        lastFrameUrlLocation = null; // In dev without S3, continuity chaining might break if we can't host the frame
+                    }
+                } catch (ffmpegErr) {
+                    logger.warn({ err: ffmpegErr, sceneNum }, "Failed to extract lastFrame for continuity chain. Next clip might jump.");
+                }
+
+
+                // Update scene record with video AND lastFrameUrl for the next iteration to pick up
                 await prisma.scene.update({
                     where: { id: scene.id },
-                    data: { videoUrl: sceneVideoUrl, state: 'COMPLETED' },
+                    data: {
+                        videoUrl: sceneVideoUrl,
+                        lastFrameUrl: lastFrameUrlLocation,
+                        state: 'COMPLETED'
+                    },
                 });
+
+                // Update the project's scene array in memory so the NEXT clip in the loop can access 'project.scenes[currentIndex].lastFrameUrl'
+                project.scenes[i].lastFrameUrl = lastFrameUrlLocation;
 
                 sceneVideos.push({ sceneId: scene.id, rawPath: rawVideoPath, processedPath });
 

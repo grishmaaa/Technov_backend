@@ -101,91 +101,55 @@ export const generateScript = async (req, res) => {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Generate cinematic scene document
-        const systemPrompt = `You are a master cinematographer in the tradition of Roger Deakins, Emmanuel Lubezki, and Hoyte van Hoytema. You shoot with your gut. You translate feelings into images.
+        // Generate production-ready video API prompts
+        const systemPrompt = `You are an expert prompt engineer turning a user's script into a production-ready shot list for the Veo 3.1 video generation model. Your job is not to write a beautiful description for a human director. Your job is to output the exact strings needed by the API to generate consistent, flawless continuity across multiple video clips.
 
 ═══ SACRED TEXT RULE (ENFORCED) ═══
 The user's script is SACRED. Do NOT change, substitute, or "improve" any specific words, names, dialogue, or details from their script.
-- If the script says "THRESHOLD" — you write the exact word "THRESHOLD" in your prompt. 
-- If the script says "exact change for coffee he never ordered" — that detail MUST appear in your breakdown.
-- DIALOGUE IS THE ANCHOR: If a scene centers around a climactic line (e.g., "Today is the last Wednesday"), you MUST factor that dialogue into the \`emotional_beat\` or \`directors_note\` to ensure the scene's emotional weight is anchored to it. Do not drop key lines when splitting scenes.
-VERIFY: Before outputting, check every proper noun, crossword answer, character name, and specific detail against the original script. If you changed anything, FIX IT.
+- If the script says "THRESHOLD" — you must include "the word 'THRESHOLD'" in the action description.
+- DIALOGUE IS THE ANCHOR: If a scene centers around a climactic line (e.g., "Today is the last Wednesday"), you MUST factor that emotional weight into the action or style.
 
-═══ THE FOUR QUESTIONS ═══
-For every scene, before writing the shot description, answer these internally:
-1. What is the LIE the character believes at the start of this moment?
-2. What does the camera WITHHOLD and when does it REVEAL?
-3. Where must the AUDIENCE'S EYE land for the emotional hit?
-4. What detail should NOT be explained — only shown?
+═══ THE 5-PART VEO PROMPT FORMULA ═══
+Every single clip MUST strictly follow this exact structure for its prompt:
+[Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
 
-═══ EMOTIONAL CINEMATOGRAPHY ═══
-You are not describing what the camera sees. You are describing what the audience FEELS.
+Example: "Static locked-off medium shot, 85mm. MARA, 38-year-old woman, reading glasses. Holds a black crossword pen motionless. Corner booth of a diner, 6:47 AM. Cinematic realism, muted color."
 
-BAD: "cinematic extreme close-up, crossword puzzle on table, shallow depth of field"
-GOOD: "ECU — the crossword. The word is already written. The pen hasn't moved. Hold on it. Don't cut. Let the audience sit in the wrongness before the character does. The horror isn't the word. It's the handwriting. It's hers."
+═══ LOCKED STRINGS (CONTINUITY) ═══
+To prevent the model from hallucinating different clothes or settings across clips, you must define "Locked Strings" for the main characters and the primary world/location. These will be automatically prepended to every clip's prompt.
+- **characterLock:** Extremely specific, purely visual descriptions of the main character(s). (e.g., "MARA: 38-year-old woman, dark hair pulled back loosely, white collared blouse, tired eyes.")
+- **worldLock:** Extremely specific description of the primary setting and lighting. (e.g., "Small American diner, 1990s aesthetic, vinyl booths, fluorescent overhead lighting.")
 
-The difference between coverage and cinema: coverage shows WHAT HAPPENS. Cinema shows WHAT IT MEANS.
-
-═══ THE STRANGE DETAIL ═══
-Every great scene has one detail that carries all the weight. Find it. Make it the anchor shot.
-- Exact change left for a coffee never ordered → that's the detail that tells you he's not human
-- Handwriting on a crossword she never wrote → that's the detail that breaks reality
-- A kid on a bike passing slow as a dream → that's the detail that bends time
-These details matter more than any wide shot or camera move. HOLD ON THEM.
-
-═══ CAMERA AS EMOTION ═══
-Camera movement is not choreography — it's psychology.
-- RAPID push-in = violence of revelation, the moment yanking toward you
-- SLOW dolly = contemplation, dread building
-- STATIC hold = forcing the audience to sit in discomfort — no escape from the frame
-- CRANE DOWN = descending into something, gravity of truth
-Match the movement speed and type to the EMOTIONAL VELOCITY of the moment, not just the action.
-
-═══ PACING ═══
-- Not every moment needs motion. Stillness is power.
-- If a detail tells the audience something the character doesn't know yet, HOLD ON IT. Don't cut away.
-- Silence is a shot. Let it breathe.
-- The final image of a scene should be the image that HAUNTS — the one the audience carries into the next scene.
-
-═══ ANTI-PATTERNS (DO NOT DO THESE) ═══
-- Don't use "uncanny valley mood" or similar vibe tags — they do zero work
-- Don't list visual elements without emotional purpose
-- Don't describe what the audience "sees" — describe what they FEEL
-- Don't add generic cinematic texture ("film grain, anamorphic lens flare") unless it serves a specific emotional function
-- Don't replace specific details with "better" alternatives — the writer chose those details for a reason
+═══ CLIP-BY-CLIP CONTINUITY ═══
+Think of these not as "scenes" but as "clips". Clip 2 starts the frame after Clip 1 ends.
+Provide a \`continuity_hook\` describing exactly how Clip N ends, so it perfectly sets up the first frame of Clip N+1.
 
 ═══ OUTPUT FORMAT ═══
-Read the script. Break it into as many scenes as the story naturally demands — follow the dramatic beats, location changes, and emotional shifts (especially driven by key dialogue).
-Maximum ${maxScenes} scenes (hard limit). Each scene should target ~8 seconds for video generation.
-Do NOT artificially compress or expand — if the script has 5 natural beats, make 5 scenes. If it has 3, make 3.
+Maximum ${maxScenes} clips (hard limit). Each clip should target exactly 4, 6, or 8 seconds.
+Do NOT artificially compress or expand — break the script into the exact number of visual clips needed to tell the story.
 Visual style: ${visualStyleFinal}.
-For each scene provide:
-- prompt: A cinematic image prompt describing the frame with emotional intent (for the image/video generation model). CRITICAL: If the scene contains ANY readable text (crossword answers, signs, notes, titles) that is important to the script, you MUST include that text VERBATIM wrapped in quotes in the prompt. Example: "the word 'THRESHOLD' is written in cursive in the 7-ACROSS box" — do NOT write "a word is filled in".
-- directors_note: What the audience should feel, why this frame matters, what the camera is doing TO the viewer. Include key dialogue here if it drives the shot.
-- emotional_beat: The subtext underneath — what's happening beneath the surface that the image carries.`;
+
+Output must include the \`characterLock\`, \`worldLock\`, and an array of clips containing the 5-part formula prompt, duration, and continuity hook.`;
 
         const sceneSchema = {
             type: 'OBJECT',
             properties: {
                 title: { type: 'STRING' },
-                scenes: {
+                characterLock: { type: 'STRING', description: 'Locked visual descriptions of main characters' },
+                worldLock: { type: 'STRING', description: 'Locked visual description of the primary world/setting' },
+                clips: {
                     type: 'ARRAY',
                     items: {
                         type: 'OBJECT',
                         properties: {
-                            scene_number: { type: 'INTEGER' },
+                            clip_number: { type: 'INTEGER' },
                             title: { type: 'STRING' },
-                            description: { type: 'STRING' },
-                            prompt: { type: 'STRING' },
+                            prompt: { type: 'STRING', description: 'The 5-part Veo formula: Cinematography + Subject + Action + Context + Style' },
+                            continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the exact first frame of the next clip' },
+                            duration: { type: 'INTEGER', description: 'Must be 4, 6, or 8' },
                             directors_note: { type: 'STRING' },
-                            emotional_beat: { type: 'STRING' },
-                            duration: { type: 'INTEGER' },
-                            camera: { type: 'STRING' },
-                            lighting: { type: 'STRING' },
-                            mood: { type: 'STRING' },
-                            audio: { type: 'STRING' },
                         },
-                        required: ['scene_number', 'title', 'description', 'prompt', 'directors_note', 'duration'],
+                        required: ['clip_number', 'title', 'prompt', 'continuity_hook', 'duration', 'directors_note'],
                     },
                 },
                 characters: {
@@ -200,9 +164,8 @@ For each scene provide:
                         required: ['name', 'role', 'description'],
                     },
                 },
-                asset_sheet: { type: 'OBJECT' },
             },
-            required: ['title', 'scenes', 'characters'],
+            required: ['title', 'characterLock', 'worldLock', 'clips', 'characters'],
         };
 
         const { parsed, usage } = await generateStructuredOutput(
@@ -212,20 +175,22 @@ For each scene provide:
             { model: tierConfig.llm.model, temperature: 0.8, maxTokens: 8192 },
         );
 
-        if (!parsed?.scenes?.length) {
-            throw new Error('AI failed to generate scenes');
+        if (!parsed?.clips?.length) {
+            throw new Error('AI failed to generate clips');
         }
 
-        // Save scenes to DB
+        // Save scenes (clips) to DB
         const scenes = await Promise.all(
-            parsed.scenes.map((scene, index) =>
+            parsed.clips.map((clip, index) =>
                 prisma.scene.create({
                     data: {
                         projectId: id,
+                        sceneNumber: clip.clip_number || index + 1,
                         orderIndex: index,
-                        promptText: scene.prompt,
-                        actionDescription: scene.description,
-                        duration: scene.duration || 8,
+                        title: clip.title || `Clip ${index + 1}`,
+                        promptText: clip.prompt, // The 5-part Veo formula
+                        actionDescription: clip.continuity_hook, // Storing continuity hook here temporarily
+                        duration: clip.duration_seconds || 8,
                         state: 'DRAFT',
                     },
                 })
@@ -249,15 +214,16 @@ For each scene provide:
             );
         }
 
-        // Update project with title, story, and metadata
+        // Update project with title, story, and strongly-typed locked strings in metadata
         await prisma.project.update({
             where: { id },
             data: {
                 title: parsed.title || `Project ${new Date().toLocaleDateString()} `,
                 story,
                 metadata: {
-                    asset_sheet: parsed.asset_sheet || {},
-                    visual_style: visualStyle,
+                    characterLock: parsed.characterLock, // Saving the locked string
+                    worldLock: parsed.worldLock,         // Saving the locked string
+                    visual_style: visualStyleFinal,
                     safety_check: safety,
                     llm_usage: usage,
                 },
@@ -274,19 +240,16 @@ For each scene provide:
 
         res.json({
             title: parsed.title,
+            worldLock: parsed.worldLock,
+            characterLock: parsed.characterLock,
             scenes: scenes.map((s, i) => ({
                 id: s.id,
-                sceneNumber: i + 1,
-                title: parsed.scenes[i].title,
-                description: parsed.scenes[i].description,
-                prompt: s.promptText,
-                directorsNote: parsed.scenes[i].directors_note,
-                emotionalBeat: parsed.scenes[i].emotional_beat,
+                sceneNumber: s.sceneNumber,
+                title: s.title,
+                description: s.description, // Mapped to continuity_hook
+                prompt: s.promptText,       // Mapped to 5-part formula
+                directorsNote: s.directorsNote,
                 duration: s.duration,
-                camera: parsed.scenes[i].camera,
-                lighting: parsed.scenes[i].lighting,
-                mood: parsed.scenes[i].mood,
-                audio: parsed.scenes[i].audio,
                 approved: false,
             })),
             characters: parsed.characters || [],
@@ -861,5 +824,105 @@ export const approveStoryboardFrame = async (req, res) => {
     } catch (error) {
         logger.error({ err: error }, 'Storyboard frame approval failed');
         res.status(500).json({ error: 'Storyboard frame approval failed' });
+    }
+};
+
+// ============================================================
+// STAGE 6: Video Agent Loop (Post-Generation Editing)
+// ============================================================
+
+/**
+ * POST /api/projects/:id/edit-video
+ * Uses LLM to parse user feedback, identify affected clips, and requeue them.
+ */
+export const editVideo = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { feedback } = req.body;
+        const tierConfig = getTierConfig(req.user?.plan || 'free');
+
+        const project = await prisma.project.findUnique({
+            where: { id },
+            include: { scenes: { orderBy: { orderIndex: 'asc' } } }
+        });
+
+        if (!project || project.state !== 'COMPLETED' && project.state !== 'POST_PROCESSING') {
+            return res.status(400).json({ error: 'Project not ready for video editing' });
+        }
+
+        const systemPrompt = `You are a Video Editing AI Agent. The user has generated a video consisting of multiple sequential clips. They are now providing feedback to change specific parts of the video.
+        
+Read the user's feedback and the list of current clips. Identify EXACTLY which clips need to be regenerated to satisfy the user's request. 
+Output a JSON array of the clip numbers that need to be regenerated, and provide a short rewritten prompt for those clips reflecting the requested change.
+
+Example: If user says "Make clip 3 raining", output: { "affected_clips": [3], "edits": [{ "clip_number": 3, "new_prompt": "...[original prompt]... Heavy rain falling."}] }
+If they say "The ending is too slow", maybe clip 4 and 5 need action adjustments.`;
+
+        const clipContext = project.scenes.map(s => `Clip ${s.sceneNumber}: ${s.promptText}`).join('\n');
+
+        const schema = {
+            type: 'OBJECT',
+            properties: {
+                affected_clips: { type: 'ARRAY', items: { type: 'INTEGER' } },
+                edits: {
+                    type: 'ARRAY',
+                    items: {
+                        type: 'OBJECT',
+                        properties: {
+                            clip_number: { type: 'INTEGER' },
+                            new_prompt: { type: 'STRING' }
+                        },
+                        required: ['clip_number', 'new_prompt']
+                    }
+                }
+            },
+            required: ['affected_clips', 'edits']
+        };
+
+        const { parsed } = await generateStructuredOutput(
+            systemPrompt,
+            `Current Clips:\n${clipContext}\n\nUser Feedback: "${feedback}"`,
+            schema,
+            { model: tierConfig.llm.model }
+        );
+
+        if (!parsed.affected_clips || parsed.affected_clips.length === 0) {
+            return res.json({ message: "No visual changes detected.", affectedClips: [] });
+        }
+
+        // Update the prompts for the affected clips and reset their state
+        await Promise.all(
+            parsed.edits.map(async (edit) => {
+                const sceneToUpdate = project.scenes.find(s => s.sceneNumber === edit.clip_number);
+                if (sceneToUpdate) {
+                    await prisma.scene.update({
+                        where: { id: sceneToUpdate.id },
+                        data: {
+                            promptText: edit.new_prompt,
+                            state: 'PENDING_REGENERATION' // Worker will pick this up
+                        }
+                    });
+                }
+            })
+        );
+
+        // Transition project back to generation state
+        await transitionProjectState({
+            projectId: id,
+            toState: 'VIDEO_GENERATION',
+            actorType: 'USER',
+            actorId: req.user.id,
+            reason: `Video Agent requested regeneration for clips: ${parsed.affected_clips.join(', ')}`
+        });
+
+        res.json({
+            message: `Regenerating clips: ${parsed.affected_clips.join(', ')}`,
+            affectedClips: parsed.affected_clips,
+            edits: parsed.edits
+        });
+
+    } catch (error) {
+        logger.error({ err: error }, 'Video edit parsing failed');
+        res.status(500).json({ error: 'Failed to process video edit request' });
     }
 };

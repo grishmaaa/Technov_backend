@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { validateStoryInput as storyShield } from '../middleware/shield.js';
 import {
+    developIdea,
     generateScript,
     editSceneEndpoint,
     approveScene,
@@ -28,6 +29,9 @@ const router = Router();
 
 // All pipeline routes require authentication
 router.use(authMiddleware);
+
+// --- Stage 0: Ideation ---
+router.post('/projects/:id/develop', developIdea);
 
 // --- Stage 1: Script Generation ---
 router.post('/projects/:id/generate-script', storyShield, generateScript);

@@ -9,9 +9,57 @@
 import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getTierConfig, calculateCreditCost } from '../config/modelConfig.js';
-import { generateStructuredOutput, safetyCheck, editScene } from '../services/llmService.js';
+import { generateStructuredOutput, safetyCheck, editScene, developScript } from '../services/llmService.js';
 import { generateCharacterPortrait, generateStoryboardFrame } from '../services/falService.js';
 import { logger } from '../logger.js';
+
+// ============================================================
+// STAGE 0: Script Development (Idea to Script)
+// ============================================================
+
+/**
+ * POST /api/projects/:id/develop
+ * Conversational loop to help user build their raw idea into a script.
+ */
+export const developIdea = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { chatHistory } = req.body;
+
+        if (!chatHistory || !Array.isArray(chatHistory) || chatHistory.length === 0) {
+            return res.status(400).json({ error: 'Chat history is required' });
+        }
+
+        let project = await prisma.project.findUnique({ where: { id } });
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const tierConfig = getTierConfig(req.user?.plan || 'free');
+
+        // Optional safety check on the latest user message
+        const latestUserMsg = chatHistory[chatHistory.length - 1];
+        if (latestUserMsg && latestUserMsg.role === 'user') {
+            const safety = await safetyCheck(latestUserMsg.text, tierConfig.safety);
+            if (safety.severity === 'BLOCK') {
+                return res.status(422).json({
+                    error: 'Content blocked by safety filters',
+                    violations: safety.violations,
+                    suggestion: safety.suggested_alternative,
+                });
+            }
+        }
+
+        const result = await developScript(chatHistory, tierConfig.llmEdit);
+
+        res.json({
+            text: result.text,
+        });
+    } catch (error) {
+        logger.error({ err: error }, 'Develop idea failed');
+        res.status(500).json({ error: 'Failed to develop idea', details: error.message });
+    }
+};
 
 // ============================================================
 // STAGE 1: Cinematic Translation (Script Generation)

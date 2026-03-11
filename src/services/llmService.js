@@ -214,6 +214,77 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
 };
 
 /**
+ * Stage 0: Conversational script development.
+ * @param {Array<{role: string, text: string}>} chatHistory - Previous messages
+ * @param {object} options - Model config
+ */
+export const developScript = async (chatHistory, options = {}) => {
+    const apiModel = options.model || 'gemini-2.5-flash';
+    const { client, type } = getGenerativeClient();
+
+    const systemPrompt = `You are an expert Hollywood screenwriter and mentor.
+The user is bringing you a raw idea, a logline, or an incomplete script. 
+Your goal is to help them turn it into a structurally sound scene or short script.
+
+THE PROCESS:
+1. Ask probing, thoughtful questions (only 1 or 2 at a time) about their premise, characters' motivations, or the core conflict.
+2. If they have a basic idea, suggest a rough outline or a specific "beat".
+3. Help them find the specific visual details that make the story cinematic.
+4. BE CONCISE. Do not overwhelm them with 5 paragraphs of text. Talk like a collaborator in a writers' room.
+5. If the script/outline looks complete and ready for visual generation, encourage them to click the "Generate Scenes" button.`;
+
+    const generationConfig = {
+        maxOutputTokens: 2048,
+        temperature: 0.7,
+        topP: 0.95,
+    };
+
+    let generativeModel;
+    if (type === 'aistudio') {
+        generativeModel = client.getGenerativeModel({
+            model: apiModel,
+            generationConfig,
+            systemInstruction: systemPrompt,
+        });
+    } else {
+        generativeModel = client.getGenerativeModel({
+            model: apiModel,
+            generationConfig,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+        });
+    }
+
+    // Map history to Gemini format (user/model)
+    const contents = chatHistory.map(msg => ({
+        role: msg.role === 'ai' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+    }));
+
+    return await callWithRetry(async () => {
+        try {
+            const result = await generativeModel.generateContent({ contents });
+            const response = result.response;
+
+            if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                throw new Error('Gemini returned no content during ideation.');
+            }
+
+            return {
+                text: response.candidates[0].content.parts[0].text,
+                usage: {
+                    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+                    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+                    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+                }
+            };
+        } catch (err) {
+            logger.error({ err, apiModel }, 'Gemini LLM call failed in developScript');
+            throw err;
+        }
+    });
+};
+
+/**
  * Run a safety check on story text.
  * @param {string} storyText - User's story input
  * @param {object} options - Model config from tier

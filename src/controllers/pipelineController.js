@@ -109,12 +109,6 @@ The user's script is SACRED. Do NOT change, substitute, or "improve" any specifi
 - If the script says "THRESHOLD" — you must include "the word 'THRESHOLD'" in the action description.
 - DIALOGUE IS THE ANCHOR: If a scene centers around a climactic line (e.g., "Today is the last Wednesday"), you MUST factor that emotional weight into the action or style.
 
-═══ THE 5-PART VEO PROMPT FORMULA ═══
-Every single clip MUST strictly follow this exact structure for its prompt:
-[Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
-
-Example: "Static locked-off medium shot, 85mm. MARA, 38-year-old woman, reading glasses. Holds a black crossword pen motionless. Corner booth of a diner, 6:47 AM. Cinematic realism, muted color."
-
 ═══ LOCKED STRINGS (CONTINUITY) ═══
 To prevent the model from hallucinating different clothes or settings across clips, you must define "Locked Strings" for the main characters and the primary world/location. These will be automatically prepended to every clip's prompt.
 - **characterLock:** Extremely specific, purely visual descriptions of the main character(s). (e.g., "MARA: 38-year-old woman, dark hair pulled back loosely, white collared blouse, tired eyes.")
@@ -125,11 +119,18 @@ Think of these not as "scenes" but as "clips". Clip 2 starts the frame after Cli
 Provide a \`continuity_hook\` describing exactly how Clip N ends, so it perfectly sets up the first frame of Clip N+1.
 
 ═══ OUTPUT FORMAT ═══
+Each clip prompt must follow this exact structure and nothing else:
+Line 1: Plain English wide shot. What is physically happening. Maximum 20 words.
+Line 2: [cut] The close-up that carries emotional weight. Maximum 20 words.
+Line 3: [cut] The specific detail — exact words, names, objects from the script verbatim. Maximum 20 words.
+Line 4: Audio only — music type or 'no music' + dialogue line if spoken, or 'no talking'.
+
+Zero lens specifications. Zero depth of field. Zero cinematography terminology. Zero style descriptors. The model knows how to film. These are shot lists, not film school essays.
+
 Maximum ${maxScenes} clips (hard limit). Each clip should target exactly 4, 6, or 8 seconds.
 Do NOT artificially compress or expand — break the script into the exact number of visual clips needed to tell the story.
-Visual style: ${visualStyleFinal}.
 
-Output must include the \`characterLock\`, \`worldLock\`, and an array of clips containing the 5-part formula prompt, duration, and continuity hook.`;
+Output must include the \`characterLock\`, \`worldLock\`, and an array of clips containing the exact 4-line structured prompt, duration, and continuity hook.`;
 
         const sceneSchema = {
             type: 'OBJECT',
@@ -144,7 +145,7 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                         properties: {
                             clip_number: { type: 'INTEGER' },
                             title: { type: 'STRING' },
-                            prompt: { type: 'STRING', description: 'The 5-part Veo formula: Cinematography + Subject + Action + Context + Style' },
+                            prompt: { type: 'STRING', description: 'The exact 4-line format: Line 1: Wide, Line 2: [cut] Close-up, Line 3: [cut] Detail, Line 4: Audio' },
                             continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the exact first frame of the next clip' },
                             duration: { type: 'INTEGER', description: 'Must be 4, 6, or 8' },
                             directors_note: { type: 'STRING' },

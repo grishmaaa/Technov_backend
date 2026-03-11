@@ -82,8 +82,8 @@ export const getS3Client = () => {
     const config = {
         region,
         endpoint: endpoint || undefined,
-        // Railway S3 buckets prefer path-style access
-        forcePathStyle: true
+        // Railway dashboard explicitly states: "Use virtual-hosted-style URLs."
+        forcePathStyle: false
     };
     if (accessKeyId && secretAccessKey) {
         config.credentials = { accessKeyId, secretAccessKey };
@@ -126,10 +126,21 @@ export const getPublicUrl = (key) => {
     }
     if (endpoint) {
         const cleanEndpoint = endpoint.replace(/\/+$/, '');
-        if (!cleanEndpoint.startsWith('http')) {
-            return `https://${cleanEndpoint}/${bucket}/${key}`;
+
+        // Extract protocol
+        let protocol = 'https://';
+        let host = cleanEndpoint;
+        if (cleanEndpoint.startsWith('http://')) {
+            protocol = 'http://';
+            host = cleanEndpoint.replace('http://', '');
+        } else if (cleanEndpoint.startsWith('https://')) {
+            protocol = 'https://';
+            host = cleanEndpoint.replace('https://', '');
         }
-        return `${cleanEndpoint}/${bucket}/${key}`;
+
+        // Railway dashboard explicitly states: "Use virtual-hosted-style URLs."
+        // Format: https://bucket-name.endpoint-domain.dev/key
+        return `${protocol}${bucket}.${host}/${key}`;
     }
     return `https://${bucket}.storage.railway.app/${key}`;
 };

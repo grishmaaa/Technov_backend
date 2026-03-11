@@ -43,30 +43,17 @@ export const generateScript = async (req, res) => {
             });
         }
 
-        // Duration constraints — auto-detect from script length if not specified
-        let requestedSeconds;
-        if (length === '60s') {
-            requestedSeconds = 60;
-        } else if (length === '30s') {
-            requestedSeconds = 30;
-        } else if (length) {
-            requestedSeconds = parseInt(length) || 30;
-        } else {
-            // Auto-detect: ~100 words per 8-second scene, minimum 2 scenes
-            const wordCount = story.trim().split(/\s+/).length;
-            const estimatedScenes = Math.max(2, Math.ceil(wordCount / 100));
-            requestedSeconds = estimatedScenes * 8;
-        }
-        const finalDuration = Math.min(requestedSeconds, tierConfig.maxDuration);
+        // Let the AI decide scene structure — only enforce tier cap
+        const maxScenes = tierConfig.maxScenes;
+        const visualStyleFinal = visualStyle || 'cinematic';
 
-        // Get or create project
+        // Get project
         let project = await prisma.project.findUnique({ where: { id } });
         if (!project) {
             return res.status(404).json({ error: 'Project not found' });
         }
 
         // Generate cinematic scene document
-        const sceneCount = Math.min(Math.ceil(finalDuration / 8), tierConfig.maxScenes);
         const systemPrompt = `You are a master cinematographer in the tradition of Roger Deakins, Emmanuel Lubezki, and Hoyte van Hoytema. You shoot with your gut. You translate feelings into images.
 
 ═══ SACRED TEXT RULE ═══
@@ -119,8 +106,10 @@ Match the movement speed and type to the EMOTIONAL VELOCITY of the moment, not j
 - Don't replace specific details with "better" alternatives — the writer chose those details for a reason
 
 ═══ OUTPUT FORMAT ═══
-Total target duration: ${finalDuration} seconds. Split into ${sceneCount} scenes of ~8s each.
-Visual style: ${visualStyle || 'cinematic'}.
+Read the script. Break it into as many scenes as the story naturally demands — follow the dramatic beats, location changes, and emotional shifts.
+Maximum ${maxScenes} scenes (hard limit). Each scene should target ~8 seconds for video generation.
+Do NOT artificially compress or expand — if the script has 5 natural beats, make 5 scenes. If it has 3, make 3.
+Visual style: ${visualStyleFinal}.
 For each scene provide:
 - prompt: A cinematic image prompt describing the frame with emotional intent (for the image/video generation model). CRITICAL: If the scene contains any readable text (crossword answers, signs, notes, titles), include that text VERBATIM in the prompt. Example: "the word THRESHOLD is written in cursive in the 7-ACROSS box" — do NOT omit or substitute the specific text.
 - directors_note: What the audience should feel, why this frame matters, what the camera is doing TO the viewer

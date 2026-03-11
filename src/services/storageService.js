@@ -119,6 +119,21 @@ export const getObjectPrefix = () => {
     return getStorageConfig().objectPrefix;
 };
 
+export const getPublicUrl = (key) => {
+    const { bucket, endpoint, publicBaseUrl } = getStorageConfig();
+    if (publicBaseUrl) {
+        return `${publicBaseUrl.replace(/\/+$/, '')}/${key}`;
+    }
+    if (endpoint) {
+        const cleanEndpoint = endpoint.replace(/\/+$/, '');
+        if (!cleanEndpoint.startsWith('http')) {
+            return `https://${cleanEndpoint}/${bucket}/${key}`;
+        }
+        return `${cleanEndpoint}/${bucket}/${key}`;
+    }
+    return `https://${bucket}.storage.railway.app/${key}`;
+};
+
 export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
     const { bucket } = getStorageConfig();
     if (!bucket) {
@@ -140,9 +155,7 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
 
     await client.send(command);
 
-    // Build the URL based on Railway's virtual-hosted-style
-    // Format: https://bucket-id.storage.railway.app/key
-    return `https://${bucket}.storage.railway.app/${key}`;
+    return getPublicUrl(key);
 };
 
 export const uploadDirectoryToStorage = async ({ dirPath, prefix }) => {
@@ -171,7 +184,7 @@ export const uploadDirectoryToStorage = async ({ dirPath, prefix }) => {
         }));
 
         if (file.endsWith('.m3u8')) {
-            masterUrl = `https://${bucket}.storage.railway.app/${key}`;
+            masterUrl = getPublicUrl(key);
         }
     }
 
@@ -196,7 +209,7 @@ export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
 
     await client.send(command);
 
-    return `https://${bucket}.storage.railway.app/${key}`;
+    return getPublicUrl(key);
 };
 
 export const getPresignedUploadUrl = async ({ key, contentType, expiresIn = 900 }) => {

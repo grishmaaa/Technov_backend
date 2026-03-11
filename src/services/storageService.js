@@ -138,9 +138,13 @@ export const getPublicUrl = (key) => {
             host = cleanEndpoint.replace('https://', '');
         }
 
-        // Railway dashboard explicitly states: "Use virtual-hosted-style URLs."
-        // Format: https://bucket-name.endpoint-domain.dev/key
-        return `${protocol}${bucket}.${host}/${key}`;
+        // Railway bucket endpoints often already include the bucket name as a subdomain
+        // Format should be: https://bucket-name.endpoint-domain.dev/key
+        if (host.startsWith(`${bucket}.`)) {
+            return `${protocol}${host}/${key}`;
+        } else {
+            return `${protocol}${bucket}.${host}/${key}`;
+        }
     }
     return `https://${bucket}.storage.railway.app/${key}`;
 };

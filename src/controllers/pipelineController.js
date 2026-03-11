@@ -128,7 +128,8 @@ Line 4: Audio only — music type or 'no music' + dialogue line if spoken, or 'n
 
 Zero lens specifications. Zero depth of field. Zero cinematography terminology. Zero style descriptors. The model knows how to film. These are shot lists, not film school essays.
 
-Maximum ${maxScenes} clips (hard limit). Each clip should target exactly 4, 6, or 8 seconds.
+Maximum 8 clips (hard limit). Never generate more than 8 clips. Never generate fewer than 1.
+Each clip should target exactly 4, 6, or 8 seconds.
 Do NOT artificially compress or expand — break the script into the exact number of visual clips needed to tell the story.
 
 Output must include the \`characterLock\`, \`worldLock\`, and an array of clips containing the exact 4-line structured prompt, duration, and continuity hook.`;

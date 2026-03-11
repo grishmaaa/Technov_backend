@@ -624,11 +624,20 @@ export const generateStoryboard = async (req, res) => {
 
         const visualStyle = project.metadata?.visual_style || 'cinematic';
 
-        // Generate all frames in parallel — they're independent
-        const frameResults = await Promise.allSettled(
-            project.scenes.map(async (scene) => {
+        // Generate all frames sequentially to avoid Google Vertex AI rate limits (Imagen 3 is very strict on concurrency)
+        const frameResults = [];
+        for (const scene of project.scenes) {
+            try {
                 let scenePrompt = scene.promptText;
-                if (project.characters.length > 0) {
+
+                // Inject global locks for maximum visual consistency
+                if (project.metadata?.worldLock) {
+                    scenePrompt += ` Setting Details: ${project.metadata.worldLock} `;
+                }
+
+                if (project.metadata?.characterLock) {
+                    scenePrompt += ` Character Details: ${project.metadata.characterLock} `;
+                } else if (project.characters.length > 0) {
                     const charContext = project.characters
                         .map(c => `${c.name} (${c.role}): ${c.description} `)
                         .join('. ');
@@ -642,7 +651,7 @@ export const generateStoryboard = async (req, res) => {
                     project.aspectRatio,
                 );
 
-                return prisma.scene.update({
+                const updated = await prisma.scene.update({
                     where: { id: scene.id },
                     data: {
                         storyboardUrl: frame.url,
@@ -650,8 +659,12 @@ export const generateStoryboard = async (req, res) => {
                         storyboardApproved: false,
                     },
                 });
-            })
-        );
+                frameResults.push({ status: 'fulfilled', value: updated });
+            } catch (error) {
+                logger.error({ err: error, sceneId: scene.id }, 'Storyboard frame generation failed');
+                frameResults.push({ status: 'rejected', reason: error });
+            }
+        }
 
         const updatedScenes = frameResults.map((result, i) => {
             if (result.status === 'fulfilled') {
@@ -720,8 +733,23 @@ export const regenerateStoryboardFrame = async (req, res) => {
             });
         }
 
+        let finalStoryboardPrompt = prompt;
+        // Inject global locks for maximum visual consistency
+        if (project.metadata?.worldLock) {
+            finalStoryboardPrompt += ` Setting Details: ${project.metadata.worldLock} `;
+        }
+
+        if (project.metadata?.characterLock) {
+            finalStoryboardPrompt += ` Character Details: ${project.metadata.characterLock} `;
+        } else if (project.characters?.length > 0) {
+            const charContext = project.characters
+                .map(c => `${c.name} (${c.role}): ${c.description} `)
+                .join('. ');
+            finalStoryboardPrompt += ` Characters present: ${charContext} `;
+        }
+
         const frame = await generateStoryboardFrame(
-            prompt,
+            finalStoryboardPrompt,
             visualStyle,
             tierConfig.image,
             project?.aspectRatio || '16:9',
@@ -731,7 +759,7 @@ export const regenerateStoryboardFrame = async (req, res) => {
             where: { id: sceneId },
             data: {
                 storyboardUrl: frame.url,
-                storyboardPrompt: prompt,
+                storyboardPrompt: finalStoryboardPrompt,
                 storyboardApproved: false,
             },
         });

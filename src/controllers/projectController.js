@@ -1,8 +1,7 @@
 import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
-import { getPresignedDownloadUrl, getS3Client, getStorageConfig, extractKeyFromUrl, isStorageConfigured } from '../services/storageService.js';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getPresignedDownloadUrl, getStorageConfig, extractKeyFromUrl, isStorageConfigured } from '../services/storageService.js';
 import { generateCharacterPortrait } from '../services/googleImageService.js';
 
 // --- SHARED HELPERS ---

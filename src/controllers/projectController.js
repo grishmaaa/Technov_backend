@@ -1,8 +1,9 @@
 import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
-import { getPresignedDownloadUrl, getS3Client, getStorageConfig, extractKeyFromUrl } from '../services/storageService.js';
+import { getPresignedDownloadUrl, getS3Client, getStorageConfig, extractKeyFromUrl, isStorageConfigured } from '../services/storageService.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { generateCharacterPortrait } from '../services/googleImageService.js';
 
 // --- SHARED HELPERS ---
 
@@ -46,23 +47,23 @@ const getCharDef = (assetSheet, id) => {
 const buildCharPrompt = (charDef) => {
     const phys = charDef.physical_description || {};
     const parts = [
-        charDef.role ? `Role: ${charDef.role}` : '',
-        charDef.age ? `Age: ${charDef.age}` : '',
-        charDef.gender ? `Gender: ${charDef.gender}` : '',
-        charDef.ethnicity ? `Ethnicity: ${charDef.ethnicity}` : '',
-        phys.height ? `Height: ${phys.height}` : '',
-        phys.build ? `Build: ${phys.build}` : '',
-        phys.hair ? `Hair: ${phys.hair}` : '',
-        phys.eyes ? `Eyes: ${phys.eyes}` : '',
-        phys.skin_tone ? `Skin: ${phys.skin_tone}` : '',
-        phys.clothing ? `Clothing: ${phys.clothing}` : '',
+        charDef.role ? `Role: ${charDef.role} ` : '',
+        charDef.age ? `Age: ${charDef.age} ` : '',
+        charDef.gender ? `Gender: ${charDef.gender} ` : '',
+        charDef.ethnicity ? `Ethnicity: ${charDef.ethnicity} ` : '',
+        phys.height ? `Height: ${phys.height} ` : '',
+        phys.build ? `Build: ${phys.build} ` : '',
+        phys.hair ? `Hair: ${phys.hair} ` : '',
+        phys.eyes ? `Eyes: ${phys.eyes} ` : '',
+        phys.skin_tone ? `Skin: ${phys.skin_tone} ` : '',
+        phys.clothing ? `Clothing: ${phys.clothing} ` : '',
         (phys.distinctive_features && phys.distinctive_features.length > 0)
-            ? `Distinctive features: ${phys.distinctive_features.join(', ')}`
+            ? `Distinctive features: ${phys.distinctive_features.join(', ')} `
             : ''
     ];
     // If fallback with no details, use name (role) as prompt
     if (parts.every(p => !p) && charDef.role) {
-        return `A cinematic portrait of ${charDef.role}`;
+        return `A cinematic portrait of ${charDef.role} `;
     }
     return parts.filter(p => p && p.trim() !== '').join('. ');
 };
@@ -161,7 +162,7 @@ export const getProject = async (req, res) => {
             project.scenes = project.scenes.map((s, i) => ({
                 ...s,
                 sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1,
-                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
+                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1} `,
                 description: s.actionDescription || '',
                 prompt: s.promptText || '',
             }));
@@ -226,7 +227,7 @@ export const getProjectFactory = async (req, res) => {
             project.scenes = project.scenes.map((s, i) => ({
                 ...s,
                 sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1,
-                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
+                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1} `,
                 description: s.actionDescription || '',
                 prompt: s.promptText || '',
             }));
@@ -434,7 +435,7 @@ const HERO_KEYWORDS = [
 
 const requiresHeroAssets = (scenes) => {
     return scenes.some((scene) => {
-        const text = `${scene.promptText || ''} ${scene.actionDescription || ''}`.toLowerCase();
+        const text = `${scene.promptText || ''} ${scene.actionDescription || ''} `.toLowerCase();
         return HERO_KEYWORDS.some((keyword) => text.includes(keyword));
     });
 };
@@ -483,13 +484,13 @@ export const decideVisualIdentity = async (req, res) => {
         if (!needsHero && Array.isArray(objects) && objects.length > 0) {
             const livingKeywords = ['alien', 'robot', 'droid', 'creature', 'monster', 'being', 'entity', 'character', 'protagonist'];
             const livingObjects = objects.filter(obj => {
-                const text = `${obj.name} ${obj.description}`.toLowerCase();
+                const text = `${obj.name} ${obj.description} `.toLowerCase();
                 return livingKeywords.some(kw => text.includes(kw));
             });
 
             if (livingObjects.length > 0) {
                 needsHero = true;
-                reason = `Found ${livingObjects.length} creature/character-like objects (e.g. ${livingObjects[0].name}).`;
+                reason = `Found ${livingObjects.length} creature / character - like objects(e.g.${livingObjects[0].name}).`;
             }
         }
 
@@ -540,7 +541,7 @@ export const decideVisualIdentity = async (req, res) => {
                 await Promise.all(castToGenerate.map(async (char) => {
                     try {
                         const description = buildCharPrompt(char);
-                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${char.role || "Character"}` : description;
+                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${char.role || "Character"} ` : description;
 
                         const portraitUrl = await generateCharacterPortrait(finalPrompt, style);
 
@@ -588,7 +589,7 @@ export const decideVisualIdentity = async (req, res) => {
             if (rawCharacters.length === 0 && objects.length > 0) {
                 const livingKeywords = ['alien', 'robot', 'droid', 'creature', 'monster', 'being', 'entity', 'character', 'protagonist'];
                 const livingObjects = objects.filter(obj => {
-                    const text = `${obj.name} ${obj.description}`.toLowerCase();
+                    const text = `${obj.name} ${obj.description} `.toLowerCase();
                     return livingKeywords.some(kw => text.includes(kw));
                 });
                 // Treat these objects as characters
@@ -622,7 +623,7 @@ export const decideVisualIdentity = async (req, res) => {
                     if (c.physical_description.skin_tone) parts.push(`${c.physical_description.skin_tone} skin`);
 
                     if (c.physical_description.distinctive_features && Array.isArray(c.physical_description.distinctive_features)) {
-                        parts.push(`Features: ${c.physical_description.distinctive_features.join(', ')}`);
+                        parts.push(`Features: ${c.physical_description.distinctive_features.join(', ')} `);
                     }
 
                     description = parts.join('. ');
@@ -636,7 +637,7 @@ export const decideVisualIdentity = async (req, res) => {
                 }
 
                 return {
-                    id: c.id || `temp-${index}-${Date.now()}`,
+                    id: c.id || `temp - ${index} -${Date.now()} `,
                     name: c.role || c.name || "Unknown Character",
                     description: description,
                     imageUrl: imageUrl,
@@ -677,7 +678,7 @@ export const decideVisualIdentity = async (req, res) => {
                 // Only add this if we are SURE we need heroes but found none
                 if (needsHero) {
                     characters.push({
-                        id: `fallback-${Date.now()}`,
+                        id: `fallback - ${Date.now()} `,
                         name: keywordMatch ? "Detected Creature/Alien" : "Unknown Protagonist",
                         description: "Automatically detected from story context. Please generate a reference image.",
                         imageUrl: null,
@@ -753,7 +754,7 @@ export const generateProjectAssets = async (req, res) => {
             const description = buildCharPrompt(charDef);
 
             // If it's a fallback char w/o description, ensure we have a valid prompt
-            const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${charDef.role}` : description;
+            const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${charDef.role} ` : description;
 
             const portraitUrl = await generateCharacterPortrait(
                 finalPrompt,

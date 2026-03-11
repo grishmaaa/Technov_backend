@@ -43,10 +43,20 @@ export const generateScript = async (req, res) => {
             });
         }
 
-        // Duration constraints
-        let requestedSeconds = 8;
-        if (length === '60s') requestedSeconds = 60;
-        else if (length === '30s') requestedSeconds = 30;
+        // Duration constraints — auto-detect from script length if not specified
+        let requestedSeconds;
+        if (length === '60s') {
+            requestedSeconds = 60;
+        } else if (length === '30s') {
+            requestedSeconds = 30;
+        } else if (length) {
+            requestedSeconds = parseInt(length) || 30;
+        } else {
+            // Auto-detect: ~100 words per 8-second scene, minimum 2 scenes
+            const wordCount = story.trim().split(/\s+/).length;
+            const estimatedScenes = Math.max(2, Math.ceil(wordCount / 100));
+            requestedSeconds = estimatedScenes * 8;
+        }
         const finalDuration = Math.min(requestedSeconds, tierConfig.maxDuration);
 
         // Get or create project

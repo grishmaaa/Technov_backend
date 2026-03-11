@@ -454,7 +454,7 @@ export const generateCharacters = async (req, res) => {
         res.json({ characters });
     } catch (error) {
         logger.error({ err: error }, 'Character generation failed');
-        res.status(500).json({ error: 'Character generation failed', details: error.message });
+        res.status(500).json({ error: error.message || 'Character generation failed', details: error.message });
     }
 };
 
@@ -494,7 +494,7 @@ export const regenerateCharacter = async (req, res) => {
         res.json({ character: updated });
     } catch (error) {
         logger.error({ err: error }, 'Character regeneration failed');
-        res.status(500).json({ error: 'Character regeneration failed' });
+        res.status(500).json({ error: error.message || 'Character regeneration failed' });
     }
 };
 
@@ -745,7 +745,7 @@ export const regenerateStoryboardFrame = async (req, res) => {
         });
     } catch (error) {
         logger.error({ err: error }, 'Storyboard frame regeneration failed');
-        res.status(500).json({ error: 'Storyboard regeneration failed' });
+        res.status(500).json({ error: error.message || 'Failed to regenerate storyboard frame' });
     }
 };
 

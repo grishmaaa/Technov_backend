@@ -119,7 +119,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
         // 3. Generate video for each scene (all scene submitted, progressive reveal)
         for (let i = 0; i < project.scenes.length; i++) {
             const scene = project.scenes[i];
-            const sceneNum = i + 1;
+            const sceneNum = scene.orderIndex !== undefined ? scene.orderIndex + 1 : i + 1;
 
             logger.info({ sceneNum, totalScenes, sceneId: scene.id }, `Processing scene ${sceneNum}/${totalScenes}`);
 

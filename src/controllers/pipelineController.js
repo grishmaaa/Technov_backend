@@ -185,8 +185,7 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                 prisma.scene.create({
                     data: {
                         projectId: id,
-                        sceneNumber: clip.clip_number || index + 1,
-                        orderIndex: index,
+                        orderIndex: clip.clip_number !== undefined ? clip.clip_number - 1 : index,
                         title: clip.title || `Clip ${index + 1}`,
                         promptText: clip.prompt, // The 5-part Veo formula
                         actionDescription: clip.continuity_hook, // Storing continuity hook here temporarily
@@ -244,9 +243,9 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
             characterLock: parsed.characterLock,
             scenes: scenes.map((s, i) => ({
                 id: s.id,
-                sceneNumber: s.sceneNumber,
+                sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1, // Expose sceneNumber for frontend mapping
                 title: s.title,
-                description: s.description, // Mapped to continuity_hook
+                description: s.actionDescription, // Mapped to continuity_hook
                 prompt: s.promptText,       // Mapped to 5-part formula
                 directorsNote: s.directorsNote,
                 duration: s.duration,
@@ -858,7 +857,7 @@ Output a JSON array of the clip numbers that need to be regenerated, and provide
 Example: If user says "Make clip 3 raining", output: { "affected_clips": [3], "edits": [{ "clip_number": 3, "new_prompt": "...[original prompt]... Heavy rain falling."}] }
 If they say "The ending is too slow", maybe clip 4 and 5 need action adjustments.`;
 
-        const clipContext = project.scenes.map(s => `Clip ${s.sceneNumber}: ${s.promptText}`).join('\n');
+        const clipContext = project.scenes.map(s => `Clip ${s.orderIndex + 1}: ${s.promptText}`).join('\n');
 
         const schema = {
             type: 'OBJECT',
@@ -893,7 +892,7 @@ If they say "The ending is too slow", maybe clip 4 and 5 need action adjustments
         // Update the prompts for the affected clips and reset their state
         await Promise.all(
             parsed.edits.map(async (edit) => {
-                const sceneToUpdate = project.scenes.find(s => s.sceneNumber === edit.clip_number);
+                const sceneToUpdate = project.scenes.find(s => s.orderIndex === edit.clip_number - 1);
                 if (sceneToUpdate) {
                     await prisma.scene.update({
                         where: { id: sceneToUpdate.id },

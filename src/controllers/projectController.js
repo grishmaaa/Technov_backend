@@ -156,6 +156,17 @@ export const getProject = async (req, res) => {
             }
         }
 
+        // MAP RECORD FIELDS TO FRONTEND UI FIELDS
+        if (project.scenes) {
+            project.scenes = project.scenes.map((s, i) => ({
+                ...s,
+                sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1,
+                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
+                description: s.actionDescription || '',
+                prompt: s.promptText || '',
+            }));
+        }
+
         res.json(project);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch project' });
@@ -208,6 +219,17 @@ export const getProjectFactory = async (req, res) => {
                     asset.url = await signUrl(asset.url);
                 }
             }
+        }
+
+        // MAP RECORD FIELDS TO FRONTEND UI FIELDS
+        if (project.scenes) {
+            project.scenes = project.scenes.map((s, i) => ({
+                ...s,
+                sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1,
+                title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
+                description: s.actionDescription || '',
+                prompt: s.promptText || '',
+            }));
         }
 
         res.json({ project, scenes: project.scenes });

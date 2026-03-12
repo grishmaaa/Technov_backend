@@ -169,7 +169,7 @@ export const generateCharacterPortrait = async (description, style, options = {}
  * Generate a storyboard frame for a scene.
  */
 export const generateStoryboardFrame = async (sceneDescription, style, options = {}, aspectRatio = '16:9') => {
-    const prompt = `Cinematic storyboard frame: ${sceneDescription}. Visual Style: ${style}. Professional film storyboard quality, detailed composition, cinematic lighting and color grading, high detail, photorealistic.`;
+    const prompt = `A single cinematic movie still: ${sceneDescription}. Visual Style: ${style}. Single unified scene, no grid, no panels, detailed composition, cinematic lighting and color grading, high detail, photorealistic.`;
 
     return generateImage(prompt, {
         aspectRatio,

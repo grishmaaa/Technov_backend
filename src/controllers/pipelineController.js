@@ -10,7 +10,7 @@ import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getTierConfig, calculateCreditCost } from '../config/modelConfig.js';
 import { generateStructuredOutput, safetyCheck, editScene, developScript } from '../services/llmService.js';
-import { generateCharacterPortrait, generateStoryboardFrame } from '../services/googleImageService.js';
+import { generateCharacterPortrait, generateStoryboardFrame } from '../services/falService.js';
 import { logger } from '../logger.js';
 
 // ============================================================
@@ -624,33 +624,31 @@ export const generateStoryboard = async (req, res) => {
 
         const visualStyle = project.metadata?.visual_style || 'cinematic';
 
-        // Generate all frames sequentially to avoid Google Vertex AI rate limits (Imagen 3 is very strict on concurrency)
-        const frameResults = [];
-        for (const scene of project.scenes) {
-            try {
+        // Generate all frames in parallel using Fal.ai (which has much higher rate limits)
+        const frameResults = await Promise.allSettled(
+            project.scenes.map(async (scene) => {
                 let scenePrompt = scene.promptText;
 
-                // Use the base characters rather than the massive `characterLock` to prevent Vertex AI from rejecting >480 chars
                 if (project.characters.length > 0) {
                     const charContext = project.characters
-                        .map(c => `${c.name}: ${c.description.substring(0, 80)}`)
+                        .map(c => `${c.name}: ${c.description.substring(0, 150)}`)
                         .join('. ');
                     scenePrompt += ` Chars: ${charContext}`;
                 }
 
-                // Strictly truncate to 300 chars so the googleImageService wrapper doesn't exceed 480 limit
-                if (scenePrompt.length > 300) {
-                    scenePrompt = scenePrompt.substring(0, 300);
+                // Truncate safely
+                if (scenePrompt.length > 600) {
+                    scenePrompt = scenePrompt.substring(0, 600);
                 }
 
                 const frame = await generateStoryboardFrame(
                     scenePrompt,
                     visualStyle,
                     tierConfig.image,
-                    project.aspectRatio,
+                    project.aspectRatio
                 );
 
-                const updated = await prisma.scene.update({
+                return prisma.scene.update({
                     where: { id: scene.id },
                     data: {
                         storyboardUrl: frame.url,
@@ -658,16 +656,8 @@ export const generateStoryboard = async (req, res) => {
                         storyboardApproved: false,
                     },
                 });
-                frameResults.push({ status: 'fulfilled', value: updated });
-
-                // Sleep for 5.0 seconds to respect Google Vertex AI 15 QPM limits
-                // At 5 seconds per frame, maximum 12 requests per minute, well under the 15 quota.
-                await new Promise(resolve => setTimeout(resolve, 5000));
-            } catch (error) {
-                logger.error({ err: error, sceneId: scene.id }, 'Storyboard frame generation failed');
-                frameResults.push({ status: 'rejected', reason: error });
-            }
-        }
+            })
+        );
 
         const updatedScenes = frameResults.map((result, i) => {
             if (result.status === 'fulfilled') {

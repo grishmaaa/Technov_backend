@@ -248,7 +248,7 @@ THE PROCESS:
 5. If the script/outline looks complete and ready for visual generation, encourage them to click the "Generate Scenes" button.`;
 
     const generationConfig = {
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         temperature: 0.7,
         topP: 0.95,
     };
@@ -326,7 +326,7 @@ Return a structured safety assessment.`;
         systemPrompt,
         `Review this story for safety:\n\n"${storyText}"`,
         schema,
-        { model: options.model || 'gemini-2.5-flash', temperature: 0.1, maxTokens: 512 },
+        { model: options.model || 'gemini-2.5-flash', temperature: 0.1, maxTokens: 2048 },
     );
 
     return parsed || { safe: true, severity: 'SAFE', violations: [], suggested_alternative: null };
@@ -371,7 +371,7 @@ The edited prompt should describe what the audience FEELS, not just what the cam
         systemPrompt,
         userPrompt,
         schema,
-        { model: options.model || 'gemini-2.5-flash', temperature: 0.6, maxTokens: 2048 },
+        { model: options.model || 'gemini-2.5-flash', temperature: 0.6, maxTokens: 4096 },
     );
 
     return {

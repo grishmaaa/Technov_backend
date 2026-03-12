@@ -660,8 +660,9 @@ export const generateStoryboard = async (req, res) => {
                 });
                 frameResults.push({ status: 'fulfilled', value: updated });
 
-                // Sleep for 3.5 seconds to respect Google Vertex AI 15 QPM limits
-                await new Promise(resolve => setTimeout(resolve, 3500));
+                // Sleep for 5.0 seconds to respect Google Vertex AI 15 QPM limits
+                // At 5 seconds per frame, maximum 12 requests per minute, well under the 15 quota.
+                await new Promise(resolve => setTimeout(resolve, 5000));
             } catch (error) {
                 logger.error({ err: error, sceneId: scene.id }, 'Storyboard frame generation failed');
                 frameResults.push({ status: 'rejected', reason: error });

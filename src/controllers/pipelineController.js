@@ -131,7 +131,7 @@ Zero lens specifications. Zero depth of field. Zero cinematography terminology. 
 
 Maximum 8 clips (hard limit). Never generate more than 8 clips. Never generate fewer than 1.
 Each clip should target exactly 4, 6, or 8 seconds.
-Do NOT artificially compress or expand — break the script into the exact number of visual clips needed to tell the story.
+EFFICIENCY RULE: If the story is short (e.g., an 8-second moment), do NOT force it into 8 clips. One or two long, high-quality cinematic shots are better than many frantic cuts. Do NOT naturally segment smooth continuous actions. Quality over quantity.
 
 Output must include the \`characterLock\`, \`worldLock\`, and an array of clips containing the exact 4-line structured prompt, duration, and continuity hook.`;
 
@@ -631,14 +631,14 @@ export const generateStoryboard = async (req, res) => {
 
                 if (project.characters.length > 0) {
                     const charContext = project.characters
-                        .map(c => `${c.name}: ${c.description.substring(0, 150)}`)
+                        .map(c => `${c.name}: ${c.description.substring(0, 500)}`)
                         .join('. ');
-                    scenePrompt += ` Chars: ${charContext}`;
+                    scenePrompt += ` | VISUAL CONSTANTS: ${charContext}`;
                 }
 
-                // Truncate safely
-                if (scenePrompt.length > 600) {
-                    scenePrompt = scenePrompt.substring(0, 600);
+                // Truncate safely - Fal/Flux supports long prompts
+                if (scenePrompt.length > 1500) {
+                    scenePrompt = scenePrompt.substring(0, 1500);
                 }
 
                 const frame = await generateStoryboardFrame(

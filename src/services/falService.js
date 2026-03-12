@@ -126,7 +126,7 @@ export const generateCharacterPortrait = async (description, style, options = {}
  * @param {string} style - Visual style
  * @param {object} options - Model config from tier
  * @param {string} [aspectRatio] - Target aspect ratio
- * @param {string} [referenceImageUrl] - Optional reference image URL for img2img continuity
+ * @param {string[]} [characterPortraitUrls] - Optional list of character portrait URLs for IP-Adapter consistency
  * @returns {Promise<{url: string, contentType: string}>}
  */
 export const generateStoryboardFrame = async (
@@ -134,19 +134,27 @@ export const generateStoryboardFrame = async (
     style,
     options = {},
     aspectRatio = '16:9',
-    referenceImageUrl = null
+    characterPortraitUrls = []
 ) => {
     const prompt = `A single cinematic movie still: ${sceneDescription}. Visual Style: ${style}. Single unified scene, no grid, no panels, detailed composition, cinematic lighting and color grading, high detail, photorealistic.`;
 
-    if (referenceImageUrl) {
-        logger.info({ referenceImageUrl, promptLength: prompt.length }, 'Generating storyboard frame via img2img (continuity chain)');
+    if (characterPortraitUrls && characterPortraitUrls.length > 0) {
+        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating storyboard frame via Flux General (IP-Adapters)');
 
-        const result = await fal.subscribe('fal-ai/flux/dev/image-to-image', {
+        // Map portrait URLs to fal-ai IP-Adapter format
+        const ip_adapters = characterPortraitUrls.map(url => ({
+            image_url: url,
+            model: 'ip_adapter_plus_face',
+            scale: 0.8
+        }));
+
+        const result = await fal.subscribe('fal-ai/flux-general/image-to-image', {
             input: {
                 prompt,
-                image_url: referenceImageUrl,
-                strength: 0.19,
+                ip_adapters,
+                image_url: null, // No frame chaining, just portrait refs
                 num_inference_steps: options.steps || 28,
+                strength: 0.85,
                 num_images: 1,
                 output_format: 'png',
                 enable_safety_checker: true,

@@ -629,26 +629,36 @@ export const generateStoryboard = async (req, res) => {
         }
 
         const visualStyle = project.metadata?.visual_style || 'cinematic';
-
         const characterLock = project.metadata?.characterLock || '';
         const worldLock = project.metadata?.worldLock || '';
-        let previousFrameUrl = null;
-        const updatedScenes = [];
 
-        for (const scene of project.scenes) {
-            try {
+        // Generate all frames in parallel using IP-Adapters for character consistency
+        const frameResults = await Promise.allSettled(
+            project.scenes.map(async (scene) => {
                 let scenePrompt = `${characterLock} ${worldLock} ${scene.promptText}`.trim();
-                if (scenePrompt.length > 1500) scenePrompt = scenePrompt.substring(0, 1500);
+
+                // Truncate safely - Fal/Flux supports long prompts
+                if (scenePrompt.length > 1500) {
+                    scenePrompt = scenePrompt.substring(0, 1500);
+                }
+
+                // Look up character portraits for characters present in this scene
+                const portraits = (scene.charactersPresent || [])
+                    .map(charName => {
+                        const character = project.characters.find(c => c.name.toLowerCase() === charName.toLowerCase());
+                        return character?.portraitUrl;
+                    })
+                    .filter(url => !!url);
 
                 const frame = await generateStoryboardFrame(
                     scenePrompt,
                     visualStyle,
                     tierConfig.image,
                     project.aspectRatio,
-                    previousFrameUrl // null for scene 1, previous frame URL for all others
+                    portraits
                 );
 
-                const updated = await prisma.scene.update({
+                return prisma.scene.update({
                     where: { id: scene.id },
                     data: {
                         storyboardUrl: frame.url,
@@ -656,15 +666,17 @@ export const generateStoryboard = async (req, res) => {
                         storyboardApproved: false,
                     },
                 });
+            })
+        );
 
-                previousFrameUrl = frame.url;
-                updatedScenes.push(updated);
-            } catch (err) {
-                logger.error({ err, sceneId: scene.id }, 'Storyboard frame generation failed');
-                previousFrameUrl = null; // reset chain on failure, don't propagate bad ref
-                updatedScenes.push(scene);
+        const updatedScenes = frameResults.map((result, i) => {
+            if (result.status === 'fulfilled') {
+                return result.value;
+            } else {
+                logger.error({ err: result.reason, sceneId: project.scenes[i].id }, 'Storyboard frame generation failed');
+                return project.scenes[i];
             }
-        }
+        });
 
         await transitionProjectState({
             projectId: id,

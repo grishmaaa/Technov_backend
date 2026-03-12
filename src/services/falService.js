@@ -145,7 +145,7 @@ export const generateStoryboardFrame = async (
             input: {
                 prompt,
                 image_url: referenceImageUrl,
-                strength: 0.65,
+                strength: 0.19,
                 num_inference_steps: options.steps || 28,
                 num_images: 1,
                 output_format: 'png',

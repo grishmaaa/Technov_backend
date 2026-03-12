@@ -114,6 +114,7 @@ model Scene {
   storyboardApproved Boolean @default(false)
   videoUrl         String?  @map("video_url")
   lastFrameUrl     String?  @map("last_frame_url")
+  charactersPresent String[] @default([]) @map("characters_present")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

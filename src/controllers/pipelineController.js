@@ -150,8 +150,13 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                             prompt: { type: 'STRING', description: 'The exact 4-line format: Line 1: Wide, Line 2: [cut] Close-up, Line 3: [cut] Detail, Line 4: Audio' },
                             continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the exact first frame of the next clip' },
                             duration: { type: 'INTEGER', description: 'Must be 4, 6, or 8' },
+                            characters_present: {
+                                type: 'ARRAY',
+                                items: { type: 'STRING' },
+                                description: 'Names of characters who appear in this clip, exactly as spelled in the characters array'
+                            }
                         },
-                        required: ['clip_number', 'prompt', 'continuity_hook', 'duration'],
+                        required: ['clip_number', 'prompt', 'continuity_hook', 'duration', 'characters_present'],
                     },
                 },
                 characters: {
@@ -191,6 +196,7 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                         promptText: clip.prompt, // The 5-part Veo formula
                         actionDescription: clip.continuity_hook, // Storing continuity hook here temporarily
                         duration: clip.duration_seconds || 8,
+                        charactersPresent: clip.characters_present || [],
                         state: 'DRAFT',
                     },
                 })
@@ -624,26 +630,25 @@ export const generateStoryboard = async (req, res) => {
 
         const visualStyle = project.metadata?.visual_style || 'cinematic';
 
-        // Generate all frames in parallel using Fal.ai (which has much higher rate limits)
-        const frameResults = await Promise.allSettled(
-            project.scenes.map(async (scene) => {
-                const characterLock = project.metadata?.characterLock || '';
-                const worldLock = project.metadata?.worldLock || '';
-                let scenePrompt = `${characterLock} ${worldLock} ${scene.promptText}`.trim();
+        const characterLock = project.metadata?.characterLock || '';
+        const worldLock = project.metadata?.worldLock || '';
+        let previousFrameUrl = null;
+        const updatedScenes = [];
 
-                // Truncate safely - Fal/Flux supports long prompts
-                if (scenePrompt.length > 1500) {
-                    scenePrompt = scenePrompt.substring(0, 1500);
-                }
+        for (const scene of project.scenes) {
+            try {
+                let scenePrompt = `${characterLock} ${worldLock} ${scene.promptText}`.trim();
+                if (scenePrompt.length > 1500) scenePrompt = scenePrompt.substring(0, 1500);
 
                 const frame = await generateStoryboardFrame(
                     scenePrompt,
                     visualStyle,
                     tierConfig.image,
-                    project.aspectRatio
+                    project.aspectRatio,
+                    previousFrameUrl // null for scene 1, previous frame URL for all others
                 );
 
-                return prisma.scene.update({
+                const updated = await prisma.scene.update({
                     where: { id: scene.id },
                     data: {
                         storyboardUrl: frame.url,
@@ -651,17 +656,15 @@ export const generateStoryboard = async (req, res) => {
                         storyboardApproved: false,
                     },
                 });
-            })
-        );
 
-        const updatedScenes = frameResults.map((result, i) => {
-            if (result.status === 'fulfilled') {
-                return result.value;
-            } else {
-                logger.error({ err: result.reason, sceneId: project.scenes[i].id }, 'Storyboard frame generation failed');
-                return project.scenes[i];
+                previousFrameUrl = frame.url;
+                updatedScenes.push(updated);
+            } catch (err) {
+                logger.error({ err, sceneId: scene.id }, 'Storyboard frame generation failed');
+                previousFrameUrl = null; // reset chain on failure, don't propagate bad ref
+                updatedScenes.push(scene);
             }
-        });
+        }
 
         await transitionProjectState({
             projectId: id,
@@ -671,6 +674,7 @@ export const generateStoryboard = async (req, res) => {
         });
 
         res.json({
+            projectId: id,
             scenes: updatedScenes.map(s => ({
                 id: s.id,
                 orderIndex: s.orderIndex,

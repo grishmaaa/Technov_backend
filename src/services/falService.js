@@ -126,10 +126,55 @@ export const generateCharacterPortrait = async (description, style, options = {}
  * @param {string} style - Visual style
  * @param {object} options - Model config from tier
  * @param {string} [aspectRatio] - Target aspect ratio
+ * @param {string} [referenceImageUrl] - Optional reference image URL for img2img continuity
  * @returns {Promise<{url: string, contentType: string}>}
  */
-export const generateStoryboardFrame = async (sceneDescription, style, options = {}, aspectRatio = '16:9') => {
+export const generateStoryboardFrame = async (
+    sceneDescription,
+    style,
+    options = {},
+    aspectRatio = '16:9',
+    referenceImageUrl = null
+) => {
     const prompt = `A single cinematic movie still: ${sceneDescription}. Visual Style: ${style}. Single unified scene, no grid, no panels, detailed composition, cinematic lighting and color grading, high detail, photorealistic.`;
+
+    if (referenceImageUrl) {
+        logger.info({ referenceImageUrl, promptLength: prompt.length }, 'Generating storyboard frame via img2img (continuity chain)');
+
+        const result = await fal.subscribe('fal-ai/flux/dev/image-to-image', {
+            input: {
+                prompt,
+                image_url: referenceImageUrl,
+                strength: 0.65,
+                num_inference_steps: options.steps || 28,
+                num_images: 1,
+                output_format: 'png',
+                enable_safety_checker: true,
+            }
+        });
+
+        if (!result.data?.images?.[0]?.url) {
+            throw new Error('fal.ai returned no image');
+        }
+
+        const imageUrl = result.data.images[0].url;
+        const contentType = result.data.images[0].content_type || 'image/png';
+
+        // Persist to S3 storage
+        if (isStorageConfigured()) {
+            try {
+                const imgRes = await fetch(imageUrl);
+                if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
+                const buffer = Buffer.from(await imgRes.arrayBuffer());
+                const key = buildObjectKey({ userId: 'fal-images', extension: 'png' });
+                const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
+                return { url: persistedUrl, contentType };
+            } catch (persistErr) {
+                logger.warn({ err: persistErr }, 'Failed to persist, using temp URL');
+            }
+        }
+        return { url: imageUrl, contentType };
+    }
 
     return generateImage(prompt, {
         model: options.model || 'fal-ai/flux/schnell',

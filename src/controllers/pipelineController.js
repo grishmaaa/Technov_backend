@@ -627,14 +627,9 @@ export const generateStoryboard = async (req, res) => {
         // Generate all frames in parallel using Fal.ai (which has much higher rate limits)
         const frameResults = await Promise.allSettled(
             project.scenes.map(async (scene) => {
-                let scenePrompt = scene.promptText;
-
-                if (project.characters.length > 0) {
-                    const charContext = project.characters
-                        .map(c => `${c.name}: ${c.description.substring(0, 500)}`)
-                        .join('. ');
-                    scenePrompt += ` | VISUAL CONSTANTS: ${charContext}`;
-                }
+                const characterLock = project.metadata?.characterLock || '';
+                const worldLock = project.metadata?.worldLock || '';
+                let scenePrompt = `${characterLock} ${worldLock} ${scene.promptText}`.trim();
 
                 // Truncate safely - Fal/Flux supports long prompts
                 if (scenePrompt.length > 1500) {
@@ -726,17 +721,12 @@ export const regenerateStoryboardFrame = async (req, res) => {
             });
         }
 
-        let finalStoryboardPrompt = prompt;
+        const characterLock = project.metadata?.characterLock || '';
+        const worldLock = project.metadata?.worldLock || '';
+        let finalStoryboardPrompt = `${characterLock} ${worldLock} ${prompt}`.trim();
 
-        if (project.characters?.length > 0) {
-            const charContext = project.characters
-                .map(c => `${c.name}: ${c.description.substring(0, 80)}`)
-                .join('. ');
-            finalStoryboardPrompt += ` Chars: ${charContext}`;
-        }
-
-        if (finalStoryboardPrompt.length > 300) {
-            finalStoryboardPrompt = finalStoryboardPrompt.substring(0, 300);
+        if (finalStoryboardPrompt.length > 1500) {
+            finalStoryboardPrompt = finalStoryboardPrompt.substring(0, 1500);
         }
 
         const frame = await generateStoryboardFrame(

@@ -152,7 +152,6 @@ export const generateStoryboardFrame = async (
             input: {
                 prompt,
                 ip_adapters,
-                image_url: null, // No frame chaining, just portrait refs
                 num_inference_steps: options.steps || 28,
                 strength: 0.85,
                 num_images: 1,

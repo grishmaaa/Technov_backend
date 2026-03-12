@@ -174,8 +174,14 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
             const response = result.response;
 
             if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
-                const blockReason = response?.candidates?.[0]?.finishReason;
-                throw new Error(`Gemini returned no content. Finish reason: ${blockReason || 'unknown'}`);
+                const candidate = response?.candidates?.[0];
+                const finishReason = candidate?.finishReason || 'UNKNOWN';
+
+                if (finishReason === 'MAX_TOKENS') {
+                    throw new Error(`AI response was too long for the current limit (MAX_TOKENS). Try a shorter prompt or simpler request.`);
+                }
+
+                throw new Error(`Gemini returned no content. Finish reason: ${finishReason}`);
             }
 
             const text = response.candidates[0].content.parts[0].text;
@@ -242,7 +248,7 @@ THE PROCESS:
 5. If the script/outline looks complete and ready for visual generation, encourage them to click the "Generate Scenes" button.`;
 
     const generationConfig = {
-        maxOutputTokens: 2048,
+        maxOutputTokens: 4096,
         temperature: 0.7,
         topP: 0.95,
     };

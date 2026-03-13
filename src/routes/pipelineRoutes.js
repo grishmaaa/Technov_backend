@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { validateStoryInput as storyShield } from '../middleware/shield.js';
+import { createGenerationJob } from '../controllers/jobController.js';
 import {
     developIdea,
     generateScript,
@@ -54,6 +55,9 @@ router.post('/projects/:id/ingredients/generate', generateIngredients);
 router.post('/projects/:id/ingredients/:assetId/regenerate', regenerateIngredient);
 router.post('/projects/:id/ingredients/:assetId/approve', approveIngredient);
 router.post('/projects/:id/ingredients/approve-all', approveAllIngredients);
+
+// --- Stage 5: Video Generation ---
+router.post('/projects/:id/generate-video', createGenerationJob);
 
 // --- Stage 6: Video Agent Loop ---
 router.post('/projects/:id/edit-video', editVideo);

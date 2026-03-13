@@ -119,8 +119,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         duration: Math.min(Math.max(duration, 5), 10),
         aspect_ratio: aspectRatio,
         quality: finalQuality.toUpperCase(),
-        with_audio: true, // For Kling
-        generate_audio: true, // For Seedance/Sora
+        sound: 'on', // New explicit flag for Kling v3 / Seedance
     };
 
     // Use Webhooks if APP_URL is configured (Enterprise Mode)
@@ -133,6 +132,8 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
     if (elementList.length > 0) payload.element_list = elementList;
     if (referenceImages.length > 0) payload.reference_images = referenceImages;
 
+    // Use model_params for advanced control if needed, 
+    // but Kling v3 text-to-video usually prefers root level params in EvoLink wrapper.
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -179,7 +180,10 @@ export const pollVideoTask = async (taskId, options = {}) => {
                 }
             }
 
-            if (status === 'completed' || status === 'succeed') {
+            const isFinished = ['completed', 'succeed', 'success'].includes(status?.toLowerCase());
+            const isFailed = ['failed', 'error', 'canceled'].includes(status?.toLowerCase());
+
+            if (isFinished) {
                 const videoUrl = extractVideoUrl(data);
 
                 if (!videoUrl) {

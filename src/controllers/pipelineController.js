@@ -435,7 +435,7 @@ export const generateCharacters = async (req, res) => {
                 actorType: 'SYSTEM',
                 reason: 'No characters in script — skipping',
             });
-            return res.json({ characters: [], message: 'No characters found, skipping to storyboard' });
+            return res.json({ characters: [], message: 'No characters found, skipping to world ingredients' });
         }
 
         // Generate portraits in parallel — they're independent operations

@@ -114,29 +114,35 @@ export const processGenerationJob = async (jobId, context = {}) => {
             data: { status: 'PROCESSING', startedAt: new Date() },
         });
 
-        // 3. Ensure all characters have Kling Custom Element IDs for consistency
+        // 3. Ensure all characters have Kling Custom Element IDs for consistency (Only for Kling models)
+        const isKling = tierConfig.video.model.toLowerCase().includes('kling');
         const elementList = [];
-        for (const char of project.characters) {
-            if (!char.elementId && char.portraitUrl) {
-                try {
-                    logger.info({ charName: char.name }, 'Creating missing Kling Custom Element for character');
-                    const { elementId } = await createCharacterElement(
-                        char.name,
-                        char.description,
-                        char.portraitUrl
-                    );
-                    await prisma.character.update({
-                        where: { id: char.id },
-                        data: { elementId }
-                    });
-                    elementList.push(elementId);
-                } catch (err) {
-                    logger.error({ err, charName: char.name }, 'Failed to create character element');
-                    // Fallback: we just continue without the elementId, less consistency but job won't crash
+
+        if (isKling) {
+            for (const char of project.characters) {
+                if (!char.elementId && char.portraitUrl) {
+                    try {
+                        logger.info({ charName: char.name }, 'Creating missing Kling Custom Element for character');
+                        const { elementId } = await createCharacterElement(
+                            char.name,
+                            char.description,
+                            char.portraitUrl
+                        );
+                        await prisma.character.update({
+                            where: { id: char.id },
+                            data: { elementId }
+                        });
+                        elementList.push(elementId);
+                    } catch (err) {
+                        logger.error({ err: err.message, charName: char.name }, 'Failed to create character element — falling back to text-only prompts');
+                        // Fallback: we just continue without the elementId, less consistency but job won't crash
+                    }
+                } else if (char.elementId) {
+                    elementList.push(char.elementId);
                 }
-            } else if (char.elementId) {
-                elementList.push(char.elementId);
             }
+        } else {
+            logger.info({ model: tierConfig.video.model }, 'Skipping custom elements (Not a Kling model)');
         }
 
         // 4. Collect World Ingredients (Reference Images)

@@ -119,6 +119,8 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         duration: Math.min(Math.max(duration, 5), 10),
         aspect_ratio: aspectRatio,
         quality: finalQuality.toUpperCase(),
+        with_audio: true, // For Kling
+        generate_audio: true, // For Seedance/Sora
     };
 
     if (imageUrl) payload.image_url = imageUrl;
@@ -238,14 +240,12 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     const payload = {
         model: 'kling-custom-element',
-        model_params: {
-            element_name: safeName,
-            element_description: safeDescription,
-            reference_type: 'image_refer',
-            element_image_list: {
-                frontal_image: frontalImageUrl,
-                refer_images: (referImages || []).map(url => ({ image_url: url })),
-            },
+        element_name: safeName,
+        element_description: safeDescription,
+        reference_type: 'image_refer',
+        element_image_list: {
+            frontal_image: frontalImageUrl,
+            refer_images: (referImages || []).map(url => ({ image_url: url })),
         },
     };
 

@@ -17,7 +17,7 @@ const PLANS = {
         credits: 1200,
     },
     pro: {
-        name: 'Pro Plan',
+        name: 'Standard Plan',
         amount: 49500, // $495.00
         currency: 'USD',
         credits: 3600,

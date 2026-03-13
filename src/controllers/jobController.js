@@ -42,18 +42,15 @@ export const createGenerationJob = async (req, res) => {
         const requiredCredits = Math.ceil(totalDuration); // 1 credit = 1 second
 
         // 2. Enforce Plan Limits
-        const userPlan = req.user.plan || 'basic'; // TODO: Change default to 'free' after migration
-        if (userPlan === 'free') {
-            return res.status(403).json({ error: "Please upgrade to a paid plan to generate videos.", checkout: true });
-        }
+        const userPlan = req.user.plan || 'free';
 
         const PLAN_LIMITS = {
-            free: { maxDuration: 0 },
+            free: { maxDuration: 40 }, // Trial: Allows up to 40s total (approx 5 videos of 8s)
             basic: { maxDuration: 40 },
             pro: { maxDuration: 300 },
             elite: { maxDuration: 9999 }
         };
-        const updatedLimit = PLAN_LIMITS[userPlan] || PLAN_LIMITS.basic;
+        const updatedLimit = PLAN_LIMITS[userPlan] || PLAN_LIMITS.free;
 
         if (totalDuration > updatedLimit.maxDuration) {
             return res.status(403).json({

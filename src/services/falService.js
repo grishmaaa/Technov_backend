@@ -121,25 +121,25 @@ export const generateCharacterPortrait = async (description, style, options = {}
 };
 
 /**
- * Generate a storyboard frame for a scene.
- * @param {string} sceneDescription - Scene prompt/description
+ * Generate a world ingredient image.
+ * @param {string} description - Ingredient description
  * @param {string} style - Visual style
  * @param {object} options - Model config from tier
  * @param {string} [aspectRatio] - Target aspect ratio
  * @param {string[]} [characterPortraitUrls] - Optional list of character portrait URLs for IP-Adapter consistency
  * @returns {Promise<{url: string, contentType: string}>}
  */
-export const generateStoryboardFrame = async (
-    sceneDescription,
+export const generateIngredientImage = async (
+    description,
     style,
     options = {},
     aspectRatio = '16:9',
     characterPortraitUrls = []
 ) => {
-    const prompt = `A single cinematic movie still: ${sceneDescription}. Visual Style: ${style}. Single unified scene, no grid, no panels, detailed composition, cinematic lighting and color grading, high detail, photorealistic.`;
+    const prompt = `A world ingredient (Location or Prop): ${description}. Visual Style: ${style}. Single detailed reference image, high fidelity, cinematic lighting, photorealistic.`;
 
     if (characterPortraitUrls && characterPortraitUrls.length > 0) {
-        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating storyboard frame via Flux General (IP-Adapters)');
+        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating world ingredient image via Flux General (IP-Adapters)');
 
         try {
             const result = await fal.subscribe('fal-ai/flux-general', {
@@ -184,9 +184,9 @@ export const generateStoryboardFrame = async (
         } catch (adapterErr) {
             logger.error({
                 err: adapterErr,
-                scene: sceneDescription,
+                description,
                 falError: adapterErr.data || adapterErr.message
-            }, 'IP-Adapter validation or generation failed');
+            }, 'IP-Adapter validation or generation failed for ingredient');
             // We still have the fallback below to keep the pipeline moving, 
             // but now we'll see exactly WHY it failed in the logs.
         }

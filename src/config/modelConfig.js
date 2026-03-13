@@ -90,15 +90,15 @@ export const getTierName = (userPlan) => {
 export const calculateCreditCost = ({ userPlan, sceneCount, characterCount = 0 }) => {
     const config = getTierConfig(userPlan);
     const videoCost = sceneCount * config.creditsPerClip;
-    const storyboardCost = sceneCount * config.creditsPerImage;
+    const ingredientCost = sceneCount * config.creditsPerImage;
     const characterCost = characterCount * config.creditsPerImage;
     const scriptCost = 10; // Flat cost for script generation
 
     return {
-        total: videoCost + storyboardCost + characterCost + scriptCost,
+        total: videoCost + ingredientCost + characterCost + scriptCost,
         breakdown: {
             script: scriptCost,
-            storyboards: storyboardCost,
+            ingredients: ingredientCost,
             characters: characterCost,
             video: videoCost,
         },

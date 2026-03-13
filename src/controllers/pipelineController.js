@@ -2,7 +2,7 @@
  * pipelineController.js
  * 
  * New controller for the 7-stage pipeline.
- * Handles all the stage transitions from script generation through storyboard approval.
+ * Handles all the stage transitions from script generation through world assets approval.
  * Each function corresponds to a user action in the studio dashboard.
  */
 
@@ -10,7 +10,7 @@ import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getTierConfig, calculateCreditCost } from '../config/modelConfig.js';
 import { generateStructuredOutput, safetyCheck, editScene, developScript } from '../services/llmService.js';
-import { generateCharacterPortrait, generateStoryboardFrame } from '../services/falService.js';
+import { generateCharacterPortrait, generateIngredientImage } from '../services/falService.js';
 import { logger } from '../logger.js';
 
 // ============================================================
@@ -650,7 +650,7 @@ export const generateIngredients = async (req, res) => {
                 // Combine worldLock with the specific ingredient description
                 const assetPrompt = `${worldLock} ${asset.metadata}`.trim();
 
-                const image = await generateCharacterPortrait(
+                const image = await generateIngredientImage(
                     assetPrompt,
                     visualStyle,
                     tierConfig.image,
@@ -716,7 +716,7 @@ export const regenerateIngredient = async (req, res) => {
         const worldLock = project.metadata?.worldLock || '';
         let finalPrompt = `${worldLock} ${asset.metadata}`.trim();
 
-        const frame = await generateCharacterPortrait(
+        const frame = await generateIngredientImage(
             finalPrompt,
             visualStyle,
             tierConfig.image,

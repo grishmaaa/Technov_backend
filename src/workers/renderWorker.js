@@ -230,6 +230,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
                 // Generate video via EvoLink
                 const videoResult = await generateVideo(prompt, {
+                    sceneId: scene.id,
                     model: tierConfig.video.model,
                     imageUrl: startingImageUrl,
                     elementList: elementList, // Kling character consistency

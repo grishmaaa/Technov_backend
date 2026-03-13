@@ -113,6 +113,7 @@ model Scene {
   storyboardPrompt String?  @map("storyboard_prompt")
   storyboardApproved Boolean @default(false)
   videoUrl         String?  @map("video_url")
+  taskId           String?  @map("task_id")
   lastFrameUrl     String?  @map("last_frame_url")
   charactersPresent String[] @default([]) @map("characters_present")
   createdAt        DateTime @default(now()) @map("created_at")

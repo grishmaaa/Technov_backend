@@ -24,6 +24,7 @@ import clipScoreRoutes from './routes/clipScoreRoutes.js';
 import storageRoutes from './routes/storageRoutes.js';
 import usageRoutes from './routes/usageRoutes.js';
 import pipelineRoutes from './routes/pipelineRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
 
 // Import jobs
 import { startCreditResetJob } from './jobs/creditResetJob.js';
@@ -146,6 +147,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api', clipScoreRoutes);
 app.use('/api', storageRoutes);
 app.use('/api/usage', usageRoutes);
+app.use('/api/webhooks', webhookRoutes);
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });

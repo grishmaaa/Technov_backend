@@ -123,6 +123,12 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         generate_audio: true, // For Seedance/Sora
     };
 
+    // Use Webhooks if APP_URL is configured (Enterprise Mode)
+    if (process.env.APP_URL) {
+        payload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
+        logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
+    }
+
     if (imageUrl) payload.image_url = imageUrl;
     if (elementList.length > 0) payload.element_list = elementList;
     if (referenceImages.length > 0) payload.reference_images = referenceImages;
@@ -159,6 +165,19 @@ export const pollVideoTask = async (taskId, options = {}) => {
             const status = data.status;
 
             if (onProgress) onProgress(progress, status);
+
+            // OPTIMIZATION: Check if the Webhook has already updated the record in our DB
+            if (options.sceneId) {
+                const dbScene = await prisma.scene.findUnique({
+                    where: { id: options.sceneId },
+                    select: { videoUrl: true, state: true }
+                });
+
+                if (dbScene?.videoUrl) {
+                    logger.info({ taskId, sceneId: options.sceneId }, '✅ Task finished via Webhook (DB check)');
+                    return { videoUrl: dbScene.videoUrl, status: 'completed' };
+                }
+            }
 
             if (status === 'completed' || status === 'succeed') {
                 const videoUrl = extractVideoUrl(data);
@@ -201,8 +220,21 @@ export const generateVideo = async (prompt, options = {}) => {
     // 1. Submit generation task
     const { taskId, estimatedTime } = await submitVideoGeneration(prompt, submitOptions);
 
-    // 2. Poll for completion
+    // 2. Attach taskId to scene in DB immediately so the Webhook can find it
+    if (options.sceneId) {
+        try {
+            await prisma.scene.update({
+                where: { id: options.sceneId },
+                data: { taskId: taskId }
+            });
+        } catch (dbErr) {
+            logger.warn({ taskId, sceneId: options.sceneId }, 'Failed to save taskId to scene DB, webhooks might be orphaned');
+        }
+    }
+
+    // 3. Poll for completion (Hybrid mode: checks DB + API)
     const { videoUrl } = await pollVideoTask(taskId, {
+        sceneId: options.sceneId, // Pass to allow DB checking
         intervalMs: 5000,
         maxAttempts: Math.max(60, Math.ceil(estimatedTime / 5)),
         onProgress,

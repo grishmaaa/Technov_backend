@@ -2,7 +2,7 @@
  * falService.js
  * 
  * fal.ai Flux image generation service.
- * Replaces all DALL-E 3 calls for character portraits and storyboard frames.
+ * Replaces all DALL-E 3 calls for character portraits and world ingredients.
  * Models: flux/schnell (Starter), flux-2/dev (Pro), flux-2/pro-v1.1 (Studio)
  */
 

@@ -1,6 +1,7 @@
 import prisma from '../config/database.js';
 import { logger } from '../logger.js';
 import { extractVideoUrl } from '../services/evolinkService.js';
+import { isStorageConfigured, uploadBufferToStorage, buildObjectKey } from '../services/storageService.js';
 
 /**
  * POST /api/webhooks/evolink
@@ -24,9 +25,28 @@ export const handleEvolinkWebhook = async (req, res) => {
         });
 
         if (scene) {
-            if (status === 'completed') {
-                const videoUrl = extractVideoUrl(data);
+            const isFinished = ['completed', 'succeed', 'success'].includes(status?.toLowerCase());
+
+            if (isFinished) {
+                let videoUrl = extractVideoUrl(data);
                 if (videoUrl) {
+                    // CRITICAL: EvoLink links expire in 24h. Persist to permanent storage immediately.
+                    if (isStorageConfigured()) {
+                        try {
+                            logger.info({ taskId, sceneId: scene.id }, 'Mirroring EvoLink video to permanent storage (Webhook)');
+                            const videoRes = await fetch(videoUrl);
+                            if (videoRes.ok) {
+                                const buffer = Buffer.from(await videoRes.arrayBuffer());
+                                const key = buildObjectKey({ userId: 'evolink-backups', extension: 'mp4' });
+                                const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType: 'video/mp4' });
+                                videoUrl = persistedUrl;
+                                logger.info({ taskId, persistedUrl }, 'Video mirrored successfully');
+                            }
+                        } catch (backupErr) {
+                            logger.warn({ err: backupErr.message, taskId }, 'Failed to mirror video in webhook, falling back to temporary link');
+                        }
+                    }
+
                     await prisma.scene.update({
                         where: { id: scene.id },
                         data: {

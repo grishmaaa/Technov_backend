@@ -428,7 +428,7 @@ export const generateCharacters = async (req, res) => {
         const existingCharacters = project.characters || [];
 
         if (existingCharacters.length === 0) {
-            // No characters — skip to storyboard
+            // No characters — skip to ingredients
             await transitionProjectState({
                 projectId: id,
                 toState: 'CHARACTERS_APPROVED',

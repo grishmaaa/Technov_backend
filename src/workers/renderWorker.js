@@ -2,7 +2,8 @@
  * renderWorker.js (v2)
  * 
  * Storyboard-driven video generation using EvoLink (Kling/Seedance).
- * Each scene: storyboard frame + character refs → video clip.
+ * Ingredients-driven video generation using EvoLink (Kling/Seedance).
+ * Each scene: ingredients frame + character refs → video clip.
  * Clips appear progressively via Socket.IO.
  * Post-processing: MP4 faststart only (no HLS).
  */
@@ -183,12 +184,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
             // SMART RESUME: Skip scene if it already has a videoUrl (saves credits on retries)
             if (scene.videoUrl && scene.state === 'COMPLETED') {
                 try {
-                    logger.info({ sceneNum }, 'Skipping already completed scene, downloading for concatenation');
+                    logger.info({ sceneNum }, 'Skipping already completed scene, downloading Ingredient clip for concatenation');
                     await downloadFile(scene.videoUrl, processedPath);
                     sceneVideos.push({ sceneId: scene.id, processedPath });
                     continue;
                 } catch (dlErr) {
-                    logger.warn({ dlErr, sceneNum }, 'Failed to download existing scene video, re-generating');
+                    logger.warn({ dlErr, sceneNum }, 'Failed to download existing scene video, re-generating from Ingredient');
                     // Fall back to generation if download fails
                 }
             }
@@ -223,7 +224,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
                 // Determine Start Frame for Continuity Chaining
                 // 1. If we have a lastFrameUrl from the PREVIOUS clip, use it to ensure perfect continuity.
-                // 2. Otherwise (Clip 1), fall back to the generated storyboard image.
+                // 2. Otherwise (Clip 1), fall back to the generated Ingredient reference image.
                 const previousClipIndex = i - 1;
                 const previousLastFrameUrl = previousClipIndex >= 0 ? project.scenes[previousClipIndex].lastFrameUrl : null;
                 const startingImageUrl = previousLastFrameUrl || scene.storyboardUrl || undefined;
@@ -276,6 +277,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 if (isStorageConfigured()) {
                     sceneVideoUrl = await uploadFile(processedPath, { objectKey: sceneKey });
                 } else {
+                    logger.warn({ sceneNum }, 'Cloud storage NOT configured. Video URL will expire in 24 hours!');
                     sceneVideoUrl = videoResult.video_url;
                 }
 

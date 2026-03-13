@@ -55,7 +55,7 @@ const evolinkFetch = async (endpoint, options = {}) => {
 /**
  * Helper to extract video URL from various possible EvoLink response shapes.
  */
-const extractVideoUrl = (data) => {
+export const extractVideoUrl = (data) => {
     return data.result_data?.video_url
         || data.result_data?.output?.video_url
         || data.result_data?.url

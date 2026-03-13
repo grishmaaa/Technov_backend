@@ -53,23 +53,37 @@ const evolinkFetch = async (endpoint, options = {}) => {
 };
 
 /**
+ * Helper to extract video URL from various possible EvoLink response shapes.
+ */
+const extractVideoUrl = (data) => {
+    return data.result_data?.video_url
+        || data.result_data?.output?.video_url
+        || data.result_data?.url
+        || data.task_result?.videos?.[0]?.url
+        || data.task_result?.output?.videos?.[0]?.url
+        || data.works?.[0]?.resource?.resource
+        || data.works?.[0]?.video?.url
+        || data.output?.url;
+};
+
+/**
+ * Helper to extract element ID from element creation tasks.
+ */
+const extractElementId = (data) => {
+    return data.result_data?.element_id
+        || data.task_result?.element_id
+        || data.result_data?.id;
+};
+
+/**
  * Submit a video generation task to EvoLink.
- * @param {string} prompt - Text prompt for video generation
- * @param {object} options
- * @param {string} options.model - Model ID (kling-v2.6, kling-v3.0, seedance-2.0)
- * @param {string} [options.imageUrl] - Start frame image URL (storyboard → image-to-video)
- * @param {string[]} [options.elementList] - Kling Custom Element IDs for character consistency
- * @param {number} [options.duration] - Duration in seconds (5-10 for Kling 2.6/3.0)
- * @param {string} [options.aspectRatio] - Aspect ratio ('16:9', '9:16', '1:1')
- * @param {string} [options.quality] - Quality level ('standard', 'professional')
- * @returns {Promise<{taskId: string, status: string, estimatedTime: number}>}
  */
 export const submitVideoGeneration = async (prompt, options = {}) => {
     const {
         model = 'kling-v3.0',
         imageUrl,
         elementList = [],
-        referenceImages = [], // New field for world ingredients
+        referenceImages = [],
         duration = 5,
         aspectRatio = '16:9',
         quality = 'standard',
@@ -102,25 +116,14 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
     const payload = {
         model: finalModel,
         prompt,
-        duration: Math.min(Math.max(duration, 5), 10), // Kling supports 5-10s
+        duration: Math.min(Math.max(duration, 5), 10),
         aspect_ratio: aspectRatio,
         quality: finalQuality.toUpperCase(),
     };
 
-    // Image-to-video: storyboard frame as start frame
-    if (imageUrl) {
-        payload.image_url = imageUrl;
-    }
-
-    // Kling Custom Elements for character consistency
-    if (elementList.length > 0) {
-        payload.element_list = elementList;
-    }
-
-    // World Ingredients (Locations/Props)
-    if (referenceImages.length > 0) {
-        payload.reference_images = referenceImages;
-    }
+    if (imageUrl) payload.image_url = imageUrl;
+    if (elementList.length > 0) payload.element_list = elementList;
+    if (referenceImages.length > 0) payload.reference_images = referenceImages;
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
@@ -138,12 +141,6 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
 /**
  * Poll an EvoLink task until completion.
- * @param {string} taskId - Task ID from submitVideoGeneration
- * @param {object} [options]
- * @param {number} [options.maxAttempts] - Max polling attempts (default: 120)
- * @param {number} [options.intervalMs] - Polling interval in ms (default: 5000)
- * @param {function} [options.onProgress] - Progress callback (percent, status)
- * @returns {Promise<{videoUrl: string, status: string}>}
  */
 export const pollVideoTask = async (taskId, options = {}) => {
     const { maxAttempts = 120, intervalMs = 5000, onProgress } = options;
@@ -154,26 +151,19 @@ export const pollVideoTask = async (taskId, options = {}) => {
         await sleep(intervalMs);
 
         try {
-            const data = await evolinkFetch(`/tasks/${taskId}`, {
-                method: 'GET',
-            });
+            const data = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
 
             const progress = data.progress || 0;
             const status = data.status;
 
-            if (onProgress) {
-                onProgress(progress, status);
-            }
+            if (onProgress) onProgress(progress, status);
 
             if (status === 'completed' || status === 'succeed') {
-                // Extract video URL from result
-                const videoUrl = data.result_data?.video_url
-                    || data.result_data?.output?.video_url
-                    || data.result_data?.url;
+                const videoUrl = extractVideoUrl(data);
 
                 if (!videoUrl) {
-                    logger.error({ taskId, resultData: data.result_data }, 'EvoLink completed but no video URL found');
-                    throw new Error('EvoLink task completed but no video URL in response');
+                    logger.error({ taskId, fullResponse: data }, 'EvoLink completed but no video URL found — FULL RESPONSE LOGGED');
+                    throw new Error('EvoLink task completed but no video URL found in any known field');
                 }
 
                 logger.info({ taskId, videoUrl }, 'EvoLink video generation completed');
@@ -186,13 +176,14 @@ export const pollVideoTask = async (taskId, options = {}) => {
                 throw new Error(`EvoLink video generation failed: ${errorMsg}`);
             }
 
-            // Still processing
             logger.debug({ taskId, attempt, progress, status }, 'EvoLink task still processing');
         } catch (error) {
-            if (error.message.includes('EvoLink video generation failed')) {
-                throw error; // Don't retry on actual failures
+            // CRITICAL: If the error is an actual generation failure or result-parsing error, 
+            // STOP polling to save credits. Only retry on network/fetch errors.
+            if (error.message.includes('failed') || error.message.includes('no video URL found')) {
+                throw error;
             }
-            logger.warn({ taskId, attempt, err: error }, 'Polling error, retrying');
+            logger.warn({ taskId, attempt, err: error.message }, 'Polling network error, retrying');
         }
     }
 
@@ -201,10 +192,6 @@ export const pollVideoTask = async (taskId, options = {}) => {
 
 /**
  * Generate a video — submit and poll until complete.
- * Downloads the result and persists to our S3 storage.
- * @param {string} prompt - Text prompt
- * @param {object} options - Same as submitVideoGeneration + polling options
- * @returns {Promise<{video_url: string, status: string}>}
  */
 export const generateVideo = async (prompt, options = {}) => {
     const { onProgress, ...submitOptions } = options;
@@ -233,7 +220,7 @@ export const generateVideo = async (prompt, options = {}) => {
             logger.info({ persistedUrl }, 'EvoLink video persisted to storage');
             return { video_url: persistedUrl, status: 'completed' };
         } catch (persistErr) {
-            logger.warn({ err: persistErr }, 'Failed to persist EvoLink video, using original URL');
+            logger.warn({ err: persistErr.message }, 'Failed to persist EvoLink video, using original URL');
         }
     }
 
@@ -242,17 +229,10 @@ export const generateVideo = async (prompt, options = {}) => {
 
 /**
  * Create a Kling Custom Element for character consistency.
- * The returned element_id can be passed to subsequent video generations.
- * @param {string} name - Character name
- * @param {string} description - Character description
- * @param {string} frontalImageUrl - Front-facing character portrait URL
- * @param {string[]} [referImages] - Additional reference image URLs
- * @returns {Promise<{elementId: string}>}
  */
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // EvoLink/Kling limits: name <= 20, description <= 100
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = (description || 'Character reference').substring(0, 100);
 
@@ -274,12 +254,26 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         body: JSON.stringify(payload),
     });
 
-    // Element creation is async — poll for the element_id
-    const result = await pollVideoTask(data.id, { intervalMs: 3000, maxAttempts: 40 });
+    // Dedicated polling loop for elements to avoid burning credits on generic video polling
+    const taskId = data.id;
+    for (let i = 0; i < 40; i++) {
+        await sleep(3000);
+        const pollData = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
 
-    // The result should contain the element_id
-    const elementId = result.videoUrl; // In this context, the "result" is the element_id
-    logger.info({ name, elementId }, 'Kling Custom Element created');
+        if (pollData.status === 'completed' || pollData.status === 'succeed') {
+            const elementId = extractElementId(pollData);
+            if (!elementId) {
+                logger.error({ taskId, fullResponse: pollData }, 'Element created but no elementId found');
+                throw new Error('Element creation succeeded but element_id is missing from response');
+            }
+            logger.info({ name, elementId }, 'Kling Custom Element created');
+            return { elementId };
+        }
 
-    return { elementId };
+        if (pollData.status === 'failed' || pollData.status === 'error') {
+            throw new Error(`Element creation failed: ${pollData.error?.message || 'Unknown error'}`);
+        }
+    }
+
+    throw new Error('Kling Custom Element creation timed out');
 };

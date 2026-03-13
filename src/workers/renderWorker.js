@@ -12,7 +12,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import { spawn } from 'child_process';
 import prisma from '../config/database.js';
-import { generateVideo } from '../services/evolinkService.js';
+import { generateVideo, createCharacterElement } from '../services/evolinkService.js';
 import { uploadFile } from '../services/fileHostingService.js';
 import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey, uploadBufferToStorage } from '../services/storageService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
@@ -148,6 +148,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             }));
 
         const totalScenes = project.scenes.length;
+        const sceneVideos = [];
 
         // 5. Generate video for each scene
         for (let i = 0; i < project.scenes.length; i++) {

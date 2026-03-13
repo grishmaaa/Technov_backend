@@ -66,7 +66,7 @@ const evolinkFetch = async (endpoint, options = {}) => {
  */
 export const submitVideoGeneration = async (prompt, options = {}) => {
     const {
-        model = 'kling-v2.6',
+        model = 'kling-v3.0',
         imageUrl,
         elementList = [],
         duration = 5,
@@ -84,12 +84,25 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         promptLength: prompt.length,
     }, 'Submitting video generation to EvoLink');
 
+    // Intelligent model selection for Kling v3
+    let finalModel = model;
+    if (finalModel.startsWith('kling-v3')) {
+        finalModel = imageUrl ? 'kling-v3-image-to-video' : 'kling-v3-text-to-video';
+    }
+
+    // Quality mapping for Kling v3
+    let finalQuality = quality;
+    if (finalModel.startsWith('kling-v3')) {
+        if (finalQuality === 'standard') finalQuality = '720p';
+        if (finalQuality === 'professional') finalQuality = '1080p';
+    }
+
     const payload = {
-        model,
+        model: finalModel,
         prompt,
         duration: Math.min(Math.max(duration, 5), 10), // Kling supports 5-10s
         aspect_ratio: aspectRatio,
-        quality,
+        quality: finalQuality,
     };
 
     // Image-to-video: storyboard frame as start frame

@@ -141,27 +141,26 @@ export const generateStoryboardFrame = async (
     if (characterPortraitUrls && characterPortraitUrls.length > 0) {
         logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating storyboard frame via Flux General (IP-Adapters)');
 
-        // Map portrait URLs to fal-ai IP-Adapter format
-        const ip_adapters = characterPortraitUrls.map(url => ({
-            image_url: url,
-            model: 'ip_adapter_plus_face',
-            scale: 0.8
-        }));
-
         try {
             const result = await fal.subscribe('fal-ai/flux-general', {
                 input: {
                     prompt,
-                    ip_adapters,
+                    ip_adapters: characterPortraitUrls.map(url => ({
+                        path: 'XLabs-AI/flux-ip-adapter',
+                        image_encoder_path: 'google/siglip-so400m-patch14-384',
+                        image_url: url,
+                        scale: 0.8
+                    })),
                     num_inference_steps: options.steps || 28,
                     num_images: 1,
                     output_format: 'png',
                     enable_safety_checker: true,
+                    use_real_cfg: true, // Required for XLabs IP-Adapter v1
                 }
             });
 
             if (!result.data?.images?.[0]?.url) {
-                throw new Error('fal.ai returned no image');
+                throw new Error('fal.ai returned no image data');
             }
 
             const imageUrl = result.data.images[0].url;
@@ -177,13 +176,19 @@ export const generateStoryboardFrame = async (
                     const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
                     return { url: persistedUrl, contentType };
                 } catch (persistErr) {
-                    logger.warn({ err: persistErr }, 'Failed to persist, using temp URL');
+                    logger.warn({ err: persistErr }, 'Failed to persist IP-Adapter image, using temp URL');
                     return { url: imageUrl, contentType };
                 }
             }
             return { url: imageUrl, contentType };
         } catch (adapterErr) {
-            logger.error({ err: adapterErr, scene: sceneDescription }, 'IP-Adapter generation failed, falling back to standard Flux');
+            logger.error({
+                err: adapterErr,
+                scene: sceneDescription,
+                falError: adapterErr.data || adapterErr.message
+            }, 'IP-Adapter validation or generation failed');
+            // We still have the fallback below to keep the pipeline moving, 
+            // but now we'll see exactly WHY it failed in the logs.
         }
     }
 

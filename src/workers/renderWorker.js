@@ -174,7 +174,14 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
             try {
                 // Build video prompt from scene
-                let basePrompt = scene.promptText;
+                // Clean prompt for Kling (remove [cut], (V.O.), and audio directives)
+                let visualPrompt = (scene.promptText || '')
+                    .replace(/\[cut\]/gi, ' ')
+                    .replace(/NARRATOR\s*\(V\.O\.\):/gi, '')
+                    .replace(/\+.*$/gm, '') // Remove everything after + (audio directives)
+                    .replace(/Narrator:.*$/gm, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
 
                 // Prepend continuity locked strings
                 let lockedStrings = '';
@@ -185,7 +192,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     lockedStrings += `[CHARACTERS: ${project.metadata.characterLock}] `;
                 }
 
-                let prompt = `${lockedStrings}${basePrompt}`.trim();
+                let prompt = `${lockedStrings}${visualPrompt}`.trim();
 
                 // Add character/prop mapping context to prompt for Kling's @Image/@Element system
                 if (referenceImages.length > 0) {

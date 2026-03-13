@@ -104,7 +104,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         prompt,
         duration: Math.min(Math.max(duration, 5), 10), // Kling supports 5-10s
         aspect_ratio: aspectRatio,
-        quality: finalQuality,
+        quality: finalQuality.toUpperCase(),
     };
 
     // Image-to-video: storyboard frame as start frame
@@ -252,15 +252,19 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
+    // EvoLink/Kling limits: name <= 20, description <= 100
+    const safeName = (name || 'Character').substring(0, 20);
+    const safeDescription = (description || 'Character reference').substring(0, 100);
+
     const payload = {
         model: 'kling-custom-element',
         model_params: {
-            element_name: name,
-            element_description: description,
+            element_name: safeName,
+            element_description: safeDescription,
             reference_type: 'image_refer',
             element_image_list: {
                 frontal_image: frontalImageUrl,
-                refer_images: referImages.map(url => ({ image_url: url })),
+                refer_images: (referImages || []).map(url => ({ image_url: url })),
             },
         },
     };

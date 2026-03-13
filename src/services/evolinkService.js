@@ -154,7 +154,7 @@ export const pollVideoTask = async (taskId, options = {}) => {
         await sleep(intervalMs);
 
         try {
-            const data = await evolinkFetch(`/videos/generations/${taskId}`, {
+            const data = await evolinkFetch(`/tasks/${taskId}`, {
                 method: 'GET',
             });
 

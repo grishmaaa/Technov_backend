@@ -99,6 +99,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             include: {
                 scenes: { orderBy: { orderIndex: 'asc' } },
                 characters: { where: { approved: true } },
+                assets: { where: { state: 'APPROVED' } }, // Include approved world ingredients
                 user: true,
             },
         });
@@ -113,10 +114,42 @@ export const processGenerationJob = async (jobId, context = {}) => {
             data: { status: 'PROCESSING', startedAt: new Date() },
         });
 
-        const sceneVideos = []; // { sceneId, rawPath, processedPath }
+        // 3. Ensure all characters have Kling Custom Element IDs for consistency
+        const elementList = [];
+        for (const char of project.characters) {
+            if (!char.elementId && char.portraitUrl) {
+                try {
+                    logger.info({ charName: char.name }, 'Creating missing Kling Custom Element for character');
+                    const { elementId } = await createCharacterElement(
+                        char.name,
+                        char.description,
+                        char.portraitUrl
+                    );
+                    await prisma.character.update({
+                        where: { id: char.id },
+                        data: { elementId }
+                    });
+                    elementList.push(elementId);
+                } catch (err) {
+                    logger.error({ err, charName: char.name }, 'Failed to create character element');
+                    // Fallback: we just continue without the elementId, less consistency but job won't crash
+                }
+            } else if (char.elementId) {
+                elementList.push(char.elementId);
+            }
+        }
+
+        // 4. Collect World Ingredients (Reference Images)
+        const referenceImages = project.assets
+            .filter(a => a.url)
+            .map((a, index) => ({
+                url: a.url,
+                label: `Image${index + 1}` // For @Image1, @Image2 style referencing
+            }));
+
         const totalScenes = project.scenes.length;
 
-        // 3. Generate video for each scene (all scene submitted, progressive reveal)
+        // 5. Generate video for each scene
         for (let i = 0; i < project.scenes.length; i++) {
             const scene = project.scenes[i];
             const sceneNum = scene.orderIndex !== undefined ? scene.orderIndex + 1 : i + 1;
@@ -139,10 +172,10 @@ export const processGenerationJob = async (jobId, context = {}) => {
             });
 
             try {
-                // Build video prompt from scene (Injecting Locked Strings)
+                // Build video prompt from scene
                 let basePrompt = scene.promptText;
 
-                // Prepend continuity locked strings if available in project metadata
+                // Prepend continuity locked strings
                 let lockedStrings = '';
                 if (project.metadata?.worldLock) {
                     lockedStrings += `[WORLD: ${project.metadata.worldLock}] `;
@@ -153,12 +186,10 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
                 let prompt = `${lockedStrings}${basePrompt}`.trim();
 
-                // Add character context if present
-                if (project.characters.length > 0) {
-                    const charDesc = project.characters
-                        .map(c => `${c.name}: ${c.description}`)
-                        .join('. ');
-                    prompt += ` Characters: ${charDesc}`;
+                // Add character/prop mapping context to prompt for Kling's @Image/@Element system
+                if (referenceImages.length > 0) {
+                    const refs = referenceImages.map(r => `@${r.label}`).join(', ');
+                    prompt += ` Use references: ${refs}`;
                 }
 
                 // Determine Start Frame for Continuity Chaining
@@ -169,18 +200,19 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 const startingImageUrl = previousLastFrameUrl || scene.storyboardUrl || undefined;
 
                 // Generate video via EvoLink
-                // Note: EvoLink/Kling must support 'imageUrl' functioning as either a static storyboard OR the actual last frame of the previous video
                 const videoResult = await generateVideo(prompt, {
                     model: tierConfig.video.model,
                     imageUrl: startingImageUrl,
-                    duration: Math.min(scene.duration || 8, 10), // Kling supports 5-10s
+                    elementList: elementList, // Kling character consistency
+                    referenceImages: referenceImages, // World ingredients
+                    duration: Math.min(scene.duration || 8, 10),
                     aspectRatio: project.aspectRatio || '16:9',
                     quality: tierConfig.video.quality,
                     onProgress: (p, status) => {
                         publishProgress(project.id, {
                             type: 'scene-progress',
                             sceneNumber: sceneNum,
-                            progress: Math.round((i / totalScenes) * 90 + (p / totalScenes) * 0.9),
+                            progress: Math.round((i / totalScenes) * 90 + (p / totalScenes) * 0.9 + 5),
                             status: `Scene ${sceneNum}: ${status}`,
                         });
                     },

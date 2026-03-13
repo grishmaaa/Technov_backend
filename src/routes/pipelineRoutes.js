@@ -19,10 +19,10 @@ import {
     uploadCharacterPhoto,
     approveCharacter,
     approveAllCharacters,
-    generateStoryboard,
-    regenerateStoryboardFrame,
-    approveStoryboard,
-    approveStoryboardFrame,
+    generateIngredients,
+    regenerateIngredient,
+    approveIngredient,
+    approveAllIngredients,
     editVideo
 } from '../controllers/pipelineController.js';
 
@@ -49,11 +49,11 @@ router.post('/projects/:id/characters/:charId/upload', uploadCharacterPhoto);
 router.post('/projects/:id/characters/:charId/approve', approveCharacter);
 router.post('/projects/:id/characters/approve-all', approveAllCharacters);
 
-// --- Stage 4: Storyboard ---
-router.post('/projects/:id/storyboard/generate', generateStoryboard);
-router.post('/projects/:id/storyboard/:sceneId/regenerate', regenerateStoryboardFrame);
-router.post('/projects/:id/storyboard/:sceneId/approve', approveStoryboardFrame);
-router.post('/projects/:id/storyboard/approve-all', approveStoryboard);
+// --- Stage 4: World Ingredients (Locations & Props) ---
+router.post('/projects/:id/ingredients/generate', generateIngredients);
+router.post('/projects/:id/ingredients/:assetId/regenerate', regenerateIngredient);
+router.post('/projects/:id/ingredients/:assetId/approve', approveIngredient);
+router.post('/projects/:id/ingredients/approve-all', approveAllIngredients);
 
 // --- Stage 6: Video Agent Loop ---
 router.post('/projects/:id/edit-video', editVideo);

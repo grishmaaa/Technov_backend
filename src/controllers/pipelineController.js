@@ -102,38 +102,22 @@ export const generateScript = async (req, res) => {
         }
 
         // Generate production-ready video API prompts
-        const systemPrompt = `You are an expert prompt engineer turning a user's script into a production-ready shot list for the Veo 3.1 video generation model. Your job is not to write a beautiful description for a human director. Your job is to output the exact strings needed by the API to generate consistent, flawless continuity across multiple video clips.
+        const systemPrompt = `You are an elite cinematic scriptwriter and prompt engineer. Your task is to break down a story into high-fidelity shot lists optimized for Kling 3.0.
 
-═══ SACRED TEXT RULE (ENFORCED) ═══
-The user's script is SACRED. Do NOT change, substitute, or "improve" any specific words, names, dialogue, or details from their script.
-- If the script says "THRESHOLD" — you must include "the word 'THRESHOLD'" in the action description.
-- DIALOGUE IS THE ANCHOR: If a scene centers around a climactic line (e.g., "Today is the last Wednesday"), you MUST factor that emotional weight into the action or style.
-- DIALOGUE SACRED TEXT RULE: Every spoken line in the output must match the user's script verbatim, word for word, including ellipses, pauses, and sentence fragments. You are never permitted to truncate, paraphrase, summarize, or invent dialogue. If a line in the script is "Today is the last Wednesday. Not forever. Just... yours." — that exact string appears in the audio field, nothing removed. If a scene has no dialogue in the source script, the audio field contains no spoken line. You cannot add dialogue that doesn't exist in the script.
-- EMPTY CLIP RULE: If a clip has no dialogue in the source script, the audio line must be 'no music, no talking.' You are never permitted to invent dialogue to fill silence. Silence is a valid creative choice. A clip with no spoken words is not incomplete — it is intentional. Do not add dialogue. Do not paraphrase. Do not summarize. If the character says nothing in the source script at this moment, they say nothing in the video.
-
-═══ LOCKED STRINGS (CONTINUITY) ═══
-To prevent the model from hallucinating different clothes or settings across clips, you must define "Locked Strings" for the main characters and the primary world/location. These will be automatically prepended to every clip's prompt.
-- **characterLock:** Extremely specific, purely visual descriptions of the main character(s). (e.g., "MARA: 38-year-old woman, dark hair pulled back loosely, white collared blouse, tired eyes.")
-- **worldLock:** Extremely specific description of the primary setting and lighting. (e.g., "Small American diner, 1990s aesthetic, vinyl booths, fluorescent overhead lighting.")
-
-═══ CLIP-BY-CLIP CONTINUITY ═══
-Think of these not as "scenes" but as "clips". Clip 2 starts the frame after Clip 1 ends.
-Provide a \`continuity_hook\` describing exactly how Clip N ends, so it perfectly sets up the first frame of Clip N+1.
+═══ CRITICAL INSTRUCTIONS ═══
+1. VISUAL IDENTITY: Define 'characterLock' (visual descriptions of characters) and 'worldLock' (primary setting aesthetic).
+2. INGREDIENTS: Identify the key world assets (Locations and Props) that need visual consistency. 
+   - Locations: The specific environments (e.g., "The Cyberpunk Diner", "Rain-slicked Back Alley").
+   - Props: Specific, important objects (e.g., "The Glowing Briefcase", "A rusted silver key").
+3. CLIPS: Break the story into continuous cinematic clips (max 8). Each clip prompt must follow the 4-line structure.
 
 ═══ OUTPUT FORMAT ═══
-Each clip prompt must follow this exact structure and nothing else:
 Line 1: Plain English wide shot. What is physically happening. Maximum 20 words.
 Line 2: [cut] The close-up that carries emotional weight. Maximum 20 words.
 Line 3: [cut] The specific detail — exact words, names, objects from the script verbatim. Maximum 20 words.
 Line 4: Audio only — music type or 'no music' + dialogue line if spoken, or 'no talking'.
 
-Zero lens specifications. Zero depth of field. Zero cinematography terminology. Zero style descriptors. The model knows how to film. These are shot lists, not film school essays.
-
-Maximum 8 clips (hard limit). Never generate more than 8 clips. Never generate fewer than 1.
-Each clip should target exactly 4, 6, or 8 seconds.
-EFFICIENCY RULE: If the story is short (e.g., an 8-second moment), do NOT force it into 8 clips. One or two long, high-quality cinematic shots are better than many frantic cuts. Do NOT naturally segment smooth continuous actions. Quality over quantity.
-
-Output must include the \`characterLock\`, \`worldLock\`, and an array of clips containing the exact 4-line structured prompt, duration, and continuity hook.`;
+Zero lens/DOF specs. Output must include \`characterLock\`, \`worldLock\`, \`ingredients\`, and \`clips\`.`;
 
         const sceneSchema = {
             type: 'OBJECT',
@@ -141,19 +125,32 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                 title: { type: 'STRING' },
                 characterLock: { type: 'STRING', description: 'Locked visual descriptions of main characters' },
                 worldLock: { type: 'STRING', description: 'Locked visual description of the primary world/setting' },
+                ingredients: {
+                    type: 'ARRAY',
+                    items: {
+                        type: 'OBJECT',
+                        properties: {
+                            name: { type: 'STRING' },
+                            type: { type: 'STRING', description: 'LOCATION or PROP' },
+                            description: { type: 'STRING', description: 'Visual description for Flux gen' }
+                        },
+                        required: ['name', 'type', 'description']
+                    },
+                    description: 'Up to 6 visual ingredients (Locations or Props)'
+                },
                 clips: {
                     type: 'ARRAY',
                     items: {
                         type: 'OBJECT',
                         properties: {
                             clip_number: { type: 'INTEGER' },
-                            prompt: { type: 'STRING', description: 'The exact 4-line format: Line 1: Wide, Line 2: [cut] Close-up, Line 3: [cut] Detail, Line 4: Audio' },
-                            continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the exact first frame of the next clip' },
+                            prompt: { type: 'STRING', description: 'Line 1: Wide, Line 2: [cut] Close-up, Line 3: [cut] Detail, Line 4: Audio' },
+                            continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the next' },
                             duration: { type: 'INTEGER', description: 'Must be 4, 6, or 8' },
                             characters_present: {
                                 type: 'ARRAY',
                                 items: { type: 'STRING' },
-                                description: 'Names of characters who appear in this clip, exactly as spelled in the characters array'
+                                description: 'Names of characters present'
                             }
                         },
                         required: ['clip_number', 'prompt', 'continuity_hook', 'duration', 'characters_present'],
@@ -172,7 +169,7 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                     },
                 },
             },
-            required: ['title', 'characterLock', 'worldLock', 'clips', 'characters'],
+            required: ['title', 'characterLock', 'worldLock', 'ingredients', 'clips', 'characters'],
         };
 
         const { parsed, usage } = await generateStructuredOutput(
@@ -193,9 +190,9 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                     data: {
                         projectId: id,
                         orderIndex: clip.clip_number !== undefined ? clip.clip_number - 1 : index,
-                        promptText: clip.prompt, // The 5-part Veo formula
-                        actionDescription: clip.continuity_hook, // Storing continuity hook here temporarily
-                        duration: clip.duration_seconds || 8,
+                        promptText: clip.prompt,
+                        actionDescription: clip.continuity_hook,
+                        duration: clip.duration || 8,
                         charactersPresent: clip.characters_present || [],
                         state: 'DRAFT',
                     },
@@ -203,7 +200,7 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
             )
         );
 
-        // Create characters in DB for persistence
+        // Create characters in DB
         if (parsed.characters?.length > 0) {
             await Promise.all(
                 parsed.characters.map(char =>
@@ -215,6 +212,23 @@ Output must include the \`characterLock\`, \`worldLock\`, and an array of clips 
                             description: char.description,
                             approved: false,
                         },
+                    })
+                )
+            );
+        }
+
+        // Create World Ingredients (Assets)
+        if (parsed.ingredients?.length > 0) {
+            await Promise.all(
+                parsed.ingredients.map(ing =>
+                    prisma.asset.create({
+                        data: {
+                            projectId: id,
+                            type: ing.type, // LOCATION or PROP
+                            state: 'DRAFT',
+                            metadata: ing.description,
+                            url: null,
+                        }
                     })
                 )
             );
@@ -604,14 +618,14 @@ export const approveAllCharacters = async (req, res) => {
 };
 
 // ============================================================
-// STAGE 4: Storyboard Generation
+// STAGE 4: World Ingredients Generation (Global Assets)
 // ============================================================
 
 /**
- * POST /api/projects/:id/storyboard/generate
- * Generate storyboard frames for all approved scenes.
+ * POST /api/projects/:id/ingredients/generate
+ * Generate reference images for all world assets (Locations and Props).
  */
-export const generateStoryboard = async (req, res) => {
+export const generateIngredients = async (req, res) => {
     try {
         const { id } = req.params;
         const tierConfig = getTierConfig(req.user?.plan || 'free');
@@ -619,8 +633,7 @@ export const generateStoryboard = async (req, res) => {
         const project = await prisma.project.findUnique({
             where: { id },
             include: {
-                scenes: { orderBy: { orderIndex: 'asc' } },
-                characters: { where: { approved: true } },
+                assets: { where: { state: 'DRAFT' } },
             },
         });
 
@@ -629,226 +642,165 @@ export const generateStoryboard = async (req, res) => {
         }
 
         const visualStyle = project.metadata?.visual_style || 'cinematic';
-        const characterLock = project.metadata?.characterLock || '';
         const worldLock = project.metadata?.worldLock || '';
 
-        // Generate all frames in parallel using IP-Adapters for character consistency
-        const frameResults = await Promise.allSettled(
-            project.scenes.map(async (scene) => {
-                let scenePrompt = `${characterLock} ${worldLock} ${scene.promptText}`.trim();
+        // Generate all ingredient images in parallel
+        const assetResults = await Promise.allSettled(
+            project.assets.map(async (asset) => {
+                // Combine worldLock with the specific ingredient description
+                const assetPrompt = `${worldLock} ${asset.metadata}`.trim();
 
-                // Truncate safely - Fal/Flux supports long prompts
-                if (scenePrompt.length > 1500) {
-                    scenePrompt = scenePrompt.substring(0, 1500);
-                }
-
-                // Look up character portraits for characters present in this scene
-                const portraits = (scene.charactersPresent || [])
-                    .map(charName => {
-                        const character = project.characters.find(c => c.name.toLowerCase() === charName.toLowerCase());
-                        return character?.portraitUrl;
-                    })
-                    .filter(url => !!url);
-
-                const frame = await generateStoryboardFrame(
-                    scenePrompt,
+                const image = await generateCharacterPortrait(
+                    assetPrompt,
                     visualStyle,
                     tierConfig.image,
-                    project.aspectRatio,
-                    portraits
+                    project.aspectRatio
                 );
 
-                return prisma.scene.update({
-                    where: { id: scene.id },
+                return prisma.asset.update({
+                    where: { id: asset.id },
                     data: {
-                        storyboardUrl: frame.url,
-                        storyboardPrompt: scenePrompt,
-                        storyboardApproved: false,
+                        url: image.url,
+                        state: 'GENERATED',
                     },
                 });
             })
         );
 
-        const updatedScenes = frameResults.map((result, i) => {
+        const updatedAssets = assetResults.map((result, i) => {
             if (result.status === 'fulfilled') {
                 return result.value;
             } else {
-                logger.error({ err: result.reason, sceneId: project.scenes[i].id }, 'Storyboard frame generation failed');
-                return project.scenes[i];
+                logger.error({ err: result.reason, assetId: project.assets[i].id }, 'Ingredient image generation failed');
+                return project.assets[i];
             }
         });
 
         await transitionProjectState({
             projectId: id,
-            toState: 'STORYBOARD_GENERATED',
+            toState: 'WORLD_ASSETS_GENERATED',
             actorType: 'SYSTEM',
-            reason: `Generated ${updatedScenes.filter(s => s.storyboardUrl).length} storyboard frames`,
+            reason: `Generated ${updatedAssets.filter(a => a.url).length} world ingredients`,
         });
 
         res.json({
-            projectId: id,
-            scenes: updatedScenes.map(s => ({
-                id: s.id,
-                orderIndex: s.orderIndex,
-                storyboardUrl: s.storyboardUrl,
-                storyboardApproved: s.storyboardApproved,
-                prompt: s.promptText,
-            })),
+            message: 'Ingredients generated successfully',
+            assets: updatedAssets,
+            state: 'WORLD_ASSETS_GENERATED'
         });
     } catch (error) {
-        logger.error({ err: error }, 'Storyboard generation failed');
-        res.status(500).json({ error: 'Storyboard generation failed', details: error.message });
+        logger.error({ err: error }, 'Generate ingredients failed');
+        res.status(500).json({ error: 'Failed to generate ingredients', details: error.message });
     }
 };
 
 /**
- * POST /api/projects/:id/storyboard/:sceneId/regenerate
- * Regenerate a single storyboard frame.
+ * POST /api/projects/:id/ingredients/:assetId/regenerate
+ * Regenerate a single ingredient image.
  */
-export const regenerateStoryboardFrame = async (req, res) => {
+export const regenerateIngredient = async (req, res) => {
     try {
-        const { id, sceneId } = req.params;
-        const { editInstruction } = req.body;
+        const { id, assetId } = req.params;
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
-        const scene = await prisma.scene.findUnique({ where: { id: sceneId } });
-        if (!scene || scene.projectId !== id) {
-            return res.status(404).json({ error: 'Scene not found' });
+        const project = await prisma.project.findUnique({
+            where: { id }
+        });
+        const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+
+        if (!project || !asset) {
+            return res.status(404).json({ error: 'Project or asset not found' });
         }
 
-        const project = await prisma.project.findUnique({ where: { id } });
-        const visualStyle = project?.metadata?.visual_style || 'cinematic';
-
-        let prompt = scene.promptText;
-        if (editInstruction) {
-            // Route through the LLM pipeline — Sacred Text + Four Questions
-            const allScenes = await prisma.scene.findMany({
-                where: { projectId: id },
-                orderBy: { orderIndex: 'asc' },
-            });
-            const fullScript = allScenes.map(s => `Scene ${s.orderIndex + 1}: ${s.promptText} `).join('\n\n');
-            const result = await editScene(scene.promptText, editInstruction, fullScript, tierConfig.llmEdit);
-            prompt = result.editedPrompt;
-
-            // Update the scene's prompt with the LLM-edited version
-            await prisma.scene.update({
-                where: { id: sceneId },
-                data: { promptText: prompt, actionDescription: result.editedDescription },
-            });
-        }
-
-        const characterLock = project.metadata?.characterLock || '';
+        const visualStyle = project.metadata?.visual_style || 'cinematic';
         const worldLock = project.metadata?.worldLock || '';
-        let finalStoryboardPrompt = `${characterLock} ${worldLock} ${prompt}`.trim();
+        let finalPrompt = `${worldLock} ${asset.metadata}`.trim();
 
-        if (finalStoryboardPrompt.length > 1500) {
-            finalStoryboardPrompt = finalStoryboardPrompt.substring(0, 1500);
-        }
-
-        const frame = await generateStoryboardFrame(
-            finalStoryboardPrompt,
+        const frame = await generateCharacterPortrait(
+            finalPrompt,
             visualStyle,
             tierConfig.image,
             project?.aspectRatio || '16:9',
         );
 
-        const updated = await prisma.scene.update({
-            where: { id: sceneId },
+        const updated = await prisma.asset.update({
+            where: { id: assetId },
             data: {
-                storyboardUrl: frame.url,
-                storyboardPrompt: finalStoryboardPrompt,
-                storyboardApproved: false,
+                url: frame.url,
+                state: 'GENERATED',
             },
         });
 
-        res.json({
-            scene: {
-                id: updated.id,
-                storyboardUrl: updated.storyboardUrl,
-                storyboardApproved: false,
-            },
-        });
+        res.json(updated);
     } catch (error) {
-        logger.error({ err: error }, 'Storyboard frame regeneration failed');
-        res.status(500).json({ error: error.message || 'Failed to regenerate storyboard frame' });
+        logger.error({ err: error }, 'Ingredient regeneration failed');
+        res.status(500).json({ error: error.message || 'Failed to regenerate ingredient' });
     }
 };
 
 /**
- * POST /api/projects/:id/storyboard/approve-all
- * Approve all storyboard frames → unlock video generation.
+ * POST /api/projects/:id/ingredients/approve-all
+ * Approve all ingredients → transition to WORLD_ASSETS_APPROVED.
  */
-export const approveStoryboard = async (req, res) => {
+export const approveAllIngredients = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const scenes = await prisma.scene.findMany({
-            where: { projectId: id },
+        const assets = await prisma.asset.findMany({
+            where: { projectId: id, state: 'GENERATED' }
         });
 
-        // Check all have storyboard frames
-        const missingFrames = scenes.filter(s => !s.storyboardUrl);
-        if (missingFrames.length > 0) {
-            return res.status(400).json({
-                error: 'All scenes must have storyboard frames before approval',
-                missing: missingFrames.map(s => s.orderIndex + 1),
-            });
+        // Check if all ingredients were generated
+        const draftAssets = await prisma.asset.count({
+            where: { projectId: id, state: 'DRAFT' }
+        });
+
+        if (draftAssets > 0) {
+            return res.status(400).json({ error: 'Some ingredients have not been generated yet' });
         }
 
-        await prisma.scene.updateMany({
-            where: { projectId: id },
-            data: { storyboardApproved: true },
+        await prisma.asset.updateMany({
+            where: { projectId: id, state: 'GENERATED' },
+            data: { state: 'APPROVED' },
         });
 
         await transitionProjectState({
             projectId: id,
-            toState: 'STORYBOARD_APPROVED',
+            toState: 'WORLD_ASSETS_APPROVED',
             actorType: 'USER',
             actorId: req.user?.id,
-            reason: 'All storyboard frames approved — video generation unlocked',
+            reason: `All ${assets.length} world ingredients approved — video generation unlocked`,
         });
 
-        res.json({
-            message: 'Storyboard approved — video generation unlocked!',
-            state: 'STORYBOARD_APPROVED',
-        });
+        res.json({ message: 'All ingredients approved', state: 'WORLD_ASSETS_APPROVED' });
     } catch (error) {
-        logger.error({ err: error }, 'Storyboard approval failed');
-        res.status(500).json({ error: 'Storyboard approval failed' });
+        logger.error({ err: error }, 'Approve all ingredients failed');
+        res.status(500).json({ error: 'Failed to approve ingredients' });
     }
 };
 
 /**
- * POST /api/projects/:id/storyboard/:sceneId/approve
- * Approve a single storyboard frame.
+ * POST /api/projects/:id/ingredients/:assetId/approve
+ * Approve a single ingredient.
  */
-export const approveStoryboardFrame = async (req, res) => {
+export const approveIngredient = async (req, res) => {
     try {
-        const { id, sceneId } = req.params;
+        const { id, assetId } = req.params;
 
-        const scene = await prisma.scene.findUnique({ where: { id: sceneId } });
-        if (!scene || scene.projectId !== id) {
-            return res.status(404).json({ error: 'Scene not found' });
+        const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+        if (!asset || asset.projectId !== id) {
+            return res.status(404).json({ error: 'Ingredient not found' });
         }
 
-        if (!scene.storyboardUrl) {
-            return res.status(400).json({ error: 'Scene has no storyboard frame to approve' });
-        }
-
-        const updated = await prisma.scene.update({
-            where: { id: sceneId },
-            data: { storyboardApproved: true },
+        const updated = await prisma.asset.update({
+            where: { id: assetId },
+            data: { state: 'APPROVED' },
         });
 
-        res.json({
-            scene: {
-                id: updated.id,
-                storyboardApproved: true,
-            },
-        });
+        res.json(updated);
     } catch (error) {
-        logger.error({ err: error }, 'Storyboard frame approval failed');
-        res.status(500).json({ error: 'Storyboard frame approval failed' });
+        logger.error({ err: error }, 'Approve ingredient failed');
+        res.status(500).json({ error: 'Failed to approve ingredient' });
     }
 };
 

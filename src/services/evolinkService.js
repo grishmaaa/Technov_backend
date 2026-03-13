@@ -69,6 +69,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         model = 'kling-v3.0',
         imageUrl,
         elementList = [],
+        referenceImages = [], // New field for world ingredients
         duration = 5,
         aspectRatio = '16:9',
         quality = 'standard',
@@ -78,6 +79,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         model,
         hasImage: !!imageUrl,
         elementCount: elementList.length,
+        referenceCount: referenceImages.length,
         duration,
         aspectRatio,
         quality,
@@ -113,6 +115,11 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
     // Kling Custom Elements for character consistency
     if (elementList.length > 0) {
         payload.element_list = elementList;
+    }
+
+    // World Ingredients (Locations/Props)
+    if (referenceImages.length > 0) {
+        payload.reference_images = referenceImages;
     }
 
     const data = await evolinkFetch('/videos/generations', {

@@ -148,41 +148,46 @@ export const generateStoryboardFrame = async (
             scale: 0.8
         }));
 
-        const result = await fal.subscribe('fal-ai/flux-general/image-to-image', {
-            input: {
-                prompt,
-                ip_adapters,
-                num_inference_steps: options.steps || 28,
-                strength: 0.85,
-                num_images: 1,
-                output_format: 'png',
-                enable_safety_checker: true,
+        try {
+            const result = await fal.subscribe('fal-ai/flux-general', {
+                input: {
+                    prompt,
+                    ip_adapters,
+                    num_inference_steps: options.steps || 28,
+                    num_images: 1,
+                    output_format: 'png',
+                    enable_safety_checker: true,
+                }
+            });
+
+            if (!result.data?.images?.[0]?.url) {
+                throw new Error('fal.ai returned no image');
             }
-        });
 
-        if (!result.data?.images?.[0]?.url) {
-            throw new Error('fal.ai returned no image');
-        }
+            const imageUrl = result.data.images[0].url;
+            const contentType = result.data.images[0].content_type || 'image/png';
 
-        const imageUrl = result.data.images[0].url;
-        const contentType = result.data.images[0].content_type || 'image/png';
-
-        // Persist to S3 storage
-        if (isStorageConfigured()) {
-            try {
-                const imgRes = await fetch(imageUrl);
-                if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
-                const buffer = Buffer.from(await imgRes.arrayBuffer());
-                const key = buildObjectKey({ userId: 'fal-images', extension: 'png' });
-                const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
-                return { url: persistedUrl, contentType };
-            } catch (persistErr) {
-                logger.warn({ err: persistErr }, 'Failed to persist, using temp URL');
+            // Persist to storage
+            if (isStorageConfigured()) {
+                try {
+                    const imgRes = await fetch(imageUrl);
+                    if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
+                    const buffer = Buffer.from(await imgRes.arrayBuffer());
+                    const key = buildObjectKey({ userId: 'fal-images', extension: 'png' });
+                    const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
+                    return { url: persistedUrl, contentType };
+                } catch (persistErr) {
+                    logger.warn({ err: persistErr }, 'Failed to persist, using temp URL');
+                    return { url: imageUrl, contentType };
+                }
             }
+            return { url: imageUrl, contentType };
+        } catch (adapterErr) {
+            logger.error({ err: adapterErr, scene: sceneDescription }, 'IP-Adapter generation failed, falling back to standard Flux');
         }
-        return { url: imageUrl, contentType };
     }
 
+    // Default fallback: Standard Text-to-Image (Fast)
     return generateImage(prompt, {
         model: options.model || 'fal-ai/flux/schnell',
         steps: options.steps || 4,

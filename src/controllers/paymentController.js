@@ -12,9 +12,9 @@ const razorpay = new Razorpay({
 const PLANS = {
     pro: {
         name: 'Standard Plan',
-        amount: 49500, // $495.00
+        amount: 8900, // $89.00
         currency: 'USD',
-        credits: 3600,
+        credits: 300,
     }
 };
 

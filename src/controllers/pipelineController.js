@@ -95,27 +95,27 @@ export const generateScript = async (req, res) => {
         const maxScenes = tierConfig.maxScenes;
         const visualStyleFinal = visualStyle || 'cinematic';
 
-        // Get project
-        let project = await prisma.project.findUnique({ where: { id } });
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
         // Generate production-ready video API prompts
-        const systemPrompt = `You are an elite cinematic scriptwriter and prompt engineer. Your task is to break down a story into high-fidelity shot lists optimized for Kling 3.0.
+        const systemPrompt = `You are an elite cinematic director and producer. Your task is to analyze a story and determine the most effective way to break it down into cinematic clips.
 
-═══ CRITICAL INSTRUCTIONS ═══
+═══ AI DIRECTORSHIP & JUDGEMENT ═══
+1. SCENE COUNT: You are the judge of pacing. 
+   - If the story is concise or meant to be a single impactful moment, output only ONE scene (8 seconds).
+   - If the story has emotional beats, transitions, or progress, break it into the MINIMUM number of scenes required to tell it effectively (typically 1 to 5 scenes).
+   - Only use the maximum of ${maxScenes} scenes for truly complex, epic narratives.
+   - Do not stretch a short story into multiple scenes. Quality over quantity.
+2. DURATION JUDGEMENT: For each scene, decide if it needs 4, 6, or 8 seconds to land the emotional beat.
+
+═══ PRODUCTION INSTRUCTIONS ═══
 1. VISUAL IDENTITY: Define 'characterLock' (visual descriptions of characters) and 'worldLock' (primary setting aesthetic).
 2. INGREDIENTS: Identify the key world assets (Locations and Props) that need visual consistency. 
-   - Locations: The specific environments (e.g., "The Cyberpunk Diner", "Rain-slicked Back Alley").
-   - Props: Specific, important objects (e.g., "The Glowing Briefcase", "A rusted silver key").
-3. CLIPS: Break the story into continuous cinematic clips (max 8). Each clip prompt must follow the 4-line structure.
+3. CLIPS: Break the story into continuous cinematic clips based on your judgement. Each clip prompt must follow the 4-line structure.
 
 ═══ OUTPUT FORMAT ═══
 Line 1: Plain English wide shot. What is physically happening. Maximum 20 words.
 Line 2: [cut] The close-up that carries emotional weight. Maximum 20 words.
-Line 3: [cut] The specific detail — exact words, names, objects from the script verbatim. Maximum 20 words.
-Line 4: Audio only — music type or 'no music' + dialogue line if spoken, or 'no talking'.
+Line 3: [cut] The specific detail from the script. Maximum 20 words.
+Line 4: Audio only — music type or 'no music' + dialogue/ambient details.
 
 Zero lens/DOF specs. Output must include \`characterLock\`, \`worldLock\`, \`ingredients\`, and \`clips\`.`;
 

@@ -15,7 +15,7 @@ const ALLOWED_TRANSITIONS = {
     VIDEO_GENERATION: ['POST_PROCESSING', 'FAILED'],
     POST_PROCESSING: ['COMPLETE', 'FAILED'],
     COMPLETE: ['VIDEO_GENERATION'],     // Allow re-generation
-    FAILED: ['VIDEO_GENERATION', 'SCRIPT_GENERATED', 'CREATED'], // Allow retry at various stages
+    FAILED: ['VIDEO_GENERATION', 'WORLD_ASSETS_APPROVED', 'CHARACTERS_APPROVED', 'SCRIPT_APPROVED', 'SCRIPT_GENERATED', 'CREATED'], // Allow retry at various stages
 };
 
 export const transitionProjectState = async ({

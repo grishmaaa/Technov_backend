@@ -45,7 +45,7 @@ export const createGenerationJob = async (req, res) => {
         const userPlan = req.user.plan || 'free';
 
         const PLAN_LIMITS = {
-            free: { name: 'Free', maxDuration: 40 },
+            free: { name: 'Free', maxDuration: 60 },
             pro: { name: 'Standard', maxDuration: 3000 },
             elite: { name: 'Standard', maxDuration: 3000 },
             custom: { name: 'Custom', maxDuration: 3000 }

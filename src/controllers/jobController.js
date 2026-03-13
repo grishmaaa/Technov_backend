@@ -45,17 +45,17 @@ export const createGenerationJob = async (req, res) => {
         const userPlan = req.user.plan || 'free';
 
         const PLAN_LIMITS = {
-            free: { maxDuration: 40 }, // Trial: Allows up to 40s total (approx 5 videos of 8s)
-            basic: { maxDuration: 40 },
-            pro: { maxDuration: 300 },
-            elite: { maxDuration: 9999 }
+            free: { name: 'Free', maxDuration: 40 },
+            pro: { name: 'Standard', maxDuration: 3000 },
+            elite: { name: 'Standard', maxDuration: 3000 },
+            custom: { name: 'Custom', maxDuration: 3000 }
         };
-        const updatedLimit = PLAN_LIMITS[userPlan] || PLAN_LIMITS.free;
+        const planConfig = PLAN_LIMITS[userPlan] || PLAN_LIMITS.free;
 
-        if (totalDuration > updatedLimit.maxDuration) {
+        if (totalDuration > planConfig.maxDuration) {
             return res.status(403).json({
-                error: `Plan limit exceeded. Your plan (${userPlan}) allows max ${updatedLimit.maxDuration}s. Project is ${totalDuration}s.`,
-                required: updatedLimit.maxDuration,
+                error: `Plan limit exceeded. Your ${planConfig.name} plan allows max ${planConfig.maxDuration}s. Project is ${totalDuration}s.`,
+                required: planConfig.maxDuration,
                 current: totalDuration
             });
         }

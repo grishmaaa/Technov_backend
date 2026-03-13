@@ -172,6 +172,21 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 data: { progress },
             });
 
+            const processedPath = path.join(jobDir, `scene_${sceneNum}.mp4`);
+
+            // SMART RESUME: Skip scene if it already has a videoUrl (saves credits on retries)
+            if (scene.videoUrl && scene.state === 'COMPLETED') {
+                try {
+                    logger.info({ sceneNum }, 'Skipping already completed scene, downloading for concatenation');
+                    await downloadFile(scene.videoUrl, processedPath);
+                    sceneVideos.push({ sceneId: scene.id, processedPath });
+                    continue;
+                } catch (dlErr) {
+                    logger.warn({ dlErr, sceneNum }, 'Failed to download existing scene video, re-generating');
+                    // Fall back to generation if download fails
+                }
+            }
+
             try {
                 // Build video prompt from scene
                 // Clean prompt for Kling (remove [cut], (V.O.), and audio directives)
@@ -238,7 +253,6 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 }
 
                 // Post-process: MP4 faststart
-                const processedPath = path.join(jobDir, `scene_${sceneNum}.mp4`);
                 await runFfmpeg([
                     '-i', rawVideoPath,
                     '-c:v', 'libx264',

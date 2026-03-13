@@ -10,23 +10,11 @@ const razorpay = new Razorpay({
 });
 
 const PLANS = {
-    basic: {
-        name: 'Basic Plan',
-        amount: 17600, // $176.00
-        currency: 'USD',
-        credits: 1200,
-    },
     pro: {
         name: 'Standard Plan',
         amount: 49500, // $495.00
         currency: 'USD',
         credits: 3600,
-    },
-    elite: {
-        name: 'Elite Plan',
-        amount: 50500, // $505.00
-        currency: 'USD',
-        credits: 12000,
     }
 };
 

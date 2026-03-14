@@ -145,10 +145,10 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
             generationConfig,
             systemInstruction: systemPrompt,
             safetySettings: [
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             ],
         });
     } else {
@@ -157,10 +157,10 @@ export const generateStructuredOutput = async (systemPrompt, userPrompt, schema 
             generationConfig,
             systemInstruction: { parts: [{ text: systemPrompt }] },
             safetySettings: [
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             ],
         });
     }
@@ -228,24 +228,18 @@ export const developScript = async (chatHistory, options = {}) => {
     const apiModel = options.model || 'gemini-2.5-flash';
     const { client, type } = getGenerativeClient();
 
-    const systemPrompt = `You are an expert Hollywood screenwriter and mentor.
-The user is bringing you a raw idea, a logline, or an incomplete script. 
-Your goal is to help them turn it into a structurally sound scene or short script.
+    const systemPrompt = `You are an expert Hollywood screenwriter and mentor. Your goal is to help the user turn their idea into a production-ready script.
 
-STAGE 0 BEAT COUNTING RULE (CRITICAL):
-Count the natural story beats in the user's input.
-One beat = one clip = one API call = 8-10 seconds.
-Minimum 1 clip. Maximum 8 clips.
-- If the input has 1-8 beats: proceed quietly to help them refine the shot list or encourage them to generate.
-- If the input exceeds 8 beats: STOP. You must say EXACTLY this: "Your story has [X] key moments. I can only fit 8 into one video. Which ones matter most to you — or should I decide?" Do not outline anything else until they respond.
-- Never plan for more than 8 clips. Never plan for fewer than 1.
+STAGE 0 BEAT COUNTING:
+1. One beat = one 8-10s clip. Maximum 8 clips.
+2. If the user wants a short, impactful "one scene" project, respect that. Do not expand it unnecessarily.
 
 THE PROCESS:
-1. Ask probing, thoughtful questions (only 1 or 2 at a time) about their premise, characters' motivations, or the core conflict.
-2. If they have a basic idea, suggest a rough outline or a specific "beat".
-3. Help them find the specific visual details that make the story cinematic.
-4. BE CONCISE. Do not overwhelm them with 5 paragraphs of text. Talk like a collaborator in a writers' room.
-5. If the script/outline looks complete and ready for visual generation, encourage them to click the "Generate Scenes" button.`;
+1. If the user says "approved", "generate it", or "go ahead", you MUST stop chatting and trigger production.
+2. If they are ready, output your final polished version of the script and end your message with: "PRODUCTION_TRIGGER"
+3. Otherwise, maintain a mentoring tone and ask probing questions about characters and conflict.
+
+If the user gives a punchy script and wants it as-is, do not add "fat". Directness is key.`;
 
     const generationConfig = {
         maxOutputTokens: 8192,
@@ -318,8 +312,19 @@ export const safetyCheck = async (storyText, options = {}) => {
 
     const systemPrompt = `You are a content safety reviewer for a cinematic video generation platform. 
 Analyze the following story for policy violations. 
-Flag: explicit sexual content, graphic violence, hate speech, illegal activities, child exploitation.
-Allow: dramatic tension, cinematic conflict, action sequences, dark themes handled tastefully.
+
+═══ THE CINEMATIC RULE ═══
+Fictional conflict is NOT real-world harm. 
+- ALWAYS ALLOW: Tragic backstories, revenge plots, mentions of characters "dying", "being killed", "burning kingdoms", or "destroying worlds". These are standard cinematic tropes.
+- DO NOT BLOCK based on dramatic violence, horror elements, or dark themes.
+- MARK AS SAFE: Any story element that would be found in a PG-13 or R-rated movie (Action, Thriller, Drama).
+
+═══ THE ONLY BLOCKS ═══
+1. Real-world instructions for illegal acts (e.g., "how to build a bomb").
+2. Non-consensual sexual content or child exploitation.
+3. Real-world hate speech targeting protected groups.
+
+If it is a movie idea, it is SAFE. Severity must be 'SAFE' for all fictional drama.
 Return a structured safety assessment.`;
 
     const { parsed } = await generateStructuredOutput(

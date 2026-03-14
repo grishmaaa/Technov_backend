@@ -39,7 +39,7 @@ export const developIdea = async (req, res) => {
 
         // Optional safety check on the latest user message
         const latestUserMsg = chatHistory[chatHistory.length - 1];
-        if (latestUserMsg && latestUserMsg.role === 'user') {
+        if (latestUserMsg && latestUserMsg.role === 'user' && (req.user?.plan === 'free' || !req.user?.plan)) {
             const safety = await safetyCheck(latestUserMsg.text, tierConfig.safety);
             if (safety.severity === 'BLOCK') {
                 return res.status(422).json({
@@ -83,7 +83,8 @@ export const generateScript = async (req, res) => {
 
         // Safety check
         const safety = await safetyCheck(story, tierConfig.safety);
-        if (safety.severity === 'BLOCK') {
+        // Skip block for paid users to allow full creative freedom
+        if (safety.severity === 'BLOCK' && (userPlan === 'free' || !userPlan)) {
             return res.status(422).json({
                 error: 'Content blocked by safety filters',
                 violations: safety.violations,

@@ -47,7 +47,11 @@ const evolinkFetch = async (endpoint, options = {}) => {
     if (!response.ok) {
         const errorBody = await response.text();
         logger.error({ status: response.status, body: errorBody, endpoint }, 'EvoLink API error');
-        throw new Error(`EvoLink API error (${response.status}): ${errorBody}`);
+        const err = new Error(`EvoLink API error (${response.status}): ${errorBody}`);
+        if (response.status >= 400 && response.status < 500) {
+            err.isPermanent = true;
+        }
+        throw err;
     }
 
     return response.json();

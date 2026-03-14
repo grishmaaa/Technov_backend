@@ -495,6 +495,11 @@ export const processGenerationJob = async (jobId, context = {}) => {
             logger.error({ err: updateErr }, 'Failed to update job status on error');
         }
 
+        if (error.isPermanent) {
+            logger.warn({ jobId }, 'Skipping retries for permanent error');
+            return { status: 'failed', permanent: true };
+        }
+
         throw error;
     }
 };

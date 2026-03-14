@@ -4,7 +4,7 @@ import { connection } from './connection.js';
 export const renderQueue = new Queue('render', {
     connection,
     defaultJobOptions: {
-        attempts: Number(process.env.WORKER_MAX_ATTEMPTS || 3),
+        attempts: Number(process.env.WORKER_MAX_ATTEMPTS || 2),
         backoff: {
             type: 'exponential',
             delay: Number(process.env.WORKER_BACKOFF_DELAY_MS || 30000)

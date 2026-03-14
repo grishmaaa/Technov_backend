@@ -80,6 +80,21 @@ export const createProject = async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized: No user ID found' });
         }
 
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user.plan === 'free') {
+            const projectCount = await prisma.project.count({
+                where: { userId: req.user.id }
+            });
+
+            if (projectCount >= 1) {
+                console.warn(`[ProjectController] Free user ${req.user.id} blocked: Project limit reached (1)`);
+                return res.status(403).json({
+                    error: 'Free plan limit reached',
+                    details: 'Free accounts are limited to 1 visual preview. Please upgrade to create more projects.'
+                });
+            }
+        }
+
         console.log(`[ProjectController] Creating project "${title}" for user ${req.user.id}`);
 
         const project = await prisma.project.create({

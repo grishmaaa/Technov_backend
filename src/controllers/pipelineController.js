@@ -37,6 +37,14 @@ export const developIdea = async (req, res) => {
 
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'AI generation features are only available on paid plans. Please upgrade to start creating.'
+            });
+        }
+
         // Optional safety check on the latest user message
         const latestUserMsg = chatHistory[chatHistory.length - 1];
         if (latestUserMsg && latestUserMsg.role === 'user' && (req.user?.plan === 'free' || !req.user?.plan)) {
@@ -94,6 +102,15 @@ export const generateScript = async (req, res) => {
         }
 
         const userPlan = req.user?.plan || 'free';
+
+        // --- FREE PLAN RESTRICTION ---
+        if (userPlan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'Script generation is only available on paid plans. Please upgrade to continue.'
+            });
+        }
+
         const tierConfig = getTierConfig(userPlan);
 
         // Safety check
@@ -315,6 +332,14 @@ export const editSceneEndpoint = async (req, res) => {
             return res.status(400).json({ error: 'Edit instruction is required' });
         }
 
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'AI editing is only available on paid plans.'
+            });
+        }
+
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
         const scene = await prisma.scene.findUnique({ where: { id: sceneId } });
@@ -430,6 +455,13 @@ export const approveAllScenes = async (req, res) => {
 export const generateCharacters = async (req, res) => {
     try {
         const { id } = req.params;
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'AI generation features are only available on paid plans.'
+            });
+        }
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
         const project = await prisma.project.findUnique({
@@ -503,6 +535,13 @@ export const regenerateCharacter = async (req, res) => {
     try {
         const { id, charId } = req.params;
         const { userPrompt } = req.body;
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'AI generation features are only available on paid plans.'
+            });
+        }
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
         const character = await prisma.character.findUnique({ where: { id: charId } });
@@ -645,6 +684,13 @@ export const approveAllCharacters = async (req, res) => {
 export const generateIngredients = async (req, res) => {
     try {
         const { id } = req.params;
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'AI generation features are only available on paid plans.'
+            });
+        }
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
         const project = await prisma.project.findUnique({
@@ -718,6 +764,13 @@ export const generateIngredients = async (req, res) => {
 export const regenerateIngredient = async (req, res) => {
     try {
         const { id, assetId } = req.params;
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'AI generation features are only available on paid plans.'
+            });
+        }
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
         const project = await prisma.project.findUnique({
@@ -839,6 +892,15 @@ export const editVideo = async (req, res) => {
     try {
         const { id } = req.params;
         const { feedback } = req.body;
+
+        // --- FREE PLAN RESTRICTION ---
+        if (req.user?.plan === 'free') {
+            return res.status(403).json({
+                error: 'Subscription required',
+                details: 'Video Agent editing is only available on paid plans.'
+            });
+        }
+
         const tierConfig = getTierConfig(req.user?.plan || 'free');
 
         const project = await prisma.project.findUnique({

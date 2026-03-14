@@ -776,6 +776,12 @@ export const approveAllIngredients = async (req, res) => {
             return res.status(400).json({ error: 'Some ingredients have not been generated yet' });
         }
 
+        // IDEMPOTENCY: If already approved or generating, just return success
+        const project = await prisma.project.findUnique({ where: { id } });
+        if (['WORLD_ASSETS_APPROVED', 'VIDEO_GENERATION', 'COMPLETE'].includes(project?.state)) {
+            return res.json({ message: 'Ingredients already approved', state: project.state });
+        }
+
         await prisma.asset.updateMany({
             where: { projectId: id, state: 'GENERATED' },
             data: { state: 'APPROVED' },
@@ -786,7 +792,7 @@ export const approveAllIngredients = async (req, res) => {
             toState: 'WORLD_ASSETS_APPROVED',
             actorType: 'USER',
             actorId: req.user?.id,
-            reason: `All ${assets.length} world ingredients approved — video generation unlocked`,
+            reason: `All world ingredients approved — video generation unlocked`,
         });
 
         res.json({ message: 'All ingredients approved', state: 'WORLD_ASSETS_APPROVED' });

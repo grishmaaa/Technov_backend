@@ -70,9 +70,13 @@ const getDurationSeconds = async (filePath) => {
 /**
  * Publish real-time progress updates to frontend via Redis pub/sub.
  */
-const publishProgress = async (projectId, data) => {
+const publishProgress = async (projectId, userId, data) => {
     try {
-        await redis.publish(`project:${projectId}`, JSON.stringify(data));
+        await redis.publish('job-updates', JSON.stringify({
+            userId,
+            type: `project:${projectId}`,
+            payload: data
+        }));
     } catch (err) {
         logger.warn({ err, projectId }, 'Failed to publish progress update');
     }
@@ -166,7 +170,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
             // Publish progress
             const progress = Math.round((i / totalScenes) * 90);
-            await publishProgress(project.id, {
+            await publishProgress(project.id, project.userId, {
                 type: 'scene-progress',
                 sceneNumber: sceneNum,
                 totalScenes,
@@ -240,7 +244,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     aspectRatio: project.aspectRatio || '16:9',
                     quality: tierConfig.video.quality,
                     onProgress: (p, status) => {
-                        publishProgress(project.id, {
+                        publishProgress(project.id, project.userId, {
                             type: 'scene-progress',
                             sceneNumber: sceneNum,
                             progress: Math.round((i / totalScenes) * 90 + (p / totalScenes) * 0.9 + 5),
@@ -321,13 +325,10 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
 
                 // Update scene record with video AND lastFrameUrl for the next iteration to pick up
+                // Update scene in DB
                 await prisma.scene.update({
                     where: { id: scene.id },
-                    data: {
-                        videoUrl: sceneVideoUrl,
-                        lastFrameUrl: lastFrameUrlLocation,
-                        state: 'COMPLETED'
-                    },
+                    data: { videoUrl: sceneVideoUrl, state: 'COMPLETED', lastFrameUrl: lastFrameUrlLocation },
                 });
 
                 // Update the project's scene array in memory so the NEXT clip in the loop can access 'project.scenes[currentIndex].lastFrameUrl'
@@ -335,12 +336,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
                 sceneVideos.push({ sceneId: scene.id, rawPath: rawVideoPath, processedPath });
 
-                // Publish completed scene (progressive reveal)
-                await publishProgress(project.id, {
+                // Notify frontend
+                await publishProgress(project.id, project.userId, {
                     type: 'scene-complete',
+                    sceneId: scene.id,
                     sceneNumber: sceneNum,
                     videoUrl: sceneVideoUrl,
-                    totalScenes,
                 });
 
                 logger.info({ sceneNum, duration, sceneVideoUrl }, `Scene ${sceneNum} complete`);
@@ -452,7 +453,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
         });
 
         // 8. Notify user
-        await publishProgress(project.id, {
+        await publishProgress(project.id, project.userId, {
             type: 'final-ready',
             videoUrl: finalVideoUrl,
             progress: 100,
@@ -510,7 +511,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     reason: error.message,
                 });
 
-                await publishProgress(job.projectId, {
+                await publishProgress(job.projectId, project.userId, {
                     type: 'error',
                     error: error.message,
                 });

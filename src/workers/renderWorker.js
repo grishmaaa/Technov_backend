@@ -339,11 +339,17 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 logger.error({ err: sceneErr, sceneNum }, `Scene ${sceneNum} failed`);
                 captureException(sceneErr, { sceneNum, jobId });
 
-                // Mark scene as failed but continue with others
+                // Mark scene as failed
                 await prisma.scene.update({
                     where: { id: scene.id },
                     data: { state: 'FAILED' },
                 });
+
+                // CRITICAL: If the error is permanent (e.g. invalid params, terminal API failure), 
+                // ABORT the whole job immediately to stop burning credits.
+                if (sceneErr.isPermanent) {
+                    throw sceneErr;
+                }
             }
         }
 

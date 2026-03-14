@@ -69,7 +69,10 @@ export const extractVideoUrl = (data) => {
         || data.works?.[0]?.resource?.resource
         || data.works?.[0]?.video?.url
         || data.output?.url
-        || data.results?.[0];
+        || data.results?.[0]
+        || data.task_info?.results?.[0]
+        || data.video_url
+        || data.url;
 };
 
 /**
@@ -194,17 +197,21 @@ export const pollVideoTask = async (taskId, options = {}) => {
 
                 if (!videoUrl) {
                     logger.error({ taskId, fullResponse: data }, 'EvoLink completed but no video URL found — FULL RESPONSE LOGGED');
-                    throw new Error('EvoLink task completed but no video URL found in any known field');
+                    const err = new Error('EvoLink task completed but no video URL found in any known field');
+                    err.isPermanent = true;
+                    throw err;
                 }
 
                 logger.info({ taskId, videoUrl }, 'EvoLink video generation completed');
                 return { videoUrl, status: 'completed' };
             }
 
-            if (status === 'failed' || status === 'error') {
+            if (status === 'failed' || status === 'error' || status === 'canceled') {
                 const errorMsg = data.result_data?.error_message || data.error?.message || 'Unknown error';
                 logger.error({ taskId, error: errorMsg }, 'EvoLink video generation failed');
-                throw new Error(`EvoLink video generation failed: ${errorMsg}`);
+                const err = new Error(`EvoLink video generation failed: ${errorMsg}`);
+                err.isPermanent = true;
+                throw err;
             }
 
             logger.debug({ taskId, attempt, progress, status }, 'EvoLink task still processing');

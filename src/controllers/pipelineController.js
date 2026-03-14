@@ -52,6 +52,21 @@ export const developIdea = async (req, res) => {
 
         const result = await developScript(chatHistory, tierConfig.llmEdit);
 
+        // PERSIST CHAT HISTORY
+        // We store it in metadata.chatHistory
+        const updatedHistory = [...chatHistory, { role: 'ai', text: result.text }];
+        const existingMetadata = project.metadata || {};
+
+        await prisma.project.update({
+            where: { id },
+            data: {
+                metadata: {
+                    ...existingMetadata,
+                    chatHistory: updatedHistory
+                }
+            }
+        });
+
         res.json({
             text: result.text,
         });
@@ -247,6 +262,7 @@ Zero lens/DOF specs. Output must include \`characterLock\`, \`worldLock\`, \`ing
                     visual_style: visualStyleFinal,
                     safety_check: safety,
                     llm_usage: usage,
+                    chatHistory: [{ role: 'user', text: story }] // Initialize chat history with the prompt
                 },
             },
         });

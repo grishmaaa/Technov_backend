@@ -13,10 +13,18 @@ export const authMiddleware = async (req, res, next) => {
         console.log("[Auth] Token present:", !!token);
 
         if (!token) {
+            console.warn("[Auth] No token provided in headers or query");
             return res.status(401).json({ error: 'No token provided' });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (jwtErr) {
+            console.warn("[Auth] Token verification failed:", jwtErr.message);
+            return res.status(401).json({ error: 'Invalid or expired token', details: jwtErr.message });
+        }
+
         const user = await prisma.user.findUnique({
             where: { id: decoded.userId },
             select: {
@@ -31,6 +39,7 @@ export const authMiddleware = async (req, res, next) => {
         });
 
         if (!user) {
+            console.warn("[Auth] User not found for ID:", decoded.userId);
             return res.status(401).json({ error: 'Invalid token' });
         }
 
@@ -51,7 +60,8 @@ export const authMiddleware = async (req, res, next) => {
 
         next();
     } catch (error) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        console.error("[Auth] Unexpected middleware error:", error);
+        return res.status(500).json({ error: 'Internal server error during auth' });
     }
 };
 

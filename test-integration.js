@@ -1,27 +1,45 @@
-import dotenv from 'dotenv';
-dotenv.config();
-import { submitVideoGeneration } from './src/services/evolinkService.js';
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
-async function testKlingIntegration() {
-    console.log("🎥 Testing Kling Integration via EvoLink...");
-    console.log("API Key Check:", process.env.EVOLINK_API_KEY ? "Found" : "Missing");
+const prisma = new PrismaClient();
 
-    // Using Kling 2.6 to verify connectivity (cheaper than 3.0)
-    const prompt = "A high-fidelity cinematic shot of a cyberpunk city in the rain, ultra-detailed, 8k.";
+async function main() {
+    const email = `test-${Date.now()}@example.com`;
+    const password = 'Password123!';
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
-        const result = await submitVideoGeneration(prompt, {
-            model: 'kling-v2.6',
-            quality: 'standard',
-            duration: 5
+        console.log('Creating user:', email);
+        const user = await prisma.user.create({
+            data: {
+                email,
+                name: 'Test User',
+                password: hashedPassword,
+                credits: 0,
+                plan: 'free',
+                isVerified: true
+            }
         });
-        console.log("✅ Submission Success!");
-        console.log("Task ID:", result.taskId);
-        console.log("Status:", result.status);
+        console.log('User created:', user.id);
+
+        console.log('Creating project for user...');
+        const project = await prisma.project.create({
+            data: {
+                title: 'New Project',
+                description: 'New project description',
+                userId: user.id
+            }
+        });
+        console.log('Project created successfully:', project.id);
+
+        await prisma.project.delete({ where: { id: project.id } });
+        await prisma.user.delete({ where: { id: user.id } });
+        console.log('Cleaned up.');
     } catch (error) {
-        console.error("❌ Submission Failed!");
-        console.log("Error:", error.message);
+        console.error('Error during test:', error);
+    } finally {
+        await prisma.$disconnect();
     }
 }
 
-testKlingIntegration();
+main();

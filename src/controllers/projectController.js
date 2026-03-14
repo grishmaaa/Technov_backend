@@ -75,35 +75,70 @@ export const createProject = async (req, res) => {
             return res.status(400).json({ error: 'Title is required' });
         }
 
+        if (!req.user || !req.user.id) {
+            console.error("[ProjectController] Unauthorized: req.user.id is missing");
+            return res.status(401).json({ error: 'Unauthorized: No user ID found' });
+        }
+
+        console.log(`[ProjectController] Creating project "${title}" for user ${req.user.id}`);
+
         const project = await prisma.project.create({
             data: {
                 title,
-                description,
+                description: description || null,
                 userId: req.user.id,
-                qualityTier: qualityTier || undefined,
-                aspectRatio: aspectRatio || undefined,
-                fps: fps || undefined
-            },
-            include: { scenes: true }
+                qualityTier: qualityTier || "cinematic",
+                aspectRatio: aspectRatio || "16:9",
+                fps: fps || 24,
+                state: "CREATED",
+                renderProgress: 0
+            }
         });
 
+        console.log(`[ProjectController] Project created successfully: ${project.id}`);
         res.status(201).json(project);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to create project', details: error.message });
+        console.error("[ProjectController] Failed to create project. Full error:", error);
+
+        // Check for specific Prisma errors
+        if (error.code === 'P2002') {
+            return res.status(400).json({ error: 'A project with this title already exists' });
+        }
+
+        res.status(500).json({
+            error: 'Failed to create project',
+            details: error.message,
+            code: error.code
+        });
     }
 };
 
 export const getProjects = async (req, res) => {
     try {
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        console.log(`[ProjectController] Fetching projects for user ${req.user.id}`);
+
         const projects = await prisma.project.findMany({
             where: { userId: req.user.id },
-            include: { scenes: { orderBy: { orderIndex: 'asc' } }, _count: { select: { scenes: true } } },
+            include: {
+                scenes: {
+                    take: 1,
+                    orderBy: { orderIndex: 'asc' }
+                },
+                _count: {
+                    select: { scenes: true }
+                }
+            },
             orderBy: { createdAt: 'desc' }
         });
 
         res.json(projects);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch projects' });
+        console.error("[ProjectController] Failed to fetch projects:", error);
+        res.status(500).json({ error: 'Failed to fetch projects', details: error.message });
     }
 };
 

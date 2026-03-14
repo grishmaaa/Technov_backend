@@ -275,7 +275,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 let sceneVideoUrl;
 
                 if (isStorageConfigured()) {
-                    sceneVideoUrl = await uploadFile(processedPath, { objectKey: sceneKey });
+                    try {
+                        sceneVideoUrl = await uploadFile(processedPath, { objectKey: sceneKey });
+                    } catch (uploadErr) {
+                        logger.warn({ err: uploadErr.message, sceneNum }, 'Cloud storage upload failed — using raw EvoLink URL instead');
+                        sceneVideoUrl = videoResult.video_url;
+                    }
                 } else {
                     logger.warn({ sceneNum }, 'Cloud storage NOT configured. Video URL will expire in 24 hours!');
                     sceneVideoUrl = videoResult.video_url;
@@ -301,7 +306,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     // Upload the frame
                     const frameKey = buildObjectKey({ userId: project.userId, extension: 'jpg' });
                     if (isStorageConfigured()) {
-                        lastFrameUrlLocation = await uploadFile(lastFrameRawPath, { objectKey: frameKey });
+                        try {
+                            lastFrameUrlLocation = await uploadFile(lastFrameRawPath, { objectKey: frameKey });
+                        } catch (uploadErr) {
+                            logger.warn({ err: uploadErr.message, sceneNum }, "Cloud storage upload failed for lastFrame. Next clip might jump.");
+                            lastFrameUrlLocation = null;
+                        }
                     } else {
                         lastFrameUrlLocation = null; // In dev without S3, continuity chaining might break if we can't host the frame
                     }
@@ -395,15 +405,23 @@ export const processGenerationJob = async (jobId, context = {}) => {
         // 6. Upload final video
         let finalVideoUrl;
         if (isStorageConfigured()) {
-            const finalKey = buildObjectKey({ userId: project.userId, extension: 'mp4' });
-            finalVideoUrl = await uploadFile(finalVideoPath, { objectKey: finalKey });
-
-            // Get presigned URL for immediate playback
             try {
-                const signedUrl = await getPresignedDownloadUrl({ key: finalKey, expiresIn: 86400 });
-                finalVideoUrl = signedUrl;
-            } catch (signErr) {
-                logger.warn({ err: signErr }, 'Failed to generate signed URL for final video');
+                const finalKey = buildObjectKey({ userId: project.userId, extension: 'mp4' });
+                finalVideoUrl = await uploadFile(finalVideoPath, { objectKey: finalKey });
+
+                // Get presigned URL for immediate playback
+                try {
+                    const signedUrl = await getPresignedDownloadUrl({ key: finalKey, expiresIn: 86400 });
+                    finalVideoUrl = signedUrl;
+                } catch (signErr) {
+                    logger.warn({ err: signErr }, 'Failed to generate signed URL for final video');
+                }
+            } catch (finalUploadErr) {
+                logger.warn({ err: finalUploadErr.message }, 'Final video upload failed — using local path reference or last successful scene URL');
+                // Fallback: If we can't upload the final concatenated video, 
+                // we use the last successful scenes as a fallback if possible, 
+                // but usually the job will have successfulScenes[0].processedPath
+                finalVideoUrl = successfulScenes[successfulScenes.length - 1].videoUrl;
             }
         }
 

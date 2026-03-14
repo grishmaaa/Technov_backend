@@ -289,16 +289,21 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     const payload = {
         model: 'kling-custom-element',
+        prompt: safeName, // FIX: Bypass empty prompt validation
         model_params: {
             element_name: safeName,
             element_description: safeDescription,
             reference_type: 'image_refer',
             element_image_list: {
                 frontal_image: frontalImageUrl,
-                refer_images: (referImages || []).map(url => ({ image_url: url })),
             },
         }
     };
+
+    // FIX: Omit empty arrays to pass strict validation
+    if (referImages && referImages.length > 0) {
+        payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
+    }
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',

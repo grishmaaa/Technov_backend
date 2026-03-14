@@ -289,7 +289,6 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     const payload = {
         model: 'kling-custom-element',
-        prompt: safeName, // FIX: Bypass empty prompt validation
         model_params: {
             element_name: safeName,
             element_description: safeDescription,

@@ -12,6 +12,7 @@
 
 import { logger } from '../logger.js';
 import { isStorageConfigured, uploadBufferToStorage, buildObjectKey } from './storageService.js';
+import prisma from '../config/database.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';

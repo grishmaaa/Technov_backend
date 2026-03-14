@@ -64,7 +64,8 @@ export const extractVideoUrl = (data) => {
         || data.task_result?.output?.videos?.[0]?.url
         || data.works?.[0]?.resource?.resource
         || data.works?.[0]?.video?.url
-        || data.output?.url;
+        || data.output?.url
+        || data.results?.[0];
 };
 
 /**
@@ -277,13 +278,15 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     const payload = {
         model: 'kling-custom-element',
-        element_name: safeName,
-        element_description: safeDescription,
-        reference_type: 'image_refer',
-        element_image_list: {
-            frontal_image: frontalImageUrl,
-            refer_images: (referImages || []).map(url => ({ image_url: url })),
-        },
+        model_params: {
+            element_name: safeName,
+            element_description: safeDescription,
+            reference_type: 'image_refer',
+            element_image_list: {
+                frontal_image: frontalImageUrl,
+                refer_images: (referImages || []).map(url => ({ image_url: url })),
+            },
+        }
     };
 
     const data = await evolinkFetch('/videos/generations', {

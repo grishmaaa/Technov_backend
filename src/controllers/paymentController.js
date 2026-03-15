@@ -34,8 +34,8 @@ export const createOrder = async (req, res) => {
             }
             amountToCharge = requestedAmount;
             const dollars = amountToCharge / 100;
-            // $0.22 per second -> 1/0.22 seconds per dollar
-            creditsToAdd = Math.floor(dollars / 0.22);
+            // $0.50 per second -> 2 seconds per dollar
+            creditsToAdd = Math.floor(dollars / 0.65);
             planDetails = {
                 name: `Custom Top-up ($${dollars})`,
                 amount: amountToCharge,

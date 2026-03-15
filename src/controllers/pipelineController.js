@@ -364,6 +364,7 @@ export const editSceneEndpoint = async (req, res) => {
                 promptText: result.editedPrompt,
                 actionDescription: result.editedDescription,
                 approved: false, // Reset approval on edit
+                state: 'DRAFT',  // Reset state to ensure worker regenerates it
             },
         });
 
@@ -564,6 +565,7 @@ export const regenerateCharacter = async (req, res) => {
             data: {
                 portraitUrl: portrait.url,
                 approved: false, // Reset approval on regen
+                elementId: null, // Clear elementId so worker creates a new one for new portrait
             },
         });
 
@@ -597,6 +599,7 @@ export const uploadCharacterPhoto = async (req, res) => {
             data: {
                 portraitUrl: imageUrl,
                 approved: false,
+                elementId: null, // Clear elementId for new manual photo
             },
         });
 

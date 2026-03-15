@@ -37,9 +37,14 @@ export const createGenerationJob = async (req, res) => {
 
         const effectiveQuality = (qualityTier || project.qualityTier || 'cinematic').toLowerCase();
 
-        // 1. Calculate Total Duration & Credits
-        const totalDuration = project.scenes.reduce((sum, scene) => sum + (scene.duration || 0), 0);
-        const requiredCredits = Math.ceil(totalDuration); // 1 credit = 1 second
+        // 1. Calculate Total Duration & Credits (Smart Resume: Only charge for non-completed scenes)
+        const pendingScenes = project.scenes.filter(s => s.state !== 'COMPLETED');
+        const totalDuration = pendingScenes.reduce((sum, scene) => sum + (scene.duration || 0), 0);
+        const requiredCredits = Math.ceil(totalDuration);
+
+        // If all scenes are complete, we still allow creating a job (e.g. for re-concatenation), 
+        // but it costs 0 credits.
+        logger.info({ projectId, totalDuration, pendingCount: pendingScenes.length }, 'Calculating smart resume credits');
 
         // 2. Enforce Plan Limits
         const userPlan = req.user.plan || 'free';

@@ -124,7 +124,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
     const payload = {
         model: finalModel,
-        prompt,
+        ...(finalModel !== 'kling-custom-element' && { prompt }),
         duration: Math.min(Math.max(duration, 5), 10),
         aspect_ratio: aspectRatio,
         quality: finalQuality.toUpperCase(),
@@ -295,11 +295,12 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             reference_type: 'image_refer',
             element_image_list: {
                 frontal_image: frontalImageUrl,
-            },
+            }
         }
     };
 
-    // FIX: Omit empty arrays to pass strict validation
+    // Omit prompt entirely as per EvoLink docs for this model
+    // Any optional reference images
     if (referImages && referImages.length > 0) {
         payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }

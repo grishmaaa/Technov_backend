@@ -42,7 +42,7 @@ export const generateImage = async (prompt, options = {}) => {
         steps = 4,
         aspectRatio = '16:9',
         seed,
-        outputFormat = 'png',
+        outputFormat = 'jpeg',
     } = options;
 
     const imageSize = ASPECT_RATIO_MAP[aspectRatio] || 'landscape_16_9';
@@ -80,6 +80,7 @@ export const generateImage = async (prompt, options = {}) => {
                 const buffer = Buffer.from(await imgRes.arrayBuffer());
                 const ext = outputFormat === 'png' ? 'png' : 'jpg';
                 const key = buildObjectKey({ userId: 'fal-images', extension: ext });
+                const contentType = `image/${outputFormat === 'jpeg' ? 'jpeg' : outputFormat}`;
                 const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
 
                 logger.info({ persistedUrl }, 'fal.ai image persisted to storage');
@@ -116,7 +117,7 @@ export const generateCharacterPortrait = async (description, style, options = {}
         model: options.model || 'fal-ai/flux/schnell',
         steps: options.steps || 4,
         aspectRatio: '1:1',
-        outputFormat: 'png',
+        outputFormat: 'jpeg',
     });
 };
 
@@ -153,7 +154,7 @@ export const generateIngredientImage = async (
                     })),
                     num_inference_steps: options.steps || 28,
                     num_images: 1,
-                    output_format: 'png',
+                    output_format: 'jpeg',
                     enable_safety_checker: true,
                     use_real_cfg: true, // Required for XLabs IP-Adapter v1
                 }
@@ -197,6 +198,6 @@ export const generateIngredientImage = async (
         model: options.model || 'fal-ai/flux/schnell',
         steps: options.steps || 4,
         aspectRatio,
-        outputFormat: 'png',
+        outputFormat: 'jpeg',
     });
 };

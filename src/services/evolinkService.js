@@ -285,7 +285,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
     const safeName = (name || 'Character').substring(0, 20);
-    const safeDescription = (description || 'Character reference').substring(0, 100);
+    const safeDescription = (description && description.trim().length > 0 ? description : 'Character reference').substring(0, 100);
 
     const payload = {
         model: 'kling-custom-element',

@@ -15,12 +15,6 @@ const PLANS = {
         amount: 8900, // $89.00
         currency: 'USD',
         credits: 300,
-    },
-    elite: {
-        name: 'Elite Plan',
-        amount: 19900, // $199.00
-        currency: 'USD',
-        credits: 1000,
     }
 };
 
@@ -39,9 +33,9 @@ export const createOrder = async (req, res) => {
                 return res.status(400).json({ error: 'Minimum custom top-up is $50' });
             }
             amountToCharge = requestedAmount;
-            // Reward high top-ups with better rates
             const dollars = amountToCharge / 100;
-            creditsToAdd = Math.floor(dollars * 25); // Elite-level rate for custom top-up
+            // $0.22 per second -> 1/0.22 seconds per dollar
+            creditsToAdd = Math.floor(dollars / 0.22);
             planDetails = {
                 name: `Custom Top-up ($${dollars})`,
                 amount: amountToCharge,

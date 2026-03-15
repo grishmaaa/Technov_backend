@@ -204,6 +204,9 @@ if (process.env.REDIS_URL) {
                         // Ideally: socket.join(userId) on connection
                         io.emit(`${type}:${userId}`, payload); // simpler fallback: client listens to their own event name
                         io.to(userId).emit(type, payload);
+
+                        // Also notify client to refresh their credits/plan info globally
+                        io.to(userId).emit('credits-updated', {});
                     }
                 } catch (e) {
                     logger.warn({ err: e }, 'Failed to process socket update');

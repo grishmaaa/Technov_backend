@@ -107,6 +107,7 @@ export const uploadFileToStorage = async ({ filePath, key, contentType }) => {
             contentType: contentType || getContentTypeForPath(filePath),
             contentDisposition: 'inline',
         },
+        public: true, // Make the file publicly readable for EvoLink/Backend services
         resumable: false
     });
 
@@ -158,6 +159,7 @@ export const uploadBufferToStorage = async ({ buffer, key, contentType }) => {
             contentType: contentType || 'application/octet-stream',
             contentDisposition: 'inline',
         },
+        public: true, // Make the file publicly readable for EvoLink/Backend services
         resumable: false
     });
 

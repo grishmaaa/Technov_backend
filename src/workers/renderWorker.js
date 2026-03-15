@@ -15,7 +15,7 @@ import { spawn } from 'child_process';
 import prisma from '../config/database.js';
 import { generateVideo, createCharacterElement } from '../services/evolinkService.js';
 import { uploadFile } from '../services/fileHostingService.js';
-import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey, uploadBufferToStorage, extractKeyFromUrl } from '../services/storageService.js';
+import { isStorageConfigured, getPresignedDownloadUrl, buildObjectKey, uploadBufferToStorage } from '../services/storageService.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getTierConfig } from '../config/modelConfig.js';
 import { logger } from '../logger.js';
@@ -82,22 +82,6 @@ const publishProgress = async (projectId, userId, data) => {
     }
 };
 
-/**
- * Ensures a URL is publicly accessible by signing it if it belongs to our GCS bucket.
- */
-const ensurePublicUrl = async (url) => {
-    if (!url || !url.includes('storage.googleapis.com')) return url;
-    try {
-        const key = extractKeyFromUrl(url);
-        if (!key) return url;
-        const signedUrl = await getPresignedDownloadUrl({ key, expiresIn: 3600 });
-        return signedUrl;
-    } catch (err) {
-        logger.warn({ err: err.message, url }, 'Failed to sign internal URL');
-        return url;
-    }
-};
-
 // --- Main Worker ---
 
 /**
@@ -144,11 +128,10 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 if (!char.elementId && char.portraitUrl) {
                     try {
                         logger.info({ charName: char.name }, 'Creating missing Kling Custom Element for character');
-                        const signedPortraitUrl = await ensurePublicUrl(char.portraitUrl);
                         const { elementId } = await createCharacterElement(
                             char.name,
                             char.description,
-                            signedPortraitUrl
+                            char.portraitUrl
                         );
                         await prisma.character.update({
                             where: { id: char.id },
@@ -168,12 +151,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
         }
 
         // 4. Collect World Ingredients (Reference Images)
-        const referenceImages = await Promise.all(project.assets
+        const referenceImages = project.assets
             .filter(a => a.url)
-            .map(async (a, index) => ({
-                url: await ensurePublicUrl(a.url),
+            .map((a, index) => ({
+                url: a.url,
                 label: `Image${index + 1}` // For @Image1, @Image2 style referencing
-            })));
+            }));
 
         const totalScenes = project.scenes.length;
         const sceneVideos = [];
@@ -249,13 +232,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 const previousClipIndex = i - 1;
                 const previousLastFrameUrl = previousClipIndex >= 0 ? project.scenes[previousClipIndex].lastFrameUrl : null;
                 const startingImageUrl = previousLastFrameUrl || scene.storyboardUrl || undefined;
-                const signedStartingImageUrl = await ensurePublicUrl(startingImageUrl);
 
                 // Generate video via EvoLink
                 const videoResult = await generateVideo(prompt, {
                     sceneId: scene.id,
                     model: tierConfig.video.model,
-                    imageUrl: signedStartingImageUrl,
+                    imageUrl: startingImageUrl,
                     elementList: elementList, // Kling character consistency
                     referenceImages: referenceImages, // World ingredients
                     duration: Math.min(scene.duration || 8, 10),

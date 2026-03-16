@@ -108,9 +108,9 @@ export const generateImage = async (prompt, options = {}) => {
 export const generateCharacterPortrait = async (description, style, options = {}, userPrompt = null) => {
     let prompt;
     if (userPrompt) {
-        prompt = `Character Design Update: ${userPrompt}. Base Description: ${description}. Style: ${style}. Front facing, consistent character portrait sheet, neutral expression, 8k resolution, cinematic lighting, simple clean background.`;
+        prompt = `Character Design Update: ${userPrompt}. Base Description: ${description}. Style: ${style}. Front facing, clear human face, NO MASKS OR HELMETS, neutral expression, 8k resolution, cinematic lighting, simple clean background.`;
     } else {
-        prompt = `Character Reference Portrait: ${description}. Visual Style: ${style}. Front facing, detailed facial features, neutral expression, simple clean background, 8k resolution, cinematic lighting.`;
+        prompt = `Character Reference Portrait: ${description}. Visual Style: ${style}. Front facing, clear human face, NO MASKS OR HELMETS, detailed facial features, neutral expression, simple clean background, 8k resolution, cinematic lighting.`;
     }
 
     return generateImage(prompt, {

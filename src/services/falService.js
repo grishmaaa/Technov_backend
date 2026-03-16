@@ -106,14 +106,27 @@ export const generateImage = async (prompt, options = {}) => {
  * @returns {Promise<{url: string, contentType: string}>}
  */
 export const generateCharacterPortrait = async (description, style, options = {}, userPrompt = null) => {
-    let prompt;
-    const baseDirectives = "A hyper-realistic close-up cinematic portrait of a human face, centered, looking directly at the camera, visible eyes, nose, and mouth, NO HEADWEAR, NO EYEWEAR, NO FACE COVERINGS, NO HATS, NO HELMETS, NO SCARVES, professional studio lighting, clean background.";
+    // 1. Improved sanitizer: removes specific forbidden phrases without nuking important facial details
+    const sanitize = (text) => (text || '')
+        .replace(/\b(wearing a|in a|with a|races|riding|bike|motorcycle|car|suit|jacket|coat|scarf|helmet|mask|visor|action|running|pedaling)\b[^,.]*/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    if (userPrompt) {
-        prompt = `Character DNA Update: ${userPrompt}. Base Identity: ${description}. ${baseDirectives} Visual Style: ${style}. IGNORE all clothing, accessories, or context mentioned; focus 100% on portraying the facial features, age, and gender accurately.`;
-    } else {
-        prompt = `Character DNA Reference (Face Only): ${description}. ${baseDirectives} Visual Style: ${style}. IGNORE all clothing, accessories, or context mentioned; focus 100% on portraying the facial characters, features, age, and gender accurately.`;
-    }
+    const cleanDescription = sanitize(description);
+    const cleanUserPrompt = sanitize(userPrompt);
+
+    // 2. Passport-style prompt for perfect Kling biometric 'DNA' mapping
+    const prompt = `
+        Passport-style portrait photograph. 
+        Single human face, front-facing, looking directly at camera. 
+        Neutral expression, mouth closed, both eyes fully open and visible. 
+        No occlusion, no sunglasses, no hat, no hair covering face.
+        Physical Details: ${cleanDescription}.
+        ${cleanUserPrompt ? 'Additional Identity Markers: ' + cleanUserPrompt + '.' : ''}
+        Neutral grey background, even studio lighting, no shadows on face.
+        Sharp focus on facial features. 8K, photorealistic.
+        Style: ${style}.
+    `.trim().replace(/\s+/g, ' ');
 
     return generateImage(prompt, {
         model: options.model || 'fal-ai/flux/dev',

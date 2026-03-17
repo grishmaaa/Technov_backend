@@ -128,6 +128,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         model: finalModel,
     };
 
+    // Video parameters must be at the ROOT for Kling v3 / Seedance
     if (!isElement) {
         payload.prompt = prompt;
         payload.duration = Math.min(Math.max(duration, 5), 10);
@@ -136,21 +137,21 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         payload.sound = 'on';
     }
 
-    // Use Webhooks if APP_URL is configured (Enterprise Mode)
+    // Attach webhook callback to root if needed
     if (process.env.APP_URL) {
         payload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
         logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
     }
 
+    // Model-specific inputs (Kling v3 prefers root, Element prefers nested - handled in createCharacterElement)
     if (imageUrl) payload.image_url = imageUrl;
     if (elementList && elementList.length > 0) payload.element_list = elementList;
     if (referenceImages && referenceImages.length > 0) payload.reference_images = referenceImages;
 
     logger.info({
-        endpoint: '/videos/generations',
         model: payload.model,
-        fields: Object.keys(payload)
-    }, '📡 Submitting to EvoLink');
+        keys: Object.keys(payload)
+    }, '📡 Submitting Video Task to EvoLink');
 
     logger.info('🚀 RAW VIDEO PAYLOAD:', JSON.stringify(payload, null, 2));
 
@@ -295,9 +296,9 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // 1. Force the description to be purely about physical facial traits (Aggressive)
+    // 1. Force the description to be purely about physical facial traits (Clean)
     const cleanDesc = (description || '')
-        .replace(/\b(the driver|the girl|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b[^,.]*/gi, '')
+        .replace(/\b(the driver|the girl|the biker|rider|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
 

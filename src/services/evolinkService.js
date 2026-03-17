@@ -292,15 +292,16 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // 1. Force the description to be purely about physical facial traits
+    // 1. Force the description to be purely about physical facial traits (Non-destructive)
     const cleanDesc = (description || '')
-        .replace(/(driver of a|wearing a|suit|car|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding).*/gi, '')
+        .replace(/\b(wearing a|in a|with a|races|riding|bike|motorcycle|car|suit|jacket|coat|scarf|helmet|mask|visor|action|running|pedaling|driver of a|unseen)\b[^,.]*/gi, '')
+        .replace(/\s+/g, ' ')
         .trim();
 
-    // 2. Fallback to a generic physical prompt if the description is bad
+    // 2. Fallback to a biometric description if too short
     const finalDescription = (cleanDesc.length > 5)
         ? `A detailed portrait of a person with ${cleanDesc}`
-        : "A portrait of a person with distinct facial features.";
+        : "A clear human portrait with distinct facial features, age and gender specific characteristics.";
 
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);

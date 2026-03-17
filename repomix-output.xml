@@ -8443,322 +8443,6 @@ export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download 
 };
 </file>
 
-<file path="src/services/falService.js">
-/**
- * falService.js
- * 
- * fal.ai Flux image generation service.
- * Replaces all DALL-E 3 calls for character portraits and world ingredients.
- * Models: flux/schnell (Starter), flux-2/dev (Pro), flux-2/pro-v1.1 (Studio)
- */
-
-import { fal } from '@fal-ai/client';
-import { logger } from '../logger.js';
-import { isStorageConfigured, uploadBufferToStorage, buildObjectKey } from './storageService.js';
-
-// Configure fal.ai client (reads FAL_KEY from env)
-fal.config({
-    credentials: process.env.FAL_KEY,
-});
-
-/**
- * Map aspect ratio strings to fal.ai image_size values.
- */
-const ASPECT_RATIO_MAP = {
-    '16:9': 'landscape_16_9',
-    '9:16': 'portrait_16_9',
-    '4:3': 'landscape_4_3',
-    '1:1': 'square_hd',
-};
-
-/**
- * Generate an image using fal.ai Flux.
- * @param {string} prompt - Image generation prompt
- * @param {object} options
- * @param {string} options.model - fal.ai model ID (e.g., 'fal-ai/flux/schnell')
- * @param {number} [options.steps] - Number of inference steps
- * @param {string} [options.aspectRatio] - Aspect ratio ('16:9', '9:16', '1:1', '4:3')
- * @param {number} [options.seed] - Seed for reproducibility
- * @param {string} [options.outputFormat] - 'jpeg' or 'png'
- * @returns {Promise<{url: string, contentType: string}>}
- */
-export const generateImage = async (prompt, options = {}) => {
-    const {
-        model = 'fal-ai/flux/schnell',
-        steps = 4,
-        aspectRatio = '16:9',
-        seed,
-        outputFormat = 'jpeg',
-    } = options;
-
-    const imageSize = ASPECT_RATIO_MAP[aspectRatio] || 'landscape_16_9';
-
-    logger.info({ model, imageSize, steps, promptLength: prompt.length }, 'Generating image via fal.ai');
-
-    try {
-        const result = await fal.subscribe(model, {
-            input: {
-                prompt,
-                image_size: imageSize,
-                num_inference_steps: steps,
-                num_images: 1,
-                output_format: outputFormat,
-                enable_safety_checker: true,
-                ...(seed !== undefined && { seed }),
-            },
-        });
-
-        if (!result.data?.images?.[0]?.url) {
-            throw new Error('fal.ai returned no image');
-        }
-
-        const imageUrl = result.data.images[0].url;
-        const contentType = result.data.images[0].content_type || `image/${outputFormat}`;
-
-        logger.info({ imageUrl, model }, 'fal.ai image generated successfully');
-
-        // Persist to S3 storage (fal.ai URLs are temporary)
-        if (isStorageConfigured()) {
-            try {
-                const imgRes = await fetch(imageUrl);
-                if (!imgRes.ok) throw new Error(`Failed to download fal.ai image: ${imgRes.status}`);
-
-                const buffer = Buffer.from(await imgRes.arrayBuffer());
-                const ext = outputFormat === 'png' ? 'png' : 'jpg';
-                const key = buildObjectKey({ userId: 'fal-images', extension: ext });
-                const contentType = `image/${outputFormat === 'jpeg' ? 'jpeg' : outputFormat}`;
-                const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
-
-                logger.info({ persistedUrl }, 'fal.ai image persisted to storage');
-                return { url: persistedUrl, contentType };
-            } catch (persistErr) {
-                logger.warn({ err: persistErr }, 'Failed to persist fal.ai image, using temp URL');
-            }
-        }
-
-        return { url: imageUrl, contentType };
-    } catch (error) {
-        logger.error({ err: error, model, promptLength: prompt.length }, 'fal.ai image generation failed');
-        throw new Error(`Image generation failed: ${error.message}`);
-    }
-};
-
-/**
- * Generate a character portrait.
- * @param {string} description - Character physical description from bible
- * @param {string} style - Visual style of the project
- * @param {object} options - Model config from tier
- * @param {string} [userPrompt] - Optional user override for regeneration
- * @returns {Promise<{url: string, contentType: string}>}
- */
-export const generateCharacterPortrait = async (description, style, options = {}, userPrompt = null) => {
-    let prompt;
-    if (userPrompt) {
-        prompt = `Character Design Update: ${userPrompt}. Base Description: ${description}. Style: ${style}. Front facing, clear human face, NO MASKS OR HELMETS, neutral expression, 8k resolution, cinematic lighting, simple clean background.`;
-    } else {
-        prompt = `Character Reference Portrait: ${description}. Visual Style: ${style}. Front facing, clear human face, NO MASKS OR HELMETS, detailed facial features, neutral expression, simple clean background, 8k resolution, cinematic lighting.`;
-    }
-
-    return generateImage(prompt, {
-        model: options.model || 'fal-ai/flux/schnell',
-        steps: options.steps || 4,
-        aspectRatio: '1:1',
-        outputFormat: 'jpeg',
-    });
-};
-
-/**
- * Generate a world ingredient image.
- * @param {string} description - Ingredient description
- * @param {string} style - Visual style
- * @param {object} options - Model config from tier
- * @param {string} [aspectRatio] - Target aspect ratio
- * @param {string[]} [characterPortraitUrls] - Optional list of character portrait URLs for IP-Adapter consistency
- * @returns {Promise<{url: string, contentType: string}>}
- */
-export const generateIngredientImage = async (
-    description,
-    style,
-    options = {},
-    aspectRatio = '16:9',
-    characterPortraitUrls = []
-) => {
-    const prompt = `A world ingredient (Location or Prop): ${description}. Visual Style: ${style}. Single detailed reference image, high fidelity, cinematic lighting, photorealistic.`;
-
-    if (characterPortraitUrls && characterPortraitUrls.length > 0) {
-        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating world ingredient image via Flux General (IP-Adapters)');
-
-        try {
-            const result = await fal.subscribe('fal-ai/flux-general', {
-                input: {
-                    prompt,
-                    ip_adapters: characterPortraitUrls.map(url => ({
-                        path: 'XLabs-AI/flux-ip-adapter',
-                        image_encoder_path: 'google/siglip-so400m-patch14-384',
-                        image_url: url,
-                        scale: 0.8
-                    })),
-                    num_inference_steps: options.steps || 28,
-                    num_images: 1,
-                    output_format: 'jpeg',
-                    enable_safety_checker: true,
-                    use_real_cfg: true, // Required for XLabs IP-Adapter v1
-                }
-            });
-
-            if (!result.data?.images?.[0]?.url) {
-                throw new Error('fal.ai returned no image data');
-            }
-
-            const imageUrl = result.data.images[0].url;
-            const contentType = result.data.images[0].content_type || 'image/png';
-
-            // Persist to storage
-            if (isStorageConfigured()) {
-                try {
-                    const imgRes = await fetch(imageUrl);
-                    if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
-                    const buffer = Buffer.from(await imgRes.arrayBuffer());
-                    const key = buildObjectKey({ userId: 'fal-images', extension: 'png' });
-                    const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
-                    return { url: persistedUrl, contentType };
-                } catch (persistErr) {
-                    logger.warn({ err: persistErr }, 'Failed to persist IP-Adapter image, using temp URL');
-                    return { url: imageUrl, contentType };
-                }
-            }
-            return { url: imageUrl, contentType };
-        } catch (adapterErr) {
-            logger.error({
-                err: adapterErr,
-                description,
-                falError: adapterErr.data || adapterErr.message
-            }, 'IP-Adapter validation or generation failed for ingredient');
-            // We still have the fallback below to keep the pipeline moving, 
-            // but now we'll see exactly WHY it failed in the logs.
-        }
-    }
-
-    // Default fallback: Standard Text-to-Image (Fast)
-    return generateImage(prompt, {
-        model: options.model || 'fal-ai/flux/schnell',
-        steps: options.steps || 4,
-        aspectRatio,
-        outputFormat: 'jpeg',
-    });
-};
-</file>
-
-<file path="src/config/modelConfig.js">
-/**
- * modelConfig.js
- * 
- * Single source of truth for all AI model selections.
- * Pipeline reads user tier → gets all models. Upgrading a user = changing one DB field.
- * No model names are hardcoded anywhere else in the pipeline.
- */
-
-export const MODEL_TIERS = {
-    starter: {
-        video: { provider: 'evolink', model: 'kling-v3-text-to-video', quality: '720p' },
-        image: { provider: 'fal', model: 'fal-ai/flux/schnell', steps: 4 },
-        llm: { provider: 'google', model: 'gemini-2.5-flash' },
-        llmEdit: { provider: 'google', model: 'gemini-2.5-flash' },
-        safety: { provider: 'google', model: 'gemini-2.5-flash' },
-        maxResolution: '1080p',
-        maxDuration: 30,
-        maxScenes: 4,
-        creditsPerClip: 80,
-        creditsPerImage: 5,
-    },
-    pro: {
-        video: { provider: 'evolink', model: 'kling-v3-text-to-video', quality: '1080p' },
-        image: { provider: 'fal', model: 'fal-ai/flux/dev', steps: 25 },
-        llm: { provider: 'google', model: 'gemini-2.5-pro' },
-        llmEdit: { provider: 'google', model: 'gemini-2.5-flash' },
-        safety: { provider: 'google', model: 'gemini-2.5-flash' },
-        maxResolution: '4K',
-        maxDuration: 60,
-        maxScenes: 8,
-        creditsPerClip: 150,
-        creditsPerImage: 8,
-    },
-    studio: {
-        video: { provider: 'evolink', model: 'kling-v3-text-to-video', quality: '1080p' },
-        image: { provider: 'fal', model: 'fal-ai/flux-pro/v1.1', steps: 30 },
-        llm: { provider: 'google', model: 'gemini-2.5-pro' },
-        llmEdit: { provider: 'google', model: 'gemini-2.5-pro' },
-        safety: { provider: 'google', model: 'gemini-2.5-flash' },
-        maxResolution: '4K',
-        maxDuration: 120,
-        maxScenes: 15,
-        creditsPerClip: 200,
-        creditsPerImage: 12,
-    },
-};
-
-/**
- * Map user plan names → internal tier names.
- * Adding a new plan = adding one entry here. No code changes elsewhere.
- */
-const PLAN_TO_TIER = {
-    free: 'starter',
-    base: 'starter',
-    starter: 'starter',
-    basic: 'starter',
-    pro: 'pro',
-    elite: 'studio',
-    studio: 'studio',
-    custom: 'studio',
-};
-
-/**
- * Get the full model config for a user's plan.
- * @param {string} userPlan - The user's plan name from DB (e.g., 'free', 'pro', 'elite')
- * @returns {object} - The full tier config with video, image, llm models and limits
- */
-export const getTierConfig = (userPlan) => {
-    const tier = PLAN_TO_TIER[(userPlan || 'free').toLowerCase()] || 'starter';
-    return { ...MODEL_TIERS[tier], tierName: tier };
-};
-
-/**
- * Get the tier name for a user's plan.
- * @param {string} userPlan 
- * @returns {'starter' | 'pro' | 'studio'}
- */
-export const getTierName = (userPlan) => {
-    return PLAN_TO_TIER[(userPlan || 'free').toLowerCase()] || 'starter';
-};
-
-/**
- * Calculate credit cost for a video generation job.
- * @param {object} params
- * @param {string} params.userPlan - User's plan
- * @param {number} params.sceneCount - Number of scenes
- * @param {number} params.characterCount - Number of characters
- * @returns {object} - Breakdown of costs
- */
-export const calculateCreditCost = ({ userPlan, sceneCount, characterCount = 0 }) => {
-    const config = getTierConfig(userPlan);
-    const videoCost = sceneCount * config.creditsPerClip;
-    const ingredientCost = sceneCount * config.creditsPerImage;
-    const characterCost = characterCount * config.creditsPerImage;
-    const scriptCost = 10; // Flat cost for script generation
-
-    return {
-        total: videoCost + ingredientCost + characterCost + scriptCost,
-        breakdown: {
-            script: scriptCost,
-            ingredients: ingredientCost,
-            characters: characterCost,
-            video: videoCost,
-        },
-        tierName: config.tierName,
-    };
-};
-</file>
-
 <file path="src/services/llmService.js">
 /**
  * llmService.js
@@ -9146,6 +8830,337 @@ The edited prompt should describe what the audience FEELS, not just what the cam
         editedDescription: parsed.edited_description,
         changesMade: parsed.changes_made,
     };
+};
+</file>
+
+<file path="src/config/modelConfig.js">
+/**
+ * modelConfig.js
+ * 
+ * Single source of truth for all AI model selections.
+ * Pipeline reads user tier → gets all models. Upgrading a user = changing one DB field.
+ * No model names are hardcoded anywhere else in the pipeline.
+ */
+
+export const MODEL_TIERS = {
+    starter: {
+        video: { provider: 'evolink', model: 'kling-v3-text-to-video', quality: '720p' },
+        image: { provider: 'fal', model: 'fal-ai/flux/schnell', steps: 4 },
+        llm: { provider: 'google', model: 'gemini-2.5-flash' },
+        llmEdit: { provider: 'google', model: 'gemini-2.5-flash' },
+        safety: { provider: 'google', model: 'gemini-2.5-flash' },
+        maxResolution: '1080p',
+        maxDuration: 30,
+        maxScenes: 4,
+        creditsPerClip: 80,
+        creditsPerImage: 5,
+    },
+    pro: {
+        video: { provider: 'evolink', model: 'kling-v3-text-to-video', quality: '1080p' },
+        image: { provider: 'fal', model: 'fal-ai/flux/dev', steps: 25 },
+        llm: { provider: 'google', model: 'gemini-2.5-pro' },
+        llmEdit: { provider: 'google', model: 'gemini-2.5-flash' },
+        safety: { provider: 'google', model: 'gemini-2.5-flash' },
+        maxResolution: '4K',
+        maxDuration: 60,
+        maxScenes: 8,
+        creditsPerClip: 150,
+        creditsPerImage: 8,
+    },
+    studio: {
+        video: { provider: 'evolink', model: 'kling-v3-text-to-video', quality: '1080p' },
+        image: { provider: 'fal', model: 'fal-ai/flux-pro/v1.1', steps: 30 },
+        llm: { provider: 'google', model: 'gemini-2.5-pro' },
+        llmEdit: { provider: 'google', model: 'gemini-2.5-pro' },
+        safety: { provider: 'google', model: 'gemini-2.5-flash' },
+        maxResolution: '4K',
+        maxDuration: 120,
+        maxScenes: 15,
+        creditsPerClip: 200,
+        creditsPerImage: 12,
+    },
+};
+
+/**
+ * Map user plan names → internal tier names.
+ * Adding a new plan = adding one entry here. No code changes elsewhere.
+ */
+const PLAN_TO_TIER = {
+    free: 'starter',
+    base: 'starter',
+    starter: 'starter',
+    basic: 'starter',
+    pro: 'pro',
+    elite: 'studio',
+    studio: 'studio',
+    custom: 'studio',
+};
+
+/**
+ * Get the full model config for a user's plan.
+ * @param {string} userPlan - The user's plan name from DB (e.g., 'free', 'pro', 'elite')
+ * @returns {object} - The full tier config with video, image, llm models and limits
+ */
+export const getTierConfig = (userPlan) => {
+    const tier = PLAN_TO_TIER[(userPlan || 'free').toLowerCase()] || 'starter';
+    return { ...MODEL_TIERS[tier], tierName: tier };
+};
+
+/**
+ * Get the tier name for a user's plan.
+ * @param {string} userPlan 
+ * @returns {'starter' | 'pro' | 'studio'}
+ */
+export const getTierName = (userPlan) => {
+    return PLAN_TO_TIER[(userPlan || 'free').toLowerCase()] || 'starter';
+};
+
+/**
+ * Calculate credit cost for a video generation job.
+ * @param {object} params
+ * @param {string} params.userPlan - User's plan
+ * @param {number} params.sceneCount - Number of scenes
+ * @param {number} params.characterCount - Number of characters
+ * @returns {object} - Breakdown of costs
+ */
+export const calculateCreditCost = ({ userPlan, sceneCount, characterCount = 0 }) => {
+    const config = getTierConfig(userPlan);
+    const videoCost = sceneCount * config.creditsPerClip;
+    const ingredientCost = sceneCount * config.creditsPerImage;
+    const characterCost = characterCount * config.creditsPerImage;
+    const scriptCost = 10; // Flat cost for script generation
+
+    return {
+        total: videoCost + ingredientCost + characterCost + scriptCost,
+        breakdown: {
+            script: scriptCost,
+            ingredients: ingredientCost,
+            characters: characterCost,
+            video: videoCost,
+        },
+        tierName: config.tierName,
+    };
+};
+</file>
+
+<file path="src/services/falService.js">
+/**
+ * falService.js
+ * 
+ * fal.ai Flux image generation service.
+ * Replaces all DALL-E 3 calls for character portraits and world ingredients.
+ * Models: flux/schnell (Starter), flux-2/dev (Pro), flux-2/pro-v1.1 (Studio)
+ */
+
+import { fal } from '@fal-ai/client';
+import { logger } from '../logger.js';
+import { isStorageConfigured, uploadBufferToStorage, buildObjectKey } from './storageService.js';
+
+// Configure fal.ai client (reads FAL_KEY from env)
+fal.config({
+    credentials: process.env.FAL_KEY,
+});
+
+/**
+ * Map aspect ratio strings to fal.ai image_size values.
+ */
+const ASPECT_RATIO_MAP = {
+    '16:9': 'landscape_16_9',
+    '9:16': 'portrait_16_9',
+    '4:3': 'landscape_4_3',
+    '1:1': 'square_hd',
+};
+
+/**
+ * Generate an image using fal.ai Flux.
+ * @param {string} prompt - Image generation prompt
+ * @param {object} options
+ * @param {string} options.model - fal.ai model ID (e.g., 'fal-ai/flux/schnell')
+ * @param {number} [options.steps] - Number of inference steps
+ * @param {string} [options.aspectRatio] - Aspect ratio ('16:9', '9:16', '1:1', '4:3')
+ * @param {number} [options.seed] - Seed for reproducibility
+ * @param {string} [options.outputFormat] - 'jpeg' or 'png'
+ * @returns {Promise<{url: string, contentType: string}>}
+ */
+export const generateImage = async (prompt, options = {}) => {
+    const {
+        model = 'fal-ai/flux/schnell',
+        steps = 4,
+        aspectRatio = '16:9',
+        seed,
+        outputFormat = 'jpeg',
+    } = options;
+
+    const imageSize = ASPECT_RATIO_MAP[aspectRatio] || 'landscape_16_9';
+
+    logger.info({ model, imageSize, steps, promptLength: prompt.length }, 'Generating image via fal.ai');
+
+    try {
+        const result = await fal.subscribe(model, {
+            input: {
+                prompt,
+                image_size: imageSize,
+                num_inference_steps: steps,
+                num_images: 1,
+                output_format: outputFormat,
+                enable_safety_checker: true,
+                ...(seed !== undefined && { seed }),
+            },
+        });
+
+        if (!result.data?.images?.[0]?.url) {
+            throw new Error('fal.ai returned no image');
+        }
+
+        const imageUrl = result.data.images[0].url;
+        const contentType = result.data.images[0].content_type || `image/${outputFormat}`;
+
+        logger.info({ imageUrl, model }, 'fal.ai image generated successfully');
+
+        // Persist to S3 storage (fal.ai URLs are temporary)
+        if (isStorageConfigured()) {
+            try {
+                const imgRes = await fetch(imageUrl);
+                if (!imgRes.ok) throw new Error(`Failed to download fal.ai image: ${imgRes.status}`);
+
+                const buffer = Buffer.from(await imgRes.arrayBuffer());
+                const ext = outputFormat === 'png' ? 'png' : 'jpg';
+                const key = buildObjectKey({ userId: 'fal-images', extension: ext });
+                const contentType = `image/${outputFormat === 'jpeg' ? 'jpeg' : outputFormat}`;
+                const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
+
+                logger.info({ persistedUrl }, 'fal.ai image persisted to storage');
+                return { url: persistedUrl, contentType };
+            } catch (persistErr) {
+                logger.warn({ err: persistErr }, 'Failed to persist fal.ai image, using temp URL');
+            }
+        }
+
+        return { url: imageUrl, contentType };
+    } catch (error) {
+        logger.error({ err: error, model, promptLength: prompt.length }, 'fal.ai image generation failed');
+        throw new Error(`Image generation failed: ${error.message}`);
+    }
+};
+
+/**
+ * Generate a character portrait.
+ * @param {string} description - Character physical description from bible
+ * @param {string} style - Visual style of the project
+ * @param {object} options - Model config from tier
+ * @param {string} [userPrompt] - Optional user override for regeneration
+ * @returns {Promise<{url: string, contentType: string}>}
+ */
+export const generateCharacterPortrait = async (description, style, options = {}, userPrompt = null) => {
+    // 1. Improved sanitizer: removes specific forbidden phrases without nuking important facial details
+    const sanitize = (text) => (text || '')
+        .replace(/\b(wearing a|in a|with a|races|riding|bike|motorcycle|car|suit|jacket|coat|scarf|helmet|mask|visor|action|running|pedaling)\b[^,.]*/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const cleanDescription = sanitize(description);
+    const cleanUserPrompt = sanitize(userPrompt);
+
+    // 2. Passport-style prompt for perfect Kling biometric 'DNA' mapping
+    const prompt = `
+        Passport-style portrait photograph. 
+        Single human face, front-facing, looking directly at camera. 
+        Neutral expression, mouth closed, both eyes fully open and visible. 
+        No occlusion, no sunglasses, no hat, no hair covering face.
+        Physical Details: ${cleanDescription}.
+        ${cleanUserPrompt ? 'Additional Identity Markers: ' + cleanUserPrompt + '.' : ''}
+        Neutral grey background, even studio lighting, no shadows on face.
+        Sharp focus on facial features. 8K, photorealistic.
+        Style: ${style}.
+    `.trim().replace(/\s+/g, ' ');
+
+    return generateImage(prompt, {
+        model: options.model || 'fal-ai/flux/dev',
+        steps: options.steps || 28,
+        aspectRatio: '1:1',
+        outputFormat: 'jpeg',
+    });
+};
+
+/**
+ * Generate a world ingredient image.
+ * @param {string} description - Ingredient description
+ * @param {string} style - Visual style
+ * @param {object} options - Model config from tier
+ * @param {string} [aspectRatio] - Target aspect ratio
+ * @param {string[]} [characterPortraitUrls] - Optional list of character portrait URLs for IP-Adapter consistency
+ * @returns {Promise<{url: string, contentType: string}>}
+ */
+export const generateIngredientImage = async (
+    description,
+    style,
+    options = {},
+    aspectRatio = '16:9',
+    characterPortraitUrls = []
+) => {
+    const prompt = `A world ingredient (Location or Prop): ${description}. Visual Style: ${style}. Single detailed reference image, high fidelity, cinematic lighting, photorealistic.`;
+
+    if (characterPortraitUrls && characterPortraitUrls.length > 0) {
+        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating world ingredient image via Flux General (IP-Adapters)');
+
+        try {
+            const result = await fal.subscribe('fal-ai/flux-general', {
+                input: {
+                    prompt,
+                    ip_adapters: characterPortraitUrls.map(url => ({
+                        path: 'XLabs-AI/flux-ip-adapter',
+                        image_encoder_path: 'google/siglip-so400m-patch14-384',
+                        image_url: url,
+                        scale: 0.8
+                    })),
+                    num_inference_steps: options.steps || 28,
+                    num_images: 1,
+                    output_format: 'jpeg',
+                    enable_safety_checker: true,
+                    use_real_cfg: true, // Required for XLabs IP-Adapter v1
+                }
+            });
+
+            if (!result.data?.images?.[0]?.url) {
+                throw new Error('fal.ai returned no image data');
+            }
+
+            const imageUrl = result.data.images[0].url;
+            const contentType = result.data.images[0].content_type || 'image/png';
+
+            // Persist to storage
+            if (isStorageConfigured()) {
+                try {
+                    const imgRes = await fetch(imageUrl);
+                    if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
+                    const buffer = Buffer.from(await imgRes.arrayBuffer());
+                    const key = buildObjectKey({ userId: 'fal-images', extension: 'png' });
+                    const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
+                    return { url: persistedUrl, contentType };
+                } catch (persistErr) {
+                    logger.warn({ err: persistErr }, 'Failed to persist IP-Adapter image, using temp URL');
+                    return { url: imageUrl, contentType };
+                }
+            }
+            return { url: imageUrl, contentType };
+        } catch (adapterErr) {
+            logger.error({
+                err: adapterErr,
+                description,
+                falError: adapterErr.data || adapterErr.message
+            }, 'IP-Adapter validation or generation failed for ingredient');
+            // We still have the fallback below to keep the pipeline moving, 
+            // but now we'll see exactly WHY it failed in the logs.
+        }
+    }
+
+    // Default fallback: Standard Text-to-Image (Fast)
+    return generateImage(prompt, {
+        model: options.model || 'fal-ai/flux/schnell',
+        steps: options.steps || 4,
+        aspectRatio,
+        outputFormat: 'jpeg',
+    });
 };
 </file>
 
@@ -9807,13 +9822,21 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         if (finalQuality === 'professional') finalQuality = '1080p';
     }
 
+    const isElement = finalModel === 'kling-custom-element';
+
     const payload = {
         model: finalModel,
-        ...(finalModel !== 'kling-custom-element' && { prompt }),
-        duration: Math.min(Math.max(duration, 5), 10),
-        aspect_ratio: aspectRatio,
-        quality: finalQuality.toUpperCase(),
-        sound: 'on', // New explicit flag for Kling v3 / Seedance
+        model_params: {
+            // Only include prompt if NOT an element
+            ...(!isElement && { prompt }),
+            // Only include video params if NOT an element
+            ...(!isElement && {
+                duration: Math.min(Math.max(duration, 5), 10),
+                aspect_ratio: aspectRatio,
+                quality: finalQuality.toUpperCase(),
+                sound: 'on',
+            })
+        }
     };
 
     // Use Webhooks if APP_URL is configured (Enterprise Mode)
@@ -9822,9 +9845,9 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
     }
 
-    if (imageUrl) payload.image_url = imageUrl;
-    if (elementList.length > 0) payload.element_list = elementList;
-    if (referenceImages.length > 0) payload.reference_images = referenceImages;
+    if (imageUrl) payload.model_params.image_url = imageUrl;
+    if (elementList && elementList.length > 0) payload.model_params.element_list = elementList;
+    if (referenceImages && referenceImages.length > 0) payload.model_params.reference_images = referenceImages;
 
     // Use model_params for advanced control if needed, 
     // but Kling v3 text-to-video usually prefers root level params in EvoLink wrapper.
@@ -9969,8 +9992,18 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
+    // 1. Force the description to be purely about physical facial traits
+    const cleanDesc = (description || '')
+        .replace(/(driver of a|wearing a|suit|car|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding).*/gi, '')
+        .trim();
+
+    // 2. Fallback to a generic physical prompt if the description is bad
+    const finalDescription = (cleanDesc.length > 5)
+        ? `A detailed portrait of a person with ${cleanDesc}`
+        : "A portrait of a person with distinct facial features.";
+
     const safeName = (name || 'Character').substring(0, 20);
-    const safeDescription = (description && description.trim().length > 0 ? description : 'Character reference').substring(0, 100);
+    const safeDescription = finalDescription.substring(0, 100);
 
     const payload = {
         model: 'kling-custom-element',
@@ -9984,8 +10017,8 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }
     };
 
-    // Omit prompt entirely as per EvoLink docs for this model
-    // Any optional reference images
+    // CLEANER: Ensure NO video-specific params exist in this payload
+    // Only add reference images if they exist
     if (referImages && referImages.length > 0) {
         payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }

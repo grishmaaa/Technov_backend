@@ -22,7 +22,7 @@ const ASPECT_RATIO_MAP = {
     '16:9': 'landscape_16_9',
     '9:16': 'portrait_16_9',
     '4:3': 'landscape_4_3',
-    '1:1': 'square_hd',
+    '1:1': 'square',
 };
 
 /**

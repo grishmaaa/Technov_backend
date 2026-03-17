@@ -127,10 +127,9 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
     const payload = {
         model: finalModel,
         model_params: {
-            // Only include prompt if NOT an element
-            ...(!isElement && { prompt }),
-            // Only include video params if NOT an element
+            // Video-specific params (Omitted if creating an element)
             ...(!isElement && {
+                prompt,
                 duration: Math.min(Math.max(duration, 5), 10),
                 aspect_ratio: aspectRatio,
                 quality: finalQuality.toUpperCase(),
@@ -292,16 +291,16 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // 1. Force the description to be purely about physical facial traits (Non-destructive)
+    // 1. Force the description to be purely about physical facial traits (Aggressive)
     const cleanDesc = (description || '')
-        .replace(/\b(wearing a|in a|with a|races|riding|bike|motorcycle|car|suit|jacket|coat|scarf|helmet|mask|visor|action|running|pedaling|driver of a|unseen)\b[^,.]*/gi, '')
+        .replace(/\b(the driver|the girl|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b[^,.]*/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
 
-    // 2. Fallback to a biometric description if too short
+    // 2. Biometric-only fallback
     const finalDescription = (cleanDesc.length > 5)
-        ? `A detailed portrait of a person with ${cleanDesc}`
-        : "A clear human portrait with distinct facial features, age and gender specific characteristics.";
+        ? `A detailed human portrait showing ${cleanDesc}`
+        : "A clear human portrait, standard facial features, centered.";
 
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);
@@ -318,11 +317,19 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }
     };
 
-    // CLEANER: Ensure NO video-specific params exist in this payload
-    // Only add reference images if they exist
+    // Add optional reference images within the nested structure
     if (referImages && referImages.length > 0) {
         payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }
+
+    // DEBUG: Final verification of structure before sending
+    logger.info({
+        model: payload.model,
+        paramsType: typeof payload.model_params,
+        hasName: !!payload.model_params.element_name
+    }, '📡 Sending Custom Element Request to EvoLink');
+
+    logger.debug('🚀 RAW PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',

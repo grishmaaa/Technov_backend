@@ -139,7 +139,21 @@ export const pollVideoTask = async (taskId, options = {}) => {
             }
 
             if (['failed', 'error', 'canceled'].includes(status?.toLowerCase())) {
-                throw new Error(`EvoLink failed: ${data.error?.message || 'Unknown'}`);
+                const errorMsg = data.result_data?.error_message || data.error?.message || data.result_data?.error || 'Unknown error';
+                logger.error({ taskId, error: errorMsg }, 'EvoLink task failed');
+
+                // Proactive connectivity diagnostic
+                if (errorMsg.toLowerCase().includes('image') || errorMsg.toLowerCase().includes('process')) {
+                    // We check if the job was using a GCS URL
+                    const isGcs = JSON.stringify(data).includes('storage.googleapis.com');
+                    if (isGcs) {
+                        logger.warn('⚠️ CONNECTIVITY WARNING: Your video task failed at "Image Processing". Kling models are hosted in China and are strictly BLOCKED from accessing Google Cloud Storage (storage.googleapis.com). You must use a CDN proxy or a different storage provider like R2 or Cloudflare to host your reference images.');
+                    }
+                }
+
+                const err = new Error(`EvoLink failed: ${errorMsg}`);
+                err.isPermanent = true;
+                throw err;
             }
         } catch (error) {
             if (error.message.includes('failed')) throw error;
@@ -209,7 +223,17 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             if (!elementId) throw new Error('Element ID missing');
             return { elementId };
         }
-        if (pollData.status === 'failed' || pollData.status === 'error') throw new Error('Element creation failed');
+        if (pollData.status === 'failed' || pollData.status === 'error' || pollData.status === 'canceled') {
+            const errorMsg = pollData.error?.message || pollData.result_data?.error_message || pollData.result_data?.error || 'Unknown error';
+
+            logger.error({ taskId, status: pollData.status, error: errorMsg }, 'Kling Element task failed');
+
+            if (frontalImageUrl.includes('storage.googleapis.com')) {
+                logger.warn('⚠️ PROBABLE CAUSE: Kling (Kuaishou) is a Chinese model and is often BLOCKED from downloading images from storage.googleapis.com. Consider using a CDN proxy or a different storage provider (R2, Cloudflare) for character portraits.');
+            }
+
+            throw new Error(`Element creation failed: ${errorMsg}`);
+        }
     }
-    throw new Error('Timed out');
+    throw new Error('Kling Custom Element creation timed out after 120s');
 };

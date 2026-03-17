@@ -122,13 +122,21 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         if (finalQuality === 'professional') finalQuality = '1080p';
     }
 
+    const isElement = finalModel === 'kling-custom-element';
+
     const payload = {
         model: finalModel,
-        ...(finalModel !== 'kling-custom-element' && { prompt }),
-        duration: Math.min(Math.max(duration, 5), 10),
-        aspect_ratio: aspectRatio,
-        quality: finalQuality.toUpperCase(),
-        sound: 'on', // New explicit flag for Kling v3 / Seedance
+        model_params: {
+            // Only include prompt if NOT an element
+            ...(!isElement && { prompt }),
+            // Only include video params if NOT an element
+            ...(!isElement && {
+                duration: Math.min(Math.max(duration, 5), 10),
+                aspect_ratio: aspectRatio,
+                quality: finalQuality.toUpperCase(),
+                sound: 'on',
+            })
+        }
     };
 
     // Use Webhooks if APP_URL is configured (Enterprise Mode)
@@ -137,9 +145,9 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
     }
 
-    if (imageUrl) payload.image_url = imageUrl;
-    if (elementList.length > 0) payload.element_list = elementList;
-    if (referenceImages.length > 0) payload.reference_images = referenceImages;
+    if (imageUrl) payload.model_params.image_url = imageUrl;
+    if (elementList && elementList.length > 0) payload.model_params.element_list = elementList;
+    if (referenceImages && referenceImages.length > 0) payload.model_params.reference_images = referenceImages;
 
     // Use model_params for advanced control if needed, 
     // but Kling v3 text-to-video usually prefers root level params in EvoLink wrapper.
@@ -309,8 +317,8 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }
     };
 
-    // Omit prompt entirely as per EvoLink docs for this model
-    // Any optional reference images
+    // CLEANER: Ensure NO video-specific params exist in this payload
+    // Only add reference images if they exist
     if (referImages && referImages.length > 0) {
         payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }

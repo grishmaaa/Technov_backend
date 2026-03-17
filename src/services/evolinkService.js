@@ -128,7 +128,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         model: finalModel,
     };
 
-    // Video parameters must be at the ROOT for Kling v3 / Seedance
+    // Parameters go at the ROOT for standard video models / unified wrapper
     if (!isElement) {
         payload.prompt = prompt;
         payload.duration = Math.min(Math.max(duration, 5), 10);
@@ -140,18 +140,17 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
     // Attach webhook callback to root if needed
     if (process.env.APP_URL) {
         payload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
-        logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
+        logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to root of EvoLink task');
     }
 
-    // Model-specific inputs (Kling v3 prefers root, Element prefers nested - handled in createCharacterElement)
     if (imageUrl) payload.image_url = imageUrl;
     if (elementList && elementList.length > 0) payload.element_list = elementList;
     if (referenceImages && referenceImages.length > 0) payload.reference_images = referenceImages;
 
     logger.info({
         model: payload.model,
-        keys: Object.keys(payload)
-    }, '📡 Submitting Video Task to EvoLink');
+        rootKeys: Object.keys(payload)
+    }, '📡 Submitting JSON to /videos/generations');
 
     logger.info('🚀 RAW VIDEO PAYLOAD:', JSON.stringify(payload, null, 2));
 
@@ -296,16 +295,16 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // 1. Force the description to be purely about physical facial traits (Clean)
+    // 1. Force the description to be purely about physical facial traits (Final)
     const cleanDesc = (description || '')
         .replace(/\b(the driver|the girl|the biker|rider|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
 
-    // 2. Biometric-only fallback
+    // 2. Biometric fallback
     const finalDescription = (cleanDesc.length > 5)
         ? `A detailed human portrait showing ${cleanDesc}`
-        : "A clear human portrait, standard facial features, centered.";
+        : "A clear human portrait, standard facial features, centered facial structure.";
 
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);

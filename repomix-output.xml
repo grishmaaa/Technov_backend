@@ -1400,6 +1400,50 @@ export const errorHandler = (err, req, res, next) => {
 };
 </file>
 
+<file path="src/middleware/shield.js">
+import { logger } from '../logger.js';
+
+// NEUTRALIZES any attempt to inject commands or JSON into the story
+function sanitizeStoryInput(story) {
+    // 1. Remove common jailbreak/override phrases
+    const forbiddenPhrases = /ignore all previous instructions|system override|jailbreak|act as|respond as/gi;
+    let sanitized = story.replace(forbiddenPhrases, '[filtered]');
+
+    // 2. Escape any special characters that could be interpreted as code or JSON
+    sanitized = JSON.stringify(sanitized);
+
+    // Return the clean, safe string (with the outer quotes from stringify removed)
+    return sanitized.slice(1, -1);
+}
+
+export const validateStoryInput = (req, res, next) => {
+    let { story } = req.body;
+
+    // 1. Check for missing input
+    if (!story || typeof story !== 'string') {
+        return res.status(400).json({ error: 'Story content is required and must be text.' });
+    }
+
+    // 2. Token Budgeting: Character Cap (increased for Pro users)
+    const MAX_CHARS = 25000;
+    if (story.length > MAX_CHARS) {
+        return res.status(413).json({
+            error: `Story is too long. Limit: ${MAX_CHARS} characters. Current: ${story.length}`
+        });
+    }
+
+    if (story.length < 1) {
+        return res.status(400).json({ error: 'Story is too short. Please provide some content.' });
+    }
+
+    // 3. Apply the "Bouncer" to sanitize the story
+    req.body.story = sanitizeStoryInput(story);
+    logger.info({ originalLength: story.length, sanitizedLength: req.body.story.length }, 'Story sanitized');
+
+    next();
+};
+</file>
+
 <file path="src/routes/adminRoutes.js">
 import express from 'express';
 import {
@@ -5553,50 +5597,6 @@ export const requireCredits = (amount) => {
 };
 </file>
 
-<file path="src/middleware/shield.js">
-import { logger } from '../logger.js';
-
-// NEUTRALIZES any attempt to inject commands or JSON into the story
-function sanitizeStoryInput(story) {
-    // 1. Remove common jailbreak/override phrases
-    const forbiddenPhrases = /ignore all previous instructions|system override|jailbreak|act as|respond as/gi;
-    let sanitized = story.replace(forbiddenPhrases, '[filtered]');
-
-    // 2. Escape any special characters that could be interpreted as code or JSON
-    sanitized = JSON.stringify(sanitized);
-
-    // Return the clean, safe string (with the outer quotes from stringify removed)
-    return sanitized.slice(1, -1);
-}
-
-export const validateStoryInput = (req, res, next) => {
-    let { story } = req.body;
-
-    // 1. Check for missing input
-    if (!story || typeof story !== 'string') {
-        return res.status(400).json({ error: 'Story content is required and must be text.' });
-    }
-
-    // 2. Token Budgeting: Character Cap (increased for Pro users)
-    const MAX_CHARS = 25000;
-    if (story.length > MAX_CHARS) {
-        return res.status(413).json({
-            error: `Story is too long. Limit: ${MAX_CHARS} characters. Current: ${story.length}`
-        });
-    }
-
-    if (story.length < 1) {
-        return res.status(400).json({ error: 'Story is too short. Please provide some content.' });
-    }
-
-    // 3. Apply the "Bouncer" to sanitize the story
-    req.body.story = sanitizeStoryInput(story);
-    logger.info({ originalLength: story.length, sanitizedLength: req.body.story.length }, 'Story sanitized');
-
-    next();
-};
-</file>
-
 <file path="src/queue/connection.js">
 import IORedis from 'ioredis';
 import { logger } from '../logger.js';
@@ -7036,203 +7036,6 @@ router.post('/projects/:id/edit-video', editVideo);
 export default router;
 </file>
 
-<file path="src/controllers/paymentController.js">
-import Razorpay from 'razorpay';
-import crypto from 'crypto';
-import prisma from '../config/database.js';
-import { logger } from '../logger.js';
-
-// Initialize Razorpay
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_PLACEHOLDER',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || 'PLACEHOLDER_SECRET',
-});
-
-const PLANS = {
-    pro: {
-        name: 'Standard Plan',
-        amount: 8900, // $89.00
-        currency: 'USD',
-        credits: 300,
-    }
-};
-
-export const createOrder = async (req, res) => {
-    try {
-        const { plan } = req.body;
-        let planDetails;
-        let creditsToAdd;
-        let amountToCharge;
-
-        logger.info({ plan, userId: req.user?.id }, 'Creating Razorpay order');
-
-        if (plan === 'custom') {
-            const requestedAmount = parseInt(req.body.amount); // amount in cents/paise
-            if (!requestedAmount || requestedAmount < 5000) {
-                return res.status(400).json({ error: 'Minimum custom top-up is $50' });
-            }
-            amountToCharge = requestedAmount;
-            const dollars = amountToCharge / 100;
-            // $0.30 per second -> 1/0.3 seconds per dollar
-            creditsToAdd = Math.floor(dollars / 0.3);
-            planDetails = {
-                name: `Custom Top-up ($${dollars})`,
-                amount: amountToCharge,
-                currency: 'USD',
-                credits: creditsToAdd
-            };
-        } else {
-            if (!PLANS[plan]) {
-                return res.status(400).json({ error: 'Invalid plan selected' });
-            }
-            planDetails = PLANS[plan];
-            amountToCharge = planDetails.amount;
-            creditsToAdd = planDetails.credits;
-        }
-
-        // LOGGING DEBUG INFO
-        logger.info({
-            hasKeyId: !!process.env.RAZORPAY_KEY_ID,
-            hasKeySecret: !!process.env.RAZORPAY_KEY_SECRET
-        }, 'Razorpay Config Check');
-
-        // Standard Checkout: Create Order (Required for Popup)
-        const options = {
-            amount: amountToCharge,
-            currency: planDetails.currency,
-            receipt: `rcpt_${Date.now()}`,
-            notes: {
-                plan: plan,
-                user_id: String(req.user.id),
-                credits: String(creditsToAdd)
-            }
-        };
-
-        const order = await razorpay.orders.create(options);
-        logger.info({ orderId: order.id }, 'Razorpay order created');
-
-        res.json({
-            orderId: order.id,
-            amount: order.amount,
-            currency: order.currency,
-            keyId: process.env.RAZORPAY_KEY_ID,
-            planName: planDetails.name,
-            user: {
-                name: req.user.name || 'Technov User',
-                email: req.user.email
-            }
-        });
-    } catch (error) {
-        logger.error({
-            msg: 'Create order failed',
-            error: error.message,
-            razorpayError: error.error // Log full Razorpay error object
-        });
-
-        res.status(500).json({
-            error: 'Failed to create payment order',
-            details: error.error?.description || error.message,
-            code: error.statusCode
-        });
-    }
-};
-
-export const verifyPayment = async (req, res) => {
-    try {
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-
-        // Verify signature
-        const sign = razorpay_order_id + '|' + razorpay_payment_id;
-        const expectedSign = crypto
-            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'PLACEHOLDER_SECRET')
-            .update(sign.toString())
-            .digest('hex');
-
-        if (razorpay_signature !== expectedSign) {
-            return res.status(400).json({ error: 'Invalid payment signature' });
-        }
-
-        // Fetch order details to get plan info
-        const order = await razorpay.orders.fetch(razorpay_order_id);
-        const planName = order.notes.plan;
-        const creditsToAdd = parseInt(order.notes.credits);
-        const userId = order.notes.user_id;
-
-        // Update user plan and add credits with audit trail
-        const updatedUser = await prisma.$transaction(async (tx) => {
-            // Update user plan and credits
-            const user = await tx.user.update({
-                where: { id: userId },
-                data: {
-                    plan: planName,
-                    credits: { increment: creditsToAdd },
-                    billingCycleStart: new Date(),
-                    lastCreditReset: new Date()
-                },
-                select: {
-                    id: true,
-                    email: true,
-                    plan: true,
-                    credits: true,
-                    role: true
-                }
-            });
-
-            // Log credit addition for audit trail
-            await tx.creditUsage.create({
-                data: {
-                    userId: userId,
-                    amount: creditsToAdd,
-                    type: 'PLAN_PURCHASE',
-                    description: `Purchased ${planName} plan - Payment ID: ${razorpay_payment_id}`
-                }
-            });
-
-            return user;
-        });
-
-        logger.info({ userId, plan: planName, credits: creditsToAdd }, 'Payment verified and credits added');
-
-        res.json({
-            success: true,
-            message: 'Payment verified and plan upgraded successfully',
-            user: updatedUser
-        });
-    } catch (error) {
-        logger.error({ err: error }, 'Verify payment failed');
-        res.status(500).json({ error: 'Payment verification failed', details: error.message });
-    }
-};
-
-export const handleWebhook = async (req, res) => {
-    try {
-        const webhookSignature = req.headers['x-razorpay-signature'];
-        const webhookBody = JSON.stringify(req.body);
-
-        // Verify webhook signature
-        const expectedSignature = crypto
-            .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET || '')
-            .update(webhookBody)
-            .digest('hex');
-
-        if (webhookSignature === expectedSignature) {
-            const event = req.body.event;
-            const payload = req.body.payload.payment.entity;
-
-            if (event === 'payment.captured') {
-                // Payment successful - handled in verifyPayment
-                logger.info({ paymentId: payload.id }, 'Payment captured');
-            }
-        }
-
-        res.json({ status: 'ok' });
-    } catch (error) {
-        logger.error({ err: error }, 'Razorpay webhook error');
-        res.status(500).json({ error: 'Webhook processing failed' });
-    }
-};
-</file>
-
 <file path="src/controllers/projectController.js">
 import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
@@ -8209,6 +8012,203 @@ export const getPublicProject = async (req, res) => {
 };
 </file>
 
+<file path="src/controllers/paymentController.js">
+import Razorpay from 'razorpay';
+import crypto from 'crypto';
+import prisma from '../config/database.js';
+import { logger } from '../logger.js';
+
+// Initialize Razorpay
+const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_PLACEHOLDER',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || 'PLACEHOLDER_SECRET',
+});
+
+const PLANS = {
+    pro: {
+        name: 'Standard Plan',
+        amount: 8900, // $89.00
+        currency: 'USD',
+        credits: 300,
+    }
+};
+
+export const createOrder = async (req, res) => {
+    try {
+        const { plan } = req.body;
+        let planDetails;
+        let creditsToAdd;
+        let amountToCharge;
+
+        logger.info({ plan, userId: req.user?.id }, 'Creating Razorpay order');
+
+        if (plan === 'custom') {
+            const requestedAmount = parseInt(req.body.amount); // amount in cents/paise
+            if (!requestedAmount || requestedAmount < 5000) {
+                return res.status(400).json({ error: 'Minimum custom top-up is $50' });
+            }
+            amountToCharge = requestedAmount;
+            const dollars = amountToCharge / 100;
+            // $0.30 per second -> 1/0.3 seconds per dollar
+            creditsToAdd = Math.floor(dollars / 0.3);
+            planDetails = {
+                name: `Custom Top-up ($${dollars})`,
+                amount: amountToCharge,
+                currency: 'USD',
+                credits: creditsToAdd
+            };
+        } else {
+            if (!PLANS[plan]) {
+                return res.status(400).json({ error: 'Invalid plan selected' });
+            }
+            planDetails = PLANS[plan];
+            amountToCharge = planDetails.amount;
+            creditsToAdd = planDetails.credits;
+        }
+
+        // LOGGING DEBUG INFO
+        logger.info({
+            hasKeyId: !!process.env.RAZORPAY_KEY_ID,
+            hasKeySecret: !!process.env.RAZORPAY_KEY_SECRET
+        }, 'Razorpay Config Check');
+
+        // Standard Checkout: Create Order (Required for Popup)
+        const options = {
+            amount: amountToCharge,
+            currency: planDetails.currency,
+            receipt: `rcpt_${Date.now()}`,
+            notes: {
+                plan: plan,
+                user_id: String(req.user.id),
+                credits: String(creditsToAdd)
+            }
+        };
+
+        const order = await razorpay.orders.create(options);
+        logger.info({ orderId: order.id }, 'Razorpay order created');
+
+        res.json({
+            orderId: order.id,
+            amount: order.amount,
+            currency: order.currency,
+            keyId: process.env.RAZORPAY_KEY_ID,
+            planName: planDetails.name,
+            user: {
+                name: req.user.name || 'Technov User',
+                email: req.user.email
+            }
+        });
+    } catch (error) {
+        logger.error({
+            msg: 'Create order failed',
+            error: error.message,
+            razorpayError: error.error // Log full Razorpay error object
+        });
+
+        res.status(500).json({
+            error: 'Failed to create payment order',
+            details: error.error?.description || error.message,
+            code: error.statusCode
+        });
+    }
+};
+
+export const verifyPayment = async (req, res) => {
+    try {
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+        // Verify signature
+        const sign = razorpay_order_id + '|' + razorpay_payment_id;
+        const expectedSign = crypto
+            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'PLACEHOLDER_SECRET')
+            .update(sign.toString())
+            .digest('hex');
+
+        if (razorpay_signature !== expectedSign) {
+            return res.status(400).json({ error: 'Invalid payment signature' });
+        }
+
+        // Fetch order details to get plan info
+        const order = await razorpay.orders.fetch(razorpay_order_id);
+        const planName = order.notes.plan;
+        const creditsToAdd = parseInt(order.notes.credits);
+        const userId = order.notes.user_id;
+
+        // Update user plan and add credits with audit trail
+        const updatedUser = await prisma.$transaction(async (tx) => {
+            // Update user plan and credits
+            const user = await tx.user.update({
+                where: { id: userId },
+                data: {
+                    plan: planName,
+                    credits: { increment: creditsToAdd },
+                    billingCycleStart: new Date(),
+                    lastCreditReset: new Date()
+                },
+                select: {
+                    id: true,
+                    email: true,
+                    plan: true,
+                    credits: true,
+                    role: true
+                }
+            });
+
+            // Log credit addition for audit trail
+            await tx.creditUsage.create({
+                data: {
+                    userId: userId,
+                    amount: creditsToAdd,
+                    type: 'PLAN_PURCHASE',
+                    description: `Purchased ${planName} plan - Payment ID: ${razorpay_payment_id}`
+                }
+            });
+
+            return user;
+        });
+
+        logger.info({ userId, plan: planName, credits: creditsToAdd }, 'Payment verified and credits added');
+
+        res.json({
+            success: true,
+            message: 'Payment verified and plan upgraded successfully',
+            user: updatedUser
+        });
+    } catch (error) {
+        logger.error({ err: error }, 'Verify payment failed');
+        res.status(500).json({ error: 'Payment verification failed', details: error.message });
+    }
+};
+
+export const handleWebhook = async (req, res) => {
+    try {
+        const webhookSignature = req.headers['x-razorpay-signature'];
+        const webhookBody = JSON.stringify(req.body);
+
+        // Verify webhook signature
+        const expectedSignature = crypto
+            .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET || '')
+            .update(webhookBody)
+            .digest('hex');
+
+        if (webhookSignature === expectedSignature) {
+            const event = req.body.event;
+            const payload = req.body.payload.payment.entity;
+
+            if (event === 'payment.captured') {
+                // Payment successful - handled in verifyPayment
+                logger.info({ paymentId: payload.id }, 'Payment captured');
+            }
+        }
+
+        res.json({ status: 'ok' });
+    } catch (error) {
+        logger.error({ err: error }, 'Razorpay webhook error');
+        res.status(500).json({ error: 'Webhook processing failed' });
+    }
+};
+</file>
+
 <file path="src/services/storageService.js">
 import { Storage } from '@google-cloud/storage';
 import fs from 'fs/promises';
@@ -8968,7 +8968,7 @@ const ASPECT_RATIO_MAP = {
     '16:9': 'landscape_16_9',
     '9:16': 'portrait_16_9',
     '4:3': 'landscape_4_3',
-    '1:1': 'square_hd',
+    '1:1': 'square',
 };
 
 /**
@@ -9826,31 +9826,35 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
     const payload = {
         model: finalModel,
-        model_params: {
-            // Only include prompt if NOT an element
-            ...(!isElement && { prompt }),
-            // Only include video params if NOT an element
-            ...(!isElement && {
-                duration: Math.min(Math.max(duration, 5), 10),
-                aspect_ratio: aspectRatio,
-                quality: finalQuality.toUpperCase(),
-                sound: 'on',
-            })
-        }
     };
 
-    // Use Webhooks if APP_URL is configured (Enterprise Mode)
+    // Video parameters must be at the ROOT for Kling v3 / Seedance
+    if (!isElement) {
+        payload.prompt = prompt;
+        payload.duration = Math.min(Math.max(duration, 5), 10);
+        payload.aspect_ratio = aspectRatio;
+        payload.quality = finalQuality.toUpperCase();
+        payload.sound = 'on';
+    }
+
+    // Attach webhook callback to root if needed
     if (process.env.APP_URL) {
         payload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
         logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
     }
 
-    if (imageUrl) payload.model_params.image_url = imageUrl;
-    if (elementList && elementList.length > 0) payload.model_params.element_list = elementList;
-    if (referenceImages && referenceImages.length > 0) payload.model_params.reference_images = referenceImages;
+    // Model-specific inputs (Kling v3 prefers root, Element prefers nested - handled in createCharacterElement)
+    if (imageUrl) payload.image_url = imageUrl;
+    if (elementList && elementList.length > 0) payload.element_list = elementList;
+    if (referenceImages && referenceImages.length > 0) payload.reference_images = referenceImages;
 
-    // Use model_params for advanced control if needed, 
-    // but Kling v3 text-to-video usually prefers root level params in EvoLink wrapper.
+    logger.info({
+        model: payload.model,
+        keys: Object.keys(payload)
+    }, '📡 Submitting Video Task to EvoLink');
+
+    logger.info('🚀 RAW VIDEO PAYLOAD:', JSON.stringify(payload, null, 2));
+
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -9992,15 +9996,16 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // 1. Force the description to be purely about physical facial traits
+    // 1. Force the description to be purely about physical facial traits (Clean)
     const cleanDesc = (description || '')
-        .replace(/(driver of a|wearing a|suit|car|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding).*/gi, '')
+        .replace(/\b(the driver|the girl|the biker|rider|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b/gi, '')
+        .replace(/\s+/g, ' ')
         .trim();
 
-    // 2. Fallback to a generic physical prompt if the description is bad
+    // 2. Biometric-only fallback
     const finalDescription = (cleanDesc.length > 5)
-        ? `A detailed portrait of a person with ${cleanDesc}`
-        : "A portrait of a person with distinct facial features.";
+        ? `A detailed human portrait showing ${cleanDesc}`
+        : "A clear human portrait, standard facial features, centered.";
 
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);
@@ -10014,14 +10019,23 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             element_image_list: {
                 frontal_image: frontalImageUrl,
             }
-        }
+        },
+        standard_model_name: 'kling-custom-element'
     };
 
-    // CLEANER: Ensure NO video-specific params exist in this payload
-    // Only add reference images if they exist
+    // Add optional reference images within the nested structure
     if (referImages && referImages.length > 0) {
         payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }
+
+    // DEBUG: Final verification of structure before sending
+    logger.info({
+        model: payload.model,
+        paramsType: typeof payload.model_params,
+        hasName: !!payload.model_params.element_name
+    }, '📡 Sending Custom Element Request to EvoLink');
+
+    logger.info('🚀 RAW ELEMENT PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',

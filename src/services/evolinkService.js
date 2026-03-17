@@ -295,14 +295,15 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
 
-    // 1. Force the description to be purely about physical facial traits (Final)
+    // 1. Force the description to be purely about physical facial traits (Extreme Sanitization)
     const cleanDesc = (description || '')
-        .replace(/\b(the driver|the girl|the biker|rider|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b/gi, '')
+        .replace(/\b(the unseen driver of|the driver of|the sports car|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car|girl on a bicycle|the girl|the biker|rider)\b[^,.]*/gi, '')
+        .replace(/\b(the|a|an|of|in|with|and|is|was|were)\b/gi, ' ') // Scrub common story connectors
         .replace(/\s+/g, ' ')
         .trim();
 
-    // 2. Biometric fallback
-    const finalDescription = (cleanDesc.length > 5)
+    // 2. Biometric-only fallback
+    const finalDescription = (cleanDesc.length > 3)
         ? `A detailed human portrait showing ${cleanDesc}`
         : "A clear human portrait, standard facial features, centered facial structure.";
 
@@ -327,14 +328,14 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }
 
-    // DEBUG: Final verification of structure before sending
+    // FINAL TRUTH CHECK: Ensure NO 'prompt' or other root-level garbage exists
     logger.info({
         model: payload.model,
-        paramsType: typeof payload.model_params,
-        hasName: !!payload.model_params.element_name
-    }, '📡 Sending Custom Element Request to EvoLink');
+        hasModelParams: !!payload.model_params,
+        nestedName: payload.model_params.element_name
+    }, '📡 Sending Kling Custom Element JSON to EvoLink');
 
-    logger.info('🚀 RAW ELEMENT PAYLOAD:', JSON.stringify(payload, null, 2));
+    logger.info('🚀 RAW JSON PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',

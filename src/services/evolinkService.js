@@ -126,17 +126,15 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
     const payload = {
         model: finalModel,
-        model_params: {
-            // Video-specific params (Omitted if creating an element)
-            ...(!isElement && {
-                prompt,
-                duration: Math.min(Math.max(duration, 5), 10),
-                aspect_ratio: aspectRatio,
-                quality: finalQuality.toUpperCase(),
-                sound: 'on',
-            })
-        }
     };
+
+    if (!isElement) {
+        payload.prompt = prompt;
+        payload.duration = Math.min(Math.max(duration, 5), 10);
+        payload.aspect_ratio = aspectRatio;
+        payload.quality = finalQuality.toUpperCase();
+        payload.sound = 'on';
+    }
 
     // Use Webhooks if APP_URL is configured (Enterprise Mode)
     if (process.env.APP_URL) {
@@ -144,12 +142,18 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
     }
 
-    if (imageUrl) payload.model_params.image_url = imageUrl;
-    if (elementList && elementList.length > 0) payload.model_params.element_list = elementList;
-    if (referenceImages && referenceImages.length > 0) payload.model_params.reference_images = referenceImages;
+    if (imageUrl) payload.image_url = imageUrl;
+    if (elementList && elementList.length > 0) payload.element_list = elementList;
+    if (referenceImages && referenceImages.length > 0) payload.reference_images = referenceImages;
 
-    // Use model_params for advanced control if needed, 
-    // but Kling v3 text-to-video usually prefers root level params in EvoLink wrapper.
+    logger.info({
+        endpoint: '/videos/generations',
+        model: payload.model,
+        fields: Object.keys(payload)
+    }, '📡 Submitting to EvoLink');
+
+    logger.info('🚀 RAW VIDEO PAYLOAD:', JSON.stringify(payload, null, 2));
+
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -314,7 +318,8 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             element_image_list: {
                 frontal_image: frontalImageUrl,
             }
-        }
+        },
+        standard_model_name: 'kling-custom-element'
     };
 
     // Add optional reference images within the nested structure
@@ -329,7 +334,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         hasName: !!payload.model_params.element_name
     }, '📡 Sending Custom Element Request to EvoLink');
 
-    logger.debug('🚀 RAW PAYLOAD:', JSON.stringify(payload, null, 2));
+    logger.info('🚀 RAW ELEMENT PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',

@@ -44,7 +44,18 @@ const ensureCdnUrl = (url) => {
 };
 
 const evolinkFetch = async (endpoint, options = {}) => {
+    // 3 Second Debug Delay (to test errors one-by-one and read logs easily)
+    await sleep(3000);
+
     const url = `${EVOLINK_BASE_URL}${endpoint}`;
+    
+    // THE TRUTH LOG: EXACTLY WHAT IS SENT TO THE WIRE
+    console.log('--- START EVOLINK RAW REQUEST ---');
+    console.log('URL:', url);
+    console.log('METHOD:', options.method || 'GET');
+    console.log('BODY:', options.body);
+    console.log('--- END EVOLINK RAW REQUEST ---');
+
     const response = await fetch(url, {
         ...options,
         headers: {

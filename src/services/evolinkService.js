@@ -204,9 +204,9 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             reference_type: 'image_refer',
             element_image_list: {
                 frontal_image: frontalImageUrl,
-            }
+            },
+            standard_model_name: 'kling-custom-element'
         },
-        standard_model_name: 'kling-custom-element',
         trace_id: "2026-03-17-v6-DIAGNOSTIC-FIX"
     };
 

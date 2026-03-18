@@ -152,6 +152,7 @@ temp_index_old.js
 temp_schema_old.prisma
 test_output.json
 test_output.txt
+test-evolink-format.js
 test-gemini-key.js
 test-image-gen.js
 test-integration.js
@@ -5651,6 +5652,68 @@ router.post('/evolink', handleEvolinkWebhook);
 export default router;
 </file>
 
+<file path="test-evolink-format.js">
+/**
+ * test-evolink-format.js
+ * 
+ * Simulated test to verify the EXACT JSON structure being sent to EvoLink
+ * for Kling Custom Elements, using the latest logic in evolinkService.js
+ */
+
+const testElementFormat = (name, description, facialImageUrl) => {
+    console.log("--- SIMULATING KLING CUSTOM ELEMENT PAYLOAD ---");
+    console.log("Input Name:", name);
+    console.log("Input Description:", description);
+
+    // 1. Force the description to be purely about physical facial traits (Extreme Sanitization)
+    const cleanDesc = (description || '')
+        .replace(/\b(the unseen driver of|the driver of|the sports car|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car|girl on a bicycle|the girl|the biker|rider)\b[^,.]*/gi, '')
+        .replace(/\b(the|a|an|of|in|with|and|is|was|were)\b/gi, ' ') // Scrub common story connectors
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    // 2. Biometric-only fallback
+    const finalDescription = (cleanDesc.length > 3)
+        ? `A detailed human portrait showing ${cleanDesc}`
+        : "A clear human portrait, standard facial features, centered facial structure.";
+
+    const safeName = (name || 'Character').substring(0, 20);
+    const safeDescription = finalDescription.substring(0, 100);
+
+    // 3. EXACT structure construction
+    const payload = {
+        model: 'kling-custom-element',
+        model_params: {
+            element_name: safeName,
+            element_description: safeDescription,
+            reference_type: 'image_refer',
+            element_image_list: {
+                frontal_image: facialImageUrl,
+            }
+        },
+        standard_model_name: 'kling-custom-element'
+    };
+
+    console.log("\n🚀 FINAL JSON PAYLOAD FOR EVOLINK:");
+    console.log(JSON.stringify(payload, null, 2));
+    console.log("");
+};
+
+// RUN TEST for "The Driver" (Bad Case)
+testElementFormat(
+    "The Driver",
+    "The unseen driver of the matte black sports car, an aggressive and mysterious pursuer with a sharp jawline and cold eyes",
+    "https://storage.googleapis.com/test-bucket/face.jpg"
+);
+
+// RUN TEST for "Auburn Girl" (Good Case)
+testElementFormat(
+    "Auburn Girl",
+    "A young woman with auburn hair and green eyes. She is riding a bicycle.",
+    "https://storage.googleapis.com/test-bucket/girl.jpg"
+);
+</file>
+
 <file path="test-json.js">
 import { PrismaClient } from '@prisma/client';
 
@@ -6968,74 +7031,6 @@ export const getGenerationStatus = async (req, res) => {
 };
 </file>
 
-<file path="src/routes/pipelineRoutes.js">
-/**
- * pipelineRoutes.js
- * 
- * Routes for the new 7-stage pipeline.
- * All routes require authentication.
- */
-
-import { Router } from 'express';
-import { authMiddleware } from '../middleware/auth.js';
-import { validateStoryInput as storyShield } from '../middleware/shield.js';
-import { createGenerationJob } from '../controllers/jobController.js';
-import {
-    developIdea,
-    generateScript,
-    editSceneEndpoint,
-    approveScene,
-    approveAllScenes,
-    generateCharacters,
-    regenerateCharacter,
-    uploadCharacterPhoto,
-    approveCharacter,
-    approveAllCharacters,
-    generateIngredients,
-    regenerateIngredient,
-    approveIngredient,
-    approveAllIngredients,
-    editVideo
-} from '../controllers/pipelineController.js';
-
-const router = Router();
-
-// All pipeline routes require authentication
-router.use(authMiddleware);
-
-// --- Stage 0: Ideation ---
-router.post('/projects/:id/develop', developIdea);
-
-// --- Stage 1: Script Generation ---
-router.post('/projects/:id/generate-script', storyShield, generateScript);
-
-// --- Stage 2: Scene Review & Editing ---
-router.post('/projects/:id/scenes/:sceneId/edit', editSceneEndpoint);
-router.post('/projects/:id/scenes/:sceneId/approve', approveScene);
-router.post('/projects/:id/scenes/approve-all', approveAllScenes);
-
-// --- Stage 3: Character Acceptance ---
-router.post('/projects/:id/characters/generate', generateCharacters);
-router.post('/projects/:id/characters/:charId/regenerate', regenerateCharacter);
-router.post('/projects/:id/characters/:charId/upload', uploadCharacterPhoto);
-router.post('/projects/:id/characters/:charId/approve', approveCharacter);
-router.post('/projects/:id/characters/approve-all', approveAllCharacters);
-
-// --- Stage 4: World Ingredients (Locations & Props) ---
-router.post('/projects/:id/ingredients/generate', generateIngredients);
-router.post('/projects/:id/ingredients/:assetId/regenerate', regenerateIngredient);
-router.post('/projects/:id/ingredients/:assetId/approve', approveIngredient);
-router.post('/projects/:id/ingredients/approve-all', approveAllIngredients);
-
-// --- Stage 5: Video Generation ---
-router.post('/projects/:id/generate-video', createGenerationJob);
-
-// --- Stage 6: Video Agent Loop ---
-router.post('/projects/:id/edit-video', editVideo);
-
-export default router;
-</file>
-
 <file path="src/controllers/projectController.js">
 import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
@@ -8012,6 +8007,464 @@ export const getPublicProject = async (req, res) => {
 };
 </file>
 
+<file path="src/routes/pipelineRoutes.js">
+/**
+ * pipelineRoutes.js
+ * 
+ * Routes for the new 7-stage pipeline.
+ * All routes require authentication.
+ */
+
+import { Router } from 'express';
+import { authMiddleware } from '../middleware/auth.js';
+import { validateStoryInput as storyShield } from '../middleware/shield.js';
+import { createGenerationJob } from '../controllers/jobController.js';
+import {
+    developIdea,
+    generateScript,
+    editSceneEndpoint,
+    approveScene,
+    approveAllScenes,
+    generateCharacters,
+    regenerateCharacter,
+    uploadCharacterPhoto,
+    approveCharacter,
+    approveAllCharacters,
+    generateIngredients,
+    regenerateIngredient,
+    approveIngredient,
+    approveAllIngredients,
+    editVideo
+} from '../controllers/pipelineController.js';
+
+const router = Router();
+
+// All pipeline routes require authentication
+router.use(authMiddleware);
+
+// --- Stage 0: Ideation ---
+router.post('/projects/:id/develop', developIdea);
+
+// --- Stage 1: Script Generation ---
+router.post('/projects/:id/generate-script', storyShield, generateScript);
+
+// --- Stage 2: Scene Review & Editing ---
+router.post('/projects/:id/scenes/:sceneId/edit', editSceneEndpoint);
+router.post('/projects/:id/scenes/:sceneId/approve', approveScene);
+router.post('/projects/:id/scenes/approve-all', approveAllScenes);
+
+// --- Stage 3: Character Acceptance ---
+router.post('/projects/:id/characters/generate', generateCharacters);
+router.post('/projects/:id/characters/:charId/regenerate', regenerateCharacter);
+router.post('/projects/:id/characters/:charId/upload', uploadCharacterPhoto);
+router.post('/projects/:id/characters/:charId/approve', approveCharacter);
+router.post('/projects/:id/characters/approve-all', approveAllCharacters);
+
+// --- Stage 4: World Ingredients (Locations & Props) ---
+router.post('/projects/:id/ingredients/generate', generateIngredients);
+router.post('/projects/:id/ingredients/:assetId/regenerate', regenerateIngredient);
+router.post('/projects/:id/ingredients/:assetId/approve', approveIngredient);
+router.post('/projects/:id/ingredients/approve-all', approveAllIngredients);
+
+// --- Stage 5: Video Generation ---
+router.post('/projects/:id/generate-video', createGenerationJob);
+
+// --- Stage 6: Video Agent Loop ---
+router.post('/projects/:id/edit-video', editVideo);
+
+export default router;
+</file>
+
+<file path="src/services/llmService.js">
+/**
+ * llmService.js
+ * 
+ * Unified LLM interface — Gemini only.
+ * All script generation, safety checks, and scene edits go through this service.
+ * Models: gemini-3.1-flash-lite (Starter/edits), gemini-3.1-pro (Pro/Studio)
+ * 
+ * Uses Google Cloud Vertex AI — reuses existing GCP_SA_KEY authentication.
+ * No OpenAI or Anthropic dependencies.
+ */
+
+import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { logger } from '../logger.js';
+import path from 'path';
+import fs from 'fs';
+
+// --- Authentication ---
+
+let vertexClient = null;
+let googleGenAIClient = null;
+let useAIStudio = false;
+
+const getGenerativeClient = () => {
+    // 1. Check for Vertex AI (GCP) credentials FIRST — this uses $300 free trial credits
+    if (!vertexClient) {
+        let projectId = null;
+
+        // 1. Try to get project ID from the Service Account Key first (most reliable)
+        if (process.env.GCP_SA_KEY) {
+            try {
+                const saKey = JSON.parse(process.env.GCP_SA_KEY);
+                projectId = saKey.project_id;
+            } catch (e) {
+                logger.warn('Could not parse GCP_SA_KEY for project_id');
+            }
+        }
+
+        // 2. Fallback to direct environment variables
+        if (!projectId) {
+            projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+        }
+
+        // 3. Fallback to local key file
+        if (!projectId) {
+            try {
+                const keyPath = path.resolve('./vertex-key.json');
+                if (fs.existsSync(keyPath)) {
+                    process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
+                    const keyData = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+                    projectId = keyData.project_id;
+                }
+            } catch (e) {
+                logger.warn('Could not load vertex-key.json');
+            }
+        }
+
+        if (projectId) {
+            const location = process.env.GCP_LOCATION || 'us-central1';
+            vertexClient = new VertexAI({ project: projectId, location });
+            logger.info({ projectId, location }, 'Vertex AI client initialized for LLM');
+        }
+    }
+
+    // Return Vertex AI if available
+    if (vertexClient) return { client: vertexClient, type: 'vertex' };
+
+    // 2. Fallback to Google AI Studio (GEMINI_API_KEY)
+    if (process.env.GEMINI_API_KEY) {
+        if (!googleGenAIClient) {
+            googleGenAIClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const maskedKey = process.env.GEMINI_API_KEY.substring(0, 6) + '...';
+            logger.info({ maskedKey }, 'Initialized Google Generative AI with GEMINI_API_KEY (AI Studio fallback)');
+        }
+        return { client: googleGenAIClient, type: 'aistudio' };
+    }
+
+    throw new Error('Neither GCP_SA_KEY/GCP_PROJECT_ID nor GEMINI_API_KEY provided — needed for Gemini LLM');
+};
+
+// --- Retry Logic ---
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const callWithRetry = async (fn, maxRetries = 3, baseDelay = 1000) => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            const isRetryable = error.message?.includes('429')
+                || error.message?.includes('503')
+                || error.message?.includes('RESOURCE_EXHAUSTED')
+                || error.message?.includes('Internal error');
+
+            if (attempt === maxRetries || !isRetryable) {
+                throw error;
+            }
+
+            const delay = baseDelay * Math.pow(2, attempt);
+            logger.warn({ attempt, delay, error: error.message }, 'LLM call failed, retrying');
+            await sleep(delay);
+        }
+    }
+};
+
+// --- Core LLM Functions ---
+
+/**
+ * Generate structured output using Gemini.
+ * @param {string} systemPrompt - System instruction
+ * @param {string} userPrompt - User message
+ * @param {object} [schema] - JSON schema for structured output (optional)
+ * @param {object} options - Model config from tier
+ * @param {string} options.model - Gemini model name
+ * @param {number} [options.temperature] - Temperature (0-2)
+ * @param {number} [options.maxTokens] - Max output tokens
+ * @returns {Promise<{text: string, parsed?: object, usage: object}>}
+ */
+export const generateStructuredOutput = async (systemPrompt, userPrompt, schema = null, options = {}) => {
+    const {
+        temperature = 0.7,
+        maxTokens = 8192,
+    } = options;
+
+    // Use the model name directly from tier config
+    const apiModel = options.model || 'gemini-2.5-flash';
+
+    const { client, type } = getGenerativeClient();
+
+    const generationConfig = {
+        maxOutputTokens: maxTokens,
+        temperature,
+        topP: 0.95,
+    };
+
+    if (schema) {
+        generationConfig.responseMimeType = 'application/json';
+        generationConfig.responseSchema = schema;
+    }
+
+    let generativeModel;
+    if (type === 'aistudio') {
+        generativeModel = client.getGenerativeModel({
+            model: apiModel,
+            generationConfig,
+            systemInstruction: systemPrompt,
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            ],
+        });
+    } else {
+        generativeModel = client.getGenerativeModel({
+            model: apiModel,
+            generationConfig,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            ],
+        });
+    }
+
+    return await callWithRetry(async () => {
+        try {
+            const result = await generativeModel.generateContent({
+                contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            });
+
+            const response = result.response;
+
+            if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                const candidate = response?.candidates?.[0];
+                const finishReason = candidate?.finishReason || 'UNKNOWN';
+
+                if (finishReason === 'MAX_TOKENS') {
+                    throw new Error(`AI response was too long for the current limit (MAX_TOKENS). Try a shorter prompt or simpler request.`);
+                }
+
+                throw new Error(`Gemini returned no content. Finish reason: ${finishReason}`);
+            }
+
+            const text = response.candidates[0].content.parts[0].text;
+            const usage = {
+                promptTokens: response.usageMetadata?.promptTokenCount || 0,
+                completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+                totalTokens: response.usageMetadata?.totalTokenCount || 0,
+            };
+
+            let parsed = null;
+            if (schema) {
+                try {
+                    parsed = JSON.parse(text);
+                } catch (parseErr) {
+                    logger.warn({ apiModel, textLength: text.length }, 'Failed to parse structured output as JSON');
+                    // Try to extract JSON from markdown code blocks
+                    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+                    if (jsonMatch) {
+                        try {
+                            parsed = JSON.parse(jsonMatch[1]);
+                        } catch (e) {
+                            throw new Error(`Failed to parse Gemini structured output: ${parseErr.message}`);
+                        }
+                    }
+                }
+            }
+
+            logger.info({ apiModel, usage, hasSchema: !!schema }, 'Gemini LLM call completed');
+
+            return { text, parsed, usage };
+        } catch (err) {
+            logger.error({ err, apiModel, promptSnippet: userPrompt.substring(0, 100) }, 'Gemini LLM call failed in llmService');
+            throw err;
+        }
+    });
+};
+
+/**
+ * Stage 0: Conversational script development.
+ * @param {Array<{role: string, text: string}>} chatHistory - Previous messages
+ * @param {object} options - Model config
+ */
+export const developScript = async (chatHistory, options = {}) => {
+    const apiModel = options.model || 'gemini-2.5-flash';
+    const { client, type } = getGenerativeClient();
+
+    const systemPrompt = `You are an expert Hollywood screenwriter and mentor. Your goal is to help the user turn their idea into a production-ready script.
+
+STAGE 0 BEAT COUNTING:
+1. One beat = one 8-10s clip. Maximum 8 clips.
+2. If the user wants a short, impactful "one scene" project, respect that. Do not expand it unnecessarily.
+
+THE PROCESS:
+1. If the user says "approved", "generate it", or "go ahead", you MUST stop chatting and trigger production.
+2. If they are ready, output your final polished version of the script and end your message with: "PRODUCTION_TRIGGER"
+3. Otherwise, maintain a mentoring tone and ask probing questions about characters and conflict.
+
+If the user gives a punchy script and wants it as-is, do not add "fat". Directness is key.`;
+
+    const generationConfig = {
+        maxOutputTokens: 8192,
+        temperature: 0.7,
+        topP: 0.95,
+    };
+
+    let generativeModel;
+    if (type === 'aistudio') {
+        generativeModel = client.getGenerativeModel({
+            model: apiModel,
+            generationConfig,
+            systemInstruction: systemPrompt,
+        });
+    } else {
+        generativeModel = client.getGenerativeModel({
+            model: apiModel,
+            generationConfig,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+        });
+    }
+
+    // Map history to Gemini format (user/model)
+    const contents = chatHistory.map(msg => ({
+        role: msg.role === 'ai' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+    }));
+
+    return await callWithRetry(async () => {
+        try {
+            const result = await generativeModel.generateContent({ contents });
+            const response = result.response;
+
+            if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                throw new Error('Gemini returned no content during ideation.');
+            }
+
+            return {
+                text: response.candidates[0].content.parts[0].text,
+                usage: {
+                    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+                    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+                    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+                }
+            };
+        } catch (err) {
+            logger.error({ err, apiModel }, 'Gemini LLM call failed in developScript');
+            throw err;
+        }
+    });
+};
+
+/**
+ * Run a safety check on story text.
+ * @param {string} storyText - User's story input
+ * @param {object} options - Model config from tier
+ * @returns {Promise<{safe: boolean, severity: string, violations: string[], suggestedAlternative: string|null}>}
+ */
+export const safetyCheck = async (storyText, options = {}) => {
+    const schema = {
+        type: 'OBJECT',
+        properties: {
+            safe: { type: 'BOOLEAN' },
+            violations: { type: 'ARRAY', items: { type: 'STRING' } },
+            severity: { type: 'STRING', enum: ['SAFE', 'WARNING', 'BLOCK'] },
+            suggested_alternative: { type: 'STRING', nullable: true },
+        },
+        required: ['safe', 'violations', 'severity', 'suggested_alternative'],
+    };
+
+    const systemPrompt = `You are a content safety reviewer for a cinematic video generation platform. 
+Analyze the following story for policy violations. 
+
+═══ THE CINEMATIC RULE ═══
+Fictional conflict is NOT real-world harm. 
+- ALWAYS ALLOW: Tragic backstories, revenge plots, mentions of characters "dying", "being killed", "burning kingdoms", or "destroying worlds". These are standard cinematic tropes.
+- DO NOT BLOCK based on dramatic violence, horror elements, or dark themes.
+- MARK AS SAFE: Any story element that would be found in a PG-13 or R-rated movie (Action, Thriller, Drama).
+
+═══ THE ONLY BLOCKS ═══
+1. Real-world instructions for illegal acts (e.g., "how to build a bomb").
+2. Non-consensual sexual content or child exploitation.
+3. Real-world hate speech targeting protected groups.
+
+If it is a movie idea, it is SAFE. Severity must be 'SAFE' for all fictional drama.
+Return a structured safety assessment.`;
+
+    const { parsed } = await generateStructuredOutput(
+        systemPrompt,
+        `Review this story for safety:\n\n"${storyText}"`,
+        schema,
+        { model: options.model || 'gemini-2.5-flash', temperature: 0.1, maxTokens: 2048 },
+    );
+
+    return parsed || { safe: true, severity: 'SAFE', violations: [], suggested_alternative: null };
+};
+
+/**
+ * Edit a single scene via AI.
+ * @param {string} currentScenePrompt - The current scene text
+ * @param {string} editInstruction - User's edit request (e.g., "@scene 3 make it more dramatic")
+ * @param {string} fullScript - Full script context for coherence
+ * @param {object} options - Model config from tier
+ * @returns {Promise<{editedPrompt: string, editedDescription: string}>}
+ */
+export const editScene = async (currentScenePrompt, editInstruction, fullScript, options = {}) => {
+    const schema = {
+        type: 'OBJECT',
+        properties: {
+            edited_prompt: { type: 'STRING' },
+            edited_description: { type: 'STRING' },
+            changes_made: { type: 'STRING' },
+        },
+        required: ['edited_prompt', 'edited_description', 'changes_made'],
+    };
+
+    const systemPrompt = `You are a cinematic script editor in the tradition of Roger Deakins. You receive a scene from a larger script and a user edit instruction.
+
+SACRED TEXT RULE: The user's original script details are sacred. Do NOT change, substitute, or "improve" any specific words, names, dialogue, or details that the user has NOT asked you to change. If the script says "THRESHOLD" — keep THRESHOLD. If it says "exact change for coffee he never ordered" — that detail stays.
+You are editing the scene, not rewriting it. Preserve every unmentioned detail EXACTLY.
+
+FOUR QUESTIONS (answer internally before editing):
+1. What is the emotional truth of this scene that must be preserved?
+2. What does the user's edit instruction actually want to FEEL different?
+3. Which specific details carry emotional weight and must NOT be touched?
+4. How does this edit affect the audience's experience, not just the visual?
+
+Modify ONLY what the user asks. Keep duration, overall story arc, visual style, and all unmentioned details intact.
+The edited prompt should describe what the audience FEELS, not just what the camera sees.`;
+
+    const userPrompt = `Full Script Context:\n${fullScript}\n\nScene to Edit:\n${currentScenePrompt}\n\nUser's Edit Request:\n${editInstruction}\n\nReturn the edited scene. Preserve all details not mentioned in the edit request.`;
+
+    const { parsed } = await generateStructuredOutput(
+        systemPrompt,
+        userPrompt,
+        schema,
+        { model: options.model || 'gemini-2.5-flash', temperature: 0.6, maxTokens: 4096 },
+    );
+
+    return {
+        editedPrompt: parsed.edited_prompt,
+        editedDescription: parsed.edited_description,
+        changesMade: parsed.changes_made,
+    };
+};
+</file>
+
 <file path="src/controllers/paymentController.js">
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
@@ -8440,396 +8893,6 @@ export const getPresignedDownloadUrl = async ({ key, expiresIn = 3600, download 
 
     const [url] = await storage.bucket(bucket).file(key).getSignedUrl(options);
     return url;
-};
-</file>
-
-<file path="src/services/llmService.js">
-/**
- * llmService.js
- * 
- * Unified LLM interface — Gemini only.
- * All script generation, safety checks, and scene edits go through this service.
- * Models: gemini-3.1-flash-lite (Starter/edits), gemini-3.1-pro (Pro/Studio)
- * 
- * Uses Google Cloud Vertex AI — reuses existing GCP_SA_KEY authentication.
- * No OpenAI or Anthropic dependencies.
- */
-
-import { VertexAI } from '@google-cloud/vertexai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { logger } from '../logger.js';
-import path from 'path';
-import fs from 'fs';
-
-// --- Authentication ---
-
-let vertexClient = null;
-let googleGenAIClient = null;
-let useAIStudio = false;
-
-const getGenerativeClient = () => {
-    // 1. Check for Vertex AI (GCP) credentials FIRST — this uses $300 free trial credits
-    if (!vertexClient) {
-        let projectId = null;
-
-        // 1. Try to get project ID from the Service Account Key first (most reliable)
-        if (process.env.GCP_SA_KEY) {
-            try {
-                const saKey = JSON.parse(process.env.GCP_SA_KEY);
-                projectId = saKey.project_id;
-            } catch (e) {
-                logger.warn('Could not parse GCP_SA_KEY for project_id');
-            }
-        }
-
-        // 2. Fallback to direct environment variables
-        if (!projectId) {
-            projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-        }
-
-        // 3. Fallback to local key file
-        if (!projectId) {
-            try {
-                const keyPath = path.resolve('./vertex-key.json');
-                if (fs.existsSync(keyPath)) {
-                    process.env.GOOGLE_APPLICATION_CREDENTIALS = keyPath;
-                    const keyData = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-                    projectId = keyData.project_id;
-                }
-            } catch (e) {
-                logger.warn('Could not load vertex-key.json');
-            }
-        }
-
-        if (projectId) {
-            const location = process.env.GCP_LOCATION || 'us-central1';
-            vertexClient = new VertexAI({ project: projectId, location });
-            logger.info({ projectId, location }, 'Vertex AI client initialized for LLM');
-        }
-    }
-
-    // Return Vertex AI if available
-    if (vertexClient) return { client: vertexClient, type: 'vertex' };
-
-    // 2. Fallback to Google AI Studio (GEMINI_API_KEY)
-    if (process.env.GEMINI_API_KEY) {
-        if (!googleGenAIClient) {
-            googleGenAIClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const maskedKey = process.env.GEMINI_API_KEY.substring(0, 6) + '...';
-            logger.info({ maskedKey }, 'Initialized Google Generative AI with GEMINI_API_KEY (AI Studio fallback)');
-        }
-        return { client: googleGenAIClient, type: 'aistudio' };
-    }
-
-    throw new Error('Neither GCP_SA_KEY/GCP_PROJECT_ID nor GEMINI_API_KEY provided — needed for Gemini LLM');
-};
-
-// --- Retry Logic ---
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-const callWithRetry = async (fn, maxRetries = 3, baseDelay = 1000) => {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            return await fn();
-        } catch (error) {
-            const isRetryable = error.message?.includes('429')
-                || error.message?.includes('503')
-                || error.message?.includes('RESOURCE_EXHAUSTED')
-                || error.message?.includes('Internal error');
-
-            if (attempt === maxRetries || !isRetryable) {
-                throw error;
-            }
-
-            const delay = baseDelay * Math.pow(2, attempt);
-            logger.warn({ attempt, delay, error: error.message }, 'LLM call failed, retrying');
-            await sleep(delay);
-        }
-    }
-};
-
-// --- Core LLM Functions ---
-
-/**
- * Generate structured output using Gemini.
- * @param {string} systemPrompt - System instruction
- * @param {string} userPrompt - User message
- * @param {object} [schema] - JSON schema for structured output (optional)
- * @param {object} options - Model config from tier
- * @param {string} options.model - Gemini model name
- * @param {number} [options.temperature] - Temperature (0-2)
- * @param {number} [options.maxTokens] - Max output tokens
- * @returns {Promise<{text: string, parsed?: object, usage: object}>}
- */
-export const generateStructuredOutput = async (systemPrompt, userPrompt, schema = null, options = {}) => {
-    const {
-        temperature = 0.7,
-        maxTokens = 8192,
-    } = options;
-
-    // Use the model name directly from tier config
-    const apiModel = options.model || 'gemini-2.5-flash';
-
-    const { client, type } = getGenerativeClient();
-
-    const generationConfig = {
-        maxOutputTokens: maxTokens,
-        temperature,
-        topP: 0.95,
-    };
-
-    if (schema) {
-        generationConfig.responseMimeType = 'application/json';
-        generationConfig.responseSchema = schema;
-    }
-
-    let generativeModel;
-    if (type === 'aistudio') {
-        generativeModel = client.getGenerativeModel({
-            model: apiModel,
-            generationConfig,
-            systemInstruction: systemPrompt,
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-            ],
-        });
-    } else {
-        generativeModel = client.getGenerativeModel({
-            model: apiModel,
-            generationConfig,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-            ],
-        });
-    }
-
-    return await callWithRetry(async () => {
-        try {
-            const result = await generativeModel.generateContent({
-                contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            });
-
-            const response = result.response;
-
-            if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
-                const candidate = response?.candidates?.[0];
-                const finishReason = candidate?.finishReason || 'UNKNOWN';
-
-                if (finishReason === 'MAX_TOKENS') {
-                    throw new Error(`AI response was too long for the current limit (MAX_TOKENS). Try a shorter prompt or simpler request.`);
-                }
-
-                throw new Error(`Gemini returned no content. Finish reason: ${finishReason}`);
-            }
-
-            const text = response.candidates[0].content.parts[0].text;
-            const usage = {
-                promptTokens: response.usageMetadata?.promptTokenCount || 0,
-                completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-                totalTokens: response.usageMetadata?.totalTokenCount || 0,
-            };
-
-            let parsed = null;
-            if (schema) {
-                try {
-                    parsed = JSON.parse(text);
-                } catch (parseErr) {
-                    logger.warn({ apiModel, textLength: text.length }, 'Failed to parse structured output as JSON');
-                    // Try to extract JSON from markdown code blocks
-                    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-                    if (jsonMatch) {
-                        try {
-                            parsed = JSON.parse(jsonMatch[1]);
-                        } catch (e) {
-                            throw new Error(`Failed to parse Gemini structured output: ${parseErr.message}`);
-                        }
-                    }
-                }
-            }
-
-            logger.info({ apiModel, usage, hasSchema: !!schema }, 'Gemini LLM call completed');
-
-            return { text, parsed, usage };
-        } catch (err) {
-            logger.error({ err, apiModel, promptSnippet: userPrompt.substring(0, 100) }, 'Gemini LLM call failed in llmService');
-            throw err;
-        }
-    });
-};
-
-/**
- * Stage 0: Conversational script development.
- * @param {Array<{role: string, text: string}>} chatHistory - Previous messages
- * @param {object} options - Model config
- */
-export const developScript = async (chatHistory, options = {}) => {
-    const apiModel = options.model || 'gemini-2.5-flash';
-    const { client, type } = getGenerativeClient();
-
-    const systemPrompt = `You are an expert Hollywood screenwriter and mentor. Your goal is to help the user turn their idea into a production-ready script.
-
-STAGE 0 BEAT COUNTING:
-1. One beat = one 8-10s clip. Maximum 8 clips.
-2. If the user wants a short, impactful "one scene" project, respect that. Do not expand it unnecessarily.
-
-THE PROCESS:
-1. If the user says "approved", "generate it", or "go ahead", you MUST stop chatting and trigger production.
-2. If they are ready, output your final polished version of the script and end your message with: "PRODUCTION_TRIGGER"
-3. Otherwise, maintain a mentoring tone and ask probing questions about characters and conflict.
-
-If the user gives a punchy script and wants it as-is, do not add "fat". Directness is key.`;
-
-    const generationConfig = {
-        maxOutputTokens: 8192,
-        temperature: 0.7,
-        topP: 0.95,
-    };
-
-    let generativeModel;
-    if (type === 'aistudio') {
-        generativeModel = client.getGenerativeModel({
-            model: apiModel,
-            generationConfig,
-            systemInstruction: systemPrompt,
-        });
-    } else {
-        generativeModel = client.getGenerativeModel({
-            model: apiModel,
-            generationConfig,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-        });
-    }
-
-    // Map history to Gemini format (user/model)
-    const contents = chatHistory.map(msg => ({
-        role: msg.role === 'ai' ? 'model' : 'user',
-        parts: [{ text: msg.text }]
-    }));
-
-    return await callWithRetry(async () => {
-        try {
-            const result = await generativeModel.generateContent({ contents });
-            const response = result.response;
-
-            if (!response?.candidates?.[0]?.content?.parts?.[0]?.text) {
-                throw new Error('Gemini returned no content during ideation.');
-            }
-
-            return {
-                text: response.candidates[0].content.parts[0].text,
-                usage: {
-                    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-                    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-                    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-                }
-            };
-        } catch (err) {
-            logger.error({ err, apiModel }, 'Gemini LLM call failed in developScript');
-            throw err;
-        }
-    });
-};
-
-/**
- * Run a safety check on story text.
- * @param {string} storyText - User's story input
- * @param {object} options - Model config from tier
- * @returns {Promise<{safe: boolean, severity: string, violations: string[], suggestedAlternative: string|null}>}
- */
-export const safetyCheck = async (storyText, options = {}) => {
-    const schema = {
-        type: 'OBJECT',
-        properties: {
-            safe: { type: 'BOOLEAN' },
-            violations: { type: 'ARRAY', items: { type: 'STRING' } },
-            severity: { type: 'STRING', enum: ['SAFE', 'WARNING', 'BLOCK'] },
-            suggested_alternative: { type: 'STRING', nullable: true },
-        },
-        required: ['safe', 'violations', 'severity', 'suggested_alternative'],
-    };
-
-    const systemPrompt = `You are a content safety reviewer for a cinematic video generation platform. 
-Analyze the following story for policy violations. 
-
-═══ THE CINEMATIC RULE ═══
-Fictional conflict is NOT real-world harm. 
-- ALWAYS ALLOW: Tragic backstories, revenge plots, mentions of characters "dying", "being killed", "burning kingdoms", or "destroying worlds". These are standard cinematic tropes.
-- DO NOT BLOCK based on dramatic violence, horror elements, or dark themes.
-- MARK AS SAFE: Any story element that would be found in a PG-13 or R-rated movie (Action, Thriller, Drama).
-
-═══ THE ONLY BLOCKS ═══
-1. Real-world instructions for illegal acts (e.g., "how to build a bomb").
-2. Non-consensual sexual content or child exploitation.
-3. Real-world hate speech targeting protected groups.
-
-If it is a movie idea, it is SAFE. Severity must be 'SAFE' for all fictional drama.
-Return a structured safety assessment.`;
-
-    const { parsed } = await generateStructuredOutput(
-        systemPrompt,
-        `Review this story for safety:\n\n"${storyText}"`,
-        schema,
-        { model: options.model || 'gemini-2.5-flash', temperature: 0.1, maxTokens: 2048 },
-    );
-
-    return parsed || { safe: true, severity: 'SAFE', violations: [], suggested_alternative: null };
-};
-
-/**
- * Edit a single scene via AI.
- * @param {string} currentScenePrompt - The current scene text
- * @param {string} editInstruction - User's edit request (e.g., "@scene 3 make it more dramatic")
- * @param {string} fullScript - Full script context for coherence
- * @param {object} options - Model config from tier
- * @returns {Promise<{editedPrompt: string, editedDescription: string}>}
- */
-export const editScene = async (currentScenePrompt, editInstruction, fullScript, options = {}) => {
-    const schema = {
-        type: 'OBJECT',
-        properties: {
-            edited_prompt: { type: 'STRING' },
-            edited_description: { type: 'STRING' },
-            changes_made: { type: 'STRING' },
-        },
-        required: ['edited_prompt', 'edited_description', 'changes_made'],
-    };
-
-    const systemPrompt = `You are a cinematic script editor in the tradition of Roger Deakins. You receive a scene from a larger script and a user edit instruction.
-
-SACRED TEXT RULE: The user's original script details are sacred. Do NOT change, substitute, or "improve" any specific words, names, dialogue, or details that the user has NOT asked you to change. If the script says "THRESHOLD" — keep THRESHOLD. If it says "exact change for coffee he never ordered" — that detail stays.
-You are editing the scene, not rewriting it. Preserve every unmentioned detail EXACTLY.
-
-FOUR QUESTIONS (answer internally before editing):
-1. What is the emotional truth of this scene that must be preserved?
-2. What does the user's edit instruction actually want to FEEL different?
-3. Which specific details carry emotional weight and must NOT be touched?
-4. How does this edit affect the audience's experience, not just the visual?
-
-Modify ONLY what the user asks. Keep duration, overall story arc, visual style, and all unmentioned details intact.
-The edited prompt should describe what the audience FEELS, not just what the camera sees.`;
-
-    const userPrompt = `Full Script Context:\n${fullScript}\n\nScene to Edit:\n${currentScenePrompt}\n\nUser's Edit Request:\n${editInstruction}\n\nReturn the edited scene. Preserve all details not mentioned in the edit request.`;
-
-    const { parsed } = await generateStructuredOutput(
-        systemPrompt,
-        userPrompt,
-        schema,
-        { model: options.model || 'gemini-2.5-flash', temperature: 0.6, maxTokens: 4096 },
-    );
-
-    return {
-        editedPrompt: parsed.edited_prompt,
-        editedDescription: parsed.edited_description,
-        changesMade: parsed.changes_made,
-    };
 };
 </file>
 
@@ -9703,36 +9766,22 @@ export const processGenerationJob = async (jobId, context = {}) => {
  * 
  * EvoLink unified API gateway for video generation.
  * Supports: Kling 2.6, Kling 3.0, Seedance 2.0 (and future models)
- * Replaces all Veo 3.1 / Vertex AI video generation code.
- * 
- * API: POST https://api.evolink.ai/v1/videos/generations
- * Auth: Bearer EVOLINK_API_KEY
- * Async: submit → poll task_id → get result
  */
 
 import { logger } from '../logger.js';
 import { isStorageConfigured, uploadBufferToStorage, buildObjectKey } from './storageService.js';
 import prisma from '../config/database.js';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
 
 const EVOLINK_BASE_URL = 'https://api.evolink.ai/v1';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Get EvoLink API key from environment.
- */
 const getApiKey = () => {
     const key = process.env.EVOLINK_API_KEY;
     if (!key) throw new Error('EVOLINK_API_KEY not configured');
     return key;
 };
 
-/**
- * Make an authenticated request to EvoLink.
- */
 const evolinkFetch = async (endpoint, options = {}) => {
     const url = `${EVOLINK_BASE_URL}${endpoint}`;
     const response = await fetch(url, {
@@ -9757,9 +9806,6 @@ const evolinkFetch = async (endpoint, options = {}) => {
     return response.json();
 };
 
-/**
- * Helper to extract video URL from various possible EvoLink response shapes.
- */
 export const extractVideoUrl = (data) => {
     return data.result_data?.video_url
         || data.result_data?.output?.video_url
@@ -9775,9 +9821,6 @@ export const extractVideoUrl = (data) => {
         || data.url;
 };
 
-/**
- * Helper to extract element ID from element creation tasks.
- */
 const extractElementId = (data) => {
     return data.result_data?.element_id
         || data.task_result?.element_id
@@ -9785,7 +9828,7 @@ const extractElementId = (data) => {
 };
 
 /**
- * Submit a video generation task to EvoLink.
+ * Submit a video — ROOT level params
  */
 export const submitVideoGeneration = async (prompt, options = {}) => {
     const {
@@ -9798,219 +9841,125 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         quality = 'standard',
     } = options;
 
-    logger.info({
-        model,
-        hasImage: !!imageUrl,
-        elementCount: elementList.length,
-        referenceCount: referenceImages.length,
-        duration,
-        aspectRatio,
-        quality,
-        promptLength: prompt.length,
-    }, 'Submitting video generation to EvoLink');
-
-    // Intelligent model selection for Kling v3
     let finalModel = model;
     if (finalModel.startsWith('kling-v3')) {
         finalModel = imageUrl ? 'kling-v3-image-to-video' : 'kling-v3-text-to-video';
     }
 
-    // Quality mapping for Kling v3
     let finalQuality = quality;
     if (finalModel.startsWith('kling-v3')) {
         if (finalQuality === 'standard') finalQuality = '720p';
         if (finalQuality === 'professional') finalQuality = '1080p';
     }
 
-    const isElement = finalModel === 'kling-custom-element';
-
-    const payload = {
+    // 100% CLEAN ISOLATED OBJECT CONSTRUCTION
+    const videoPayload = {
         model: finalModel,
+        prompt: prompt,
+        duration: Math.min(Math.max(duration, 5), 10),
+        aspect_ratio: aspectRatio,
+        quality: finalQuality.toUpperCase(),
+        sound: 'on',
+        trace_id: "2026-03-17-v6-VIDEO"
     };
 
-    // Video parameters must be at the ROOT for Kling v3 / Seedance
-    if (!isElement) {
-        payload.prompt = prompt;
-        payload.duration = Math.min(Math.max(duration, 5), 10);
-        payload.aspect_ratio = aspectRatio;
-        payload.quality = finalQuality.toUpperCase();
-        payload.sound = 'on';
-    }
-
-    // Attach webhook callback to root if needed
     if (process.env.APP_URL) {
-        payload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
-        logger.info({ callbackUrl: payload.callback_url }, 'Attaching webhook callback to EvoLink task');
+        videoPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
     }
 
-    // Model-specific inputs (Kling v3 prefers root, Element prefers nested - handled in createCharacterElement)
-    if (imageUrl) payload.image_url = imageUrl;
-    if (elementList && elementList.length > 0) payload.element_list = elementList;
-    if (referenceImages && referenceImages.length > 0) payload.reference_images = referenceImages;
+    if (imageUrl) videoPayload.image_url = imageUrl;
+    if (elementList && elementList.length > 0) videoPayload.element_list = elementList;
+    if (referenceImages && referenceImages.length > 0) videoPayload.reference_images = referenceImages;
 
-    logger.info({
-        model: payload.model,
-        keys: Object.keys(payload)
-    }, '📡 Submitting Video Task to EvoLink');
-
-    logger.info('🚀 RAW VIDEO PAYLOAD:', JSON.stringify(payload, null, 2));
+    logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting JSON to EvoLink');
+    
+    // Explicit console.log to be 1000% sure what we see in Railway logs
+    console.log('--- START RAW VIDEO PAYLOAD ---');
+    console.log(JSON.stringify(videoPayload, null, 2));
+    console.log('--- END RAW VIDEO PAYLOAD ---');
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(videoPayload),
     });
 
-    logger.info({ taskId: data.id, status: data.status }, 'EvoLink video task submitted');
-
-    return {
-        taskId: data.id,
-        status: data.status,
-        estimatedTime: data.task_info?.estimated_time || 300,
-    };
+    return { taskId: data.id, status: data.status, estimatedTime: data.task_info?.estimated_time || 300 };
 };
 
-/**
- * Poll an EvoLink task until completion.
- */
 export const pollVideoTask = async (taskId, options = {}) => {
     const { maxAttempts = 120, intervalMs = 5000, onProgress } = options;
-
-    logger.info({ taskId, maxAttempts, intervalMs }, 'Polling EvoLink video task');
-
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await sleep(intervalMs);
-
         try {
             const data = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
-
             const progress = data.progress || 0;
             const status = data.status;
-
             if (onProgress) onProgress(progress, status);
 
-            // OPTIMIZATION: Check if the Webhook has already updated the record in our DB
             if (options.sceneId) {
-                const dbScene = await prisma.scene.findUnique({
-                    where: { id: options.sceneId },
-                    select: { videoUrl: true, state: true }
-                });
-
-                if (dbScene?.videoUrl) {
-                    logger.info({ taskId, sceneId: options.sceneId }, '✅ Task finished via Webhook (DB check)');
-                    return { videoUrl: dbScene.videoUrl, status: 'completed' };
-                }
+                const dbScene = await prisma.scene.findUnique({ where: { id: options.sceneId }, select: { videoUrl: true } });
+                if (dbScene?.videoUrl) return { videoUrl: dbScene.videoUrl, status: 'completed' };
             }
 
-            const isFinished = ['completed', 'succeed', 'success'].includes(status?.toLowerCase());
-            const isFailed = ['failed', 'error', 'canceled'].includes(status?.toLowerCase());
-
-            if (isFinished) {
+            if (['completed', 'succeed', 'success'].includes(status?.toLowerCase())) {
                 const videoUrl = extractVideoUrl(data);
-
-                if (!videoUrl) {
-                    logger.error({ taskId, fullResponse: data }, 'EvoLink completed but no video URL found — FULL RESPONSE LOGGED');
-                    const err = new Error('EvoLink task completed but no video URL found in any known field');
-                    err.isPermanent = true;
-                    throw err;
-                }
-
-                logger.info({ taskId, videoUrl }, 'EvoLink video generation completed');
+                if (!videoUrl) throw new Error('No video URL found');
                 return { videoUrl, status: 'completed' };
             }
 
-            if (status === 'failed' || status === 'error' || status === 'canceled') {
-                const errorMsg = data.result_data?.error_message || data.error?.message || 'Unknown error';
-                logger.error({ taskId, error: errorMsg }, 'EvoLink video generation failed');
-                const err = new Error(`EvoLink video generation failed: ${errorMsg}`);
+            if (['failed', 'error', 'canceled'].includes(status?.toLowerCase())) {
+                const errorMsg = data.result_data?.error_message || data.error?.message || data.result_data?.error || 'Unknown error';
+                logger.error({ taskId, error: errorMsg }, 'EvoLink task failed');
+
+                // Proactive connectivity diagnostic
+                if (errorMsg.toLowerCase().includes('image') || errorMsg.toLowerCase().includes('process')) {
+                    // We check if the job was using a GCS URL
+                    const isGcs = JSON.stringify(data).includes('storage.googleapis.com');
+                    if (isGcs) {
+                        logger.warn('⚠️ CONNECTIVITY WARNING: Your video task failed at "Image Processing". Kling models are hosted in China and are strictly BLOCKED from accessing Google Cloud Storage (storage.googleapis.com). You must use a CDN proxy or a different storage provider like R2 or Cloudflare to host your reference images.');
+                    }
+                }
+
+                const err = new Error(`EvoLink failed: ${errorMsg}`);
                 err.isPermanent = true;
                 throw err;
             }
-
-            logger.debug({ taskId, attempt, progress, status }, 'EvoLink task still processing');
         } catch (error) {
-            // CRITICAL: If the error is an actual generation failure or result-parsing error, 
-            // STOP polling to save credits. Only retry on network/fetch errors.
-            if (error.message.includes('failed') || error.message.includes('no video URL found')) {
-                throw error;
-            }
-            logger.warn({ taskId, attempt, err: error.message }, 'Polling network error, retrying');
+            if (error.message.includes('failed')) throw error;
         }
     }
-
-    throw new Error(`EvoLink video generation timed out after ${maxAttempts * intervalMs / 1000}s`);
+    throw new Error('Timed out');
 };
 
-/**
- * Generate a video — submit and poll until complete.
- */
 export const generateVideo = async (prompt, options = {}) => {
-    const { onProgress, ...submitOptions } = options;
-
-    // 1. Submit generation task
-    const { taskId, estimatedTime } = await submitVideoGeneration(prompt, submitOptions);
-
-    // 2. Attach taskId to scene in DB immediately so the Webhook can find it
-    if (options.sceneId) {
-        try {
-            await prisma.scene.update({
-                where: { id: options.sceneId },
-                data: { taskId: taskId }
-            });
-        } catch (dbErr) {
-            logger.warn({ taskId, sceneId: options.sceneId }, 'Failed to save taskId to scene DB, webhooks might be orphaned');
-        }
-    }
-
-    // 3. Poll for completion (Hybrid mode: checks DB + API)
-    const { videoUrl } = await pollVideoTask(taskId, {
-        sceneId: options.sceneId, // Pass to allow DB checking
-        intervalMs: 5000,
-        maxAttempts: Math.max(60, Math.ceil(estimatedTime / 5)),
-        onProgress,
-    });
-
-    // 3. Download and persist to our storage
-    if (isStorageConfigured()) {
-        try {
-            logger.info({ videoUrl }, 'Downloading EvoLink video for persistence');
-            const videoRes = await fetch(videoUrl);
-            if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.status}`);
-
-            const buffer = Buffer.from(await videoRes.arrayBuffer());
-            const key = buildObjectKey({ userId: 'evolink-videos', extension: 'mp4' });
-            const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType: 'video/mp4' });
-
-            logger.info({ persistedUrl }, 'EvoLink video persisted to storage');
-            return { video_url: persistedUrl, status: 'completed' };
-        } catch (persistErr) {
-            logger.warn({ err: persistErr.message }, 'Failed to persist EvoLink video, using original URL');
-        }
-    }
-
+    const { taskId, estimatedTime } = await submitVideoGeneration(prompt, options);
+    const { videoUrl } = await pollVideoTask(taskId, { intervalMs: 5000, maxAttempts: 100 });
     return { video_url: videoUrl, status: 'completed' };
 };
 
 /**
- * Create a Kling Custom Element for character consistency.
+ * Create custom element — NESTED model_params
  */
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
-    logger.info({ name, description, hasImages: !!frontalImageUrl }, 'Creating Kling Custom Element');
+    logger.info({ name }, 'Executing STRICT Character Element Generation');
 
-    // 1. Force the description to be purely about physical facial traits (Clean)
-    const cleanDesc = (description || '')
-        .replace(/\b(the driver|the girl|the biker|rider|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a)\b/gi, '')
+    // Enhanced Sanitization (Final Boss Edition)
+    const scrub = (text) => (text || '')
+        .replace(/\b(the unseen driver of|the driver of|the sports car|the girl|the biker|bicycle|danger|unaware|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car)\b[^,.]*/gi, '')
+        .replace(/\b(the|a|an|of|in|with|and|is|was|were|on)\b/gi, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 
-    // 2. Biometric-only fallback
-    const finalDescription = (cleanDesc.length > 5)
+    const cleanDesc = scrub(description);
+    const finalDescription = (cleanDesc.length > 3)
         ? `A detailed human portrait showing ${cleanDesc}`
-        : "A clear human portrait, standard facial features, centered.";
+        : "A clear human portrait, standard facial features, centered facial structure.";
 
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);
 
-    const payload = {
+    // 100% CLEAN ISOLATED OBJECT CONSTRUCTION - NO INHERITANCE, NO PROMPT
+    const elementPayload = {
         model: 'kling-custom-element',
         model_params: {
             element_name: safeName,
@@ -10020,50 +9969,48 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
                 frontal_image: frontalImageUrl,
             }
         },
-        standard_model_name: 'kling-custom-element'
+        standard_model_name: 'kling-custom-element',
+        trace_id: "2026-03-17-v6-DIAGNOSTIC-FIX"
     };
 
-    // Add optional reference images within the nested structure
     if (referImages && referImages.length > 0) {
-        payload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
+        elementPayload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
     }
 
-    // DEBUG: Final verification of structure before sending
-    logger.info({
-        model: payload.model,
-        paramsType: typeof payload.model_params,
-        hasName: !!payload.model_params.element_name
-    }, '📡 Sending Custom Element Request to EvoLink');
-
-    logger.info('🚀 RAW ELEMENT PAYLOAD:', JSON.stringify(payload, null, 2));
+    logger.info({ name, type: 'CHARACTER_ELEMENT_CREATION' }, '🚀 Executing Character Element Generation');
+    
+    // THE ULTIMATE PROOF: Direct standard out print
+    console.log('--- START RAW CHARACTER ELEMENT PAYLOAD ---');
+    console.log(JSON.stringify(elementPayload, null, 2));
+    console.log('--- END RAW CHARACTER ELEMENT PAYLOAD ---');
 
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(elementPayload),
     });
 
-    // Dedicated polling loop for elements to avoid burning credits on generic video polling
     const taskId = data.id;
     for (let i = 0; i < 40; i++) {
         await sleep(3000);
         const pollData = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
-
         if (pollData.status === 'completed' || pollData.status === 'succeed') {
             const elementId = extractElementId(pollData);
-            if (!elementId) {
-                logger.error({ taskId, fullResponse: pollData }, 'Element created but no elementId found');
-                throw new Error('Element creation succeeded but element_id is missing from response');
-            }
-            logger.info({ name, elementId }, 'Kling Custom Element created');
+            if (!elementId) throw new Error('Element ID missing');
             return { elementId };
         }
+        if (pollData.status === 'failed' || pollData.status === 'error' || pollData.status === 'canceled') {
+            const errorMsg = pollData.error?.message || pollData.result_data?.error_message || pollData.result_data?.error || 'Unknown error';
 
-        if (pollData.status === 'failed' || pollData.status === 'error') {
-            throw new Error(`Element creation failed: ${pollData.error?.message || 'Unknown error'}`);
+            logger.error({ taskId, status: pollData.status, error: errorMsg }, 'Kling Element task failed');
+
+            if (frontalImageUrl.includes('storage.googleapis.com')) {
+                logger.warn('⚠️ PROBABLE CAUSE: Kling (Kuaishou) is a Chinese model and is often BLOCKED from downloading images from storage.googleapis.com. Consider using a CDN proxy or a different storage provider (R2, Cloudflare) for character portraits.');
+            }
+
+            throw new Error(`Element creation failed: ${errorMsg}`);
         }
     }
-
-    throw new Error('Kling Custom Element creation timed out');
+    throw new Error('Kling Custom Element creation timed out after 120s');
 };
 </file>
 

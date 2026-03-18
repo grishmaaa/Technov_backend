@@ -91,6 +91,15 @@ export const getObjectPrefix = () => {
 
 export const getPublicUrl = (key) => {
     const { bucket } = getStorageConfig();
+    const cdnUrl = process.env.GCS_CDN_URL;
+    
+    if (cdnUrl) {
+        // Ensure cdnUrl doesn't end with a slash and key doesn't start with one
+        const base = cdnUrl.replace(/\/+$/, '');
+        const cleanKey = key.replace(/^\/+/, '');
+        return `${base}/${cleanKey}`;
+    }
+    
     return `https://storage.googleapis.com/${bucket}/${key}`;
 };
 

@@ -44,8 +44,8 @@ const ensureCdnUrl = (url) => {
 };
 
 const evolinkFetch = async (endpoint, options = {}) => {
-    // 3 Second Debug Delay (to test errors one-by-one and read logs easily)
-    await sleep(3000);
+    // 5 Second Debug Delay (requested by user to test errors one-by-one)
+    await sleep(5000);
 
     const url = `${EVOLINK_BASE_URL}${endpoint}`;
     

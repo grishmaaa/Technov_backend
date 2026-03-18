@@ -13,6 +13,10 @@ const EVOLINK_BASE_URL = 'https://api.evolink.ai/v1';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Global lock to enforce 5s gap between ANY API call
+let lastCallPromise = Promise.resolve();
+const ENFORCE_GAP_MS = 5000;
+
 const getApiKey = () => {
     const key = process.env.EVOLINK_API_KEY;
     if (!key) throw new Error('EVOLINK_API_KEY not configured');
@@ -30,22 +34,26 @@ const ensureCdnUrl = (url) => {
     // If it's already a CDN URL, leave it
     if (url.includes(new URL(cdnUrl).hostname)) return url;
     
-    // If it's a GCS URL, rewrite it to use the new proxy
-    if (url.includes('storage.googleapis.com')) {
-        const bucket = process.env.GCP_BUCKET_NAME || 'technov-assets-bucket';
-        const parts = url.split(`${bucket}/`);
-        if (parts.length > 1) {
-            const base = cdnUrl.replace(/\/+$/, '');
-            const key = parts[1].replace(/^\/+/, '');
-            return `${base}/${key}`;
-        }
+    // Improved Regex: Extracts everything after the bucket name in a storage.googleapis.com URL
+    // Format: https://storage.googleapis.com/[BUCKET]/[PATH]
+    const gcsMatch = url.match(/storage\.googleapis\.com\/([^\/]+)\/(.+)$/);
+    if (gcsMatch) {
+        const path = gcsMatch[2];
+        const base = cdnUrl.replace(/\/+$/, '');
+        return `${base}/${path}`;
     }
+    
     return url;
 };
 
 const evolinkFetch = async (endpoint, options = {}) => {
-    // 5 Second Debug Delay (requested by user to test errors one-by-one)
-    await sleep(5000);
+    // True sequential lock: Each call waits for the previous one + gap
+    const currentCall = lastCallPromise.then(async () => {
+        const now = Date.now();
+        await sleep(ENFORCE_GAP_MS);
+    });
+    lastCallPromise = currentCall;
+    await currentCall;
 
     const url = `${EVOLINK_BASE_URL}${endpoint}`;
     
@@ -263,7 +271,8 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
     console.log(JSON.stringify(elementPayload, null, 2));
     console.log('--- END RAW CHARACTER ELEMENT PAYLOAD ---');
 
-    const data = await evolinkFetch('/videos/generations', {
+    // CORRECT ENDPOINT for Kling Custom Elements
+    const data = await evolinkFetch('/general/advanced-custom-elements', {
         method: 'POST',
         body: JSON.stringify(elementPayload),
     });

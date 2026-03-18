@@ -19,6 +19,30 @@ const getApiKey = () => {
     return key;
 };
 
+/**
+ * Smart URL Rewrite: Automatically swaps blocked GCS links for the Cloudflare Worker URL.
+ */
+const ensureCdnUrl = (url) => {
+    if (!url || typeof url !== 'string') return url;
+    const cdnUrl = process.env.GCS_CDN_URL;
+    if (!cdnUrl) return url;
+    
+    // If it's already a CDN URL, leave it
+    if (url.includes(new URL(cdnUrl).hostname)) return url;
+    
+    // If it's a GCS URL, rewrite it to use the new proxy
+    if (url.includes('storage.googleapis.com')) {
+        const bucket = process.env.GCP_BUCKET_NAME || 'technov-assets-bucket';
+        const parts = url.split(`${bucket}/`);
+        if (parts.length > 1) {
+            const base = cdnUrl.replace(/\/+$/, '');
+            const key = parts[1].replace(/^\/+/, '');
+            return `${base}/${key}`;
+        }
+    }
+    return url;
+};
+
 const evolinkFetch = async (endpoint, options = {}) => {
     const url = `${EVOLINK_BASE_URL}${endpoint}`;
     const response = await fetch(url, {
@@ -104,9 +128,14 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         videoPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
     }
 
-    if (imageUrl) videoPayload.image_url = imageUrl;
+    if (imageUrl) videoPayload.image_url = ensureCdnUrl(imageUrl);
     if (elementList && elementList.length > 0) videoPayload.element_list = elementList;
-    if (referenceImages && referenceImages.length > 0) videoPayload.reference_images = referenceImages;
+    if (referenceImages && referenceImages.length > 0) {
+        videoPayload.reference_images = referenceImages.map(r => ({
+            ...r,
+            url: ensureCdnUrl(r.url)
+        }));
+    }
 
     logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting JSON to EvoLink');
     
@@ -203,7 +232,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             element_description: safeDescription,
             reference_type: 'image_refer',
             element_image_list: {
-                frontal_image: frontalImageUrl,
+                frontal_image: ensureCdnUrl(frontalImageUrl),
             },
             standard_model_name: 'kling-custom-element'
         },
@@ -211,7 +240,9 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
     };
 
     if (referImages && referImages.length > 0) {
-        elementPayload.model_params.element_image_list.refer_images = referImages.map(url => ({ image_url: url }));
+        elementPayload.model_params.element_image_list.refer_images = referImages.map(url => ({ 
+            image_url: ensureCdnUrl(url) 
+        }));
     }
 
     logger.info({ name, type: 'CHARACTER_ELEMENT_CREATION' }, '🚀 Executing Character Element Generation');

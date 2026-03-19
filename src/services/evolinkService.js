@@ -28,19 +28,28 @@ const getApiKey = () => {
  */
 const ensureCdnUrl = (url) => {
     if (!url || typeof url !== 'string') return url;
+    
+    // Safety check for GCS - Kling (Kuaishou) is in China and BLOCKED from GCS
+    if (!url.includes('storage.googleapis.com')) return url;
+    
     const cdnUrl = process.env.GCS_CDN_URL;
     if (!cdnUrl) return url;
     
-    // If it's already a CDN URL, leave it
-    if (url.includes(new URL(cdnUrl).hostname)) return url;
-    
-    // Improved Regex: Extracts everything after the bucket name in a storage.googleapis.com URL
-    // Format: https://storage.googleapis.com/[BUCKET]/[PATH]
-    const gcsMatch = url.match(/storage\.googleapis\.com\/([^\/]+)\/(.+)$/);
-    if (gcsMatch) {
-        const path = gcsMatch[2];
-        const base = cdnUrl.replace(/\/+$/, '');
-        return `${base}/${path}`;
+    try {
+        const cdnHost = new URL(cdnUrl).hostname;
+        if (url.includes(cdnHost)) return url;
+        
+        // Improved Regex: Extracts everything after the bucket name in a storage.googleapis.com URL
+        // Format: https://storage.googleapis.com/[BUCKET]/[PATH]
+        const gcsMatch = url.match(/storage\.googleapis\.com\/([^\/]+)\/(.+)$/);
+        if (gcsMatch) {
+            const path = gcsMatch[2];
+            const base = cdnUrl.replace(/\/+$/, '');
+            const finalUrl = `${base}/${path}`;
+            return finalUrl;
+        }
+    } catch (e) {
+        logger.warn({ error: e.message, url }, 'Failed to rewrite URL in ensureCdnUrl');
     }
     
     return url;
@@ -49,7 +58,6 @@ const ensureCdnUrl = (url) => {
 const evolinkFetch = async (endpoint, options = {}) => {
     // True sequential lock: Each call waits for the previous one + gap
     const currentCall = lastCallPromise.then(async () => {
-        const now = Date.now();
         await sleep(ENFORCE_GAP_MS);
     });
     lastCallPromise = currentCall;
@@ -57,15 +65,21 @@ const evolinkFetch = async (endpoint, options = {}) => {
 
     const url = `${EVOLINK_BASE_URL}${endpoint}`;
     
+    // Ensure body is a string
+    const bodyString = options.body && typeof options.body === 'object' 
+        ? JSON.stringify(options.body) 
+        : options.body;
+
     // THE TRUTH LOG: EXACTLY WHAT IS SENT TO THE WIRE
     console.log('--- START EVOLINK RAW REQUEST ---');
     console.log('URL:', url);
     console.log('METHOD:', options.method || 'GET');
-    console.log('BODY:', options.body);
+    console.log('BODY:', bodyString);
     console.log('--- END EVOLINK RAW REQUEST ---');
 
     const response = await fetch(url, {
         ...options,
+        body: bodyString,
         headers: {
             'Authorization': `Bearer ${getApiKey()}`,
             'Content-Type': 'application/json',
@@ -147,7 +161,16 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         videoPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
     }
 
-    if (imageUrl) videoPayload.image_url = ensureCdnUrl(imageUrl);
+    // KLING V3 USES image_start NOT image_url
+    if (imageUrl) {
+        const proxiedUrl = ensureCdnUrl(imageUrl);
+        if (finalModel.includes('kling-v3')) {
+            videoPayload.image_start = proxiedUrl;
+        } else {
+            videoPayload.image_url = proxiedUrl;
+        }
+    }
+
     if (elementList && elementList.length > 0) videoPayload.element_list = elementList;
     if (referenceImages && referenceImages.length > 0) {
         videoPayload.reference_images = referenceImages.map(r => ({
@@ -156,19 +179,12 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         }));
     }
 
-    logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting JSON to EvoLink');
+    logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting Video Task to EvoLink');
     
-    // Explicit console.log to be 1000% sure what we see in Railway logs
-    console.log('--- START RAW VIDEO PAYLOAD ---');
-    console.log(JSON.stringify(videoPayload, null, 2));
-    console.log('--- END RAW VIDEO PAYLOAD ---');
-
-    const data = await evolinkFetch('/videos/generations', {
+    return evolinkFetch('/videos/generations', {
         method: 'POST',
-        body: JSON.stringify(videoPayload),
+        body: videoPayload
     });
-
-    return { taskId: data.id, status: data.status, estimatedTime: data.task_info?.estimated_time || 300 };
 };
 
 export const pollVideoTask = async (taskId, options = {}) => {
@@ -198,7 +214,6 @@ export const pollVideoTask = async (taskId, options = {}) => {
 
                 // Proactive connectivity diagnostic
                 if (errorMsg.toLowerCase().includes('image') || errorMsg.toLowerCase().includes('process')) {
-                    // We check if the job was using a GCS URL
                     const isGcs = JSON.stringify(data).includes('storage.googleapis.com');
                     if (isGcs) {
                         logger.warn('⚠️ CONNECTIVITY WARNING: Your video task failed at "Image Processing". Kling models are hosted in China and are strictly BLOCKED from accessing Google Cloud Storage (storage.googleapis.com). You must use a CDN proxy or a different storage provider like R2 or Cloudflare to host your reference images.');
@@ -243,7 +258,6 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
     const safeName = (name || 'Character').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);
 
-    // 100% CLEAN ISOLATED OBJECT CONSTRUCTION - NO INHERITANCE, NO PROMPT
     const elementPayload = {
         model: 'kling-custom-element',
         model_params: {
@@ -255,7 +269,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             },
             standard_model_name: 'kling-custom-element'
         },
-        trace_id: "2026-03-17-v6-STABLE-FIX"
+        trace_id: "2026-03-17-v6-ELEMENT"
     };
 
     if (referImages && referImages.length > 0) {
@@ -264,39 +278,10 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }));
     }
 
-    logger.info({ charName: safeName }, '🚀 Executing Character Element Generation');
+    logger.info({ charName: safeName }, '🚀 Submitting Element Task to EvoLink');
     
-    // THE ULTIMATE PROOF: Direct standard out print
-    console.log('--- START RAW CHARACTER ELEMENT PAYLOAD ---');
-    console.log(JSON.stringify(elementPayload, null, 2));
-    console.log('--- END RAW CHARACTER ELEMENT PAYLOAD ---');
-
-    // CORRECT ENDPOINT for Kling Custom Elements as per documentation
-    const data = await evolinkFetch('/videos/generations', {
+    return evolinkFetch('/videos/generations', {
         method: 'POST',
         body: elementPayload,
     });
-
-    const taskId = data.id;
-    for (let i = 0; i < 40; i++) {
-        await sleep(3000);
-        const pollData = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
-        if (pollData.status === 'completed' || pollData.status === 'succeed') {
-            const elementId = extractElementId(pollData);
-            if (!elementId) throw new Error('Element ID missing');
-            return { elementId };
-        }
-        if (pollData.status === 'failed' || pollData.status === 'error' || pollData.status === 'canceled') {
-            const errorMsg = pollData.error?.message || pollData.result_data?.error_message || pollData.result_data?.error || 'Unknown error';
-
-            logger.error({ taskId, status: pollData.status, error: errorMsg }, 'Kling Element task failed');
-
-            if (frontalImageUrl.includes('storage.googleapis.com')) {
-                logger.warn('⚠️ PROBABLE CAUSE: Kling (Kuaishou) is a Chinese model and is often BLOCKED from downloading images from storage.googleapis.com. Consider using a CDN proxy or a different storage provider (R2, Cloudflare) for character portraits.');
-            }
-
-            throw new Error(`Element creation failed: ${errorMsg}`);
-        }
-    }
-    throw new Error('Kling Custom Element creation timed out after 120s');
 };

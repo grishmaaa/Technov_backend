@@ -255,7 +255,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             },
             standard_model_name: 'kling-custom-element'
         },
-        trace_id: "2026-03-17-v6-DIAGNOSTIC-FIX"
+        trace_id: "2026-03-17-v6-STABLE-FIX"
     };
 
     if (referImages && referImages.length > 0) {
@@ -264,17 +264,17 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }));
     }
 
-    logger.info({ name, type: 'CHARACTER_ELEMENT_CREATION' }, '🚀 Executing Character Element Generation');
+    logger.info({ charName: safeName }, '🚀 Executing Character Element Generation');
     
     // THE ULTIMATE PROOF: Direct standard out print
     console.log('--- START RAW CHARACTER ELEMENT PAYLOAD ---');
     console.log(JSON.stringify(elementPayload, null, 2));
     console.log('--- END RAW CHARACTER ELEMENT PAYLOAD ---');
 
-    // CORRECT ENDPOINT for Kling Custom Elements
-    const data = await evolinkFetch('/general/advanced-custom-elements', {
+    // CORRECT ENDPOINT for Kling Custom Elements as per documentation
+    const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
-        body: JSON.stringify(elementPayload),
+        body: elementPayload,
     });
 
     const taskId = data.id;

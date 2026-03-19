@@ -502,8 +502,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                 },
             });
 
-            const job = await prisma.generationJob.findUnique({ where: { id: jobId } });
-            if (job) {
+            const job = await prisma.generationJob.findUnique({ 
+                where: { id: jobId },
+                include: { project: true },
+            });
+            
+            if (job && job.project) {
                 await transitionProjectState({
                     projectId: job.projectId,
                     toState: 'FAILED',
@@ -511,7 +515,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     reason: error.message,
                 });
 
-                await publishProgress(job.projectId, project.userId, {
+                await publishProgress(job.projectId, job.project.userId, {
                     type: 'error',
                     error: error.message,
                 });

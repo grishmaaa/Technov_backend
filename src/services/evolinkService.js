@@ -253,7 +253,6 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     const elementPayload = {
         model: 'kling-custom-element',
-        standard_model_name: 'kling-custom-element',
         model_params: {
             element_name: safeName,
             element_description: safeDescription,

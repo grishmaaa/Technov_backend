@@ -13,7 +13,7 @@ const EVOLINK_BASE_URL = 'https://api.evolink.ai/v1';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Global lock to enforce 5s gap between ANY API call
+// Global lock to enforce 5s gap between completion of one call and start of next
 let lastCallPromise = Promise.resolve();
 const ENFORCE_GAP_MS = 5000;
 
@@ -45,59 +45,60 @@ const ensureCdnUrl = (url) => {
         if (gcsMatch) {
             const path = gcsMatch[2];
             const base = cdnUrl.replace(/\/+$/, '');
-            const finalUrl = `${base}/${path}`;
-            return finalUrl;
+            return `${base}/${path}`;
         }
     } catch (e) {
-        logger.warn({ error: e.message, url }, 'Failed to rewrite URL in ensureCdnUrl');
+        // Fallback or log if cdnUrl is invalid
     }
     
     return url;
 };
 
 const evolinkFetch = async (endpoint, options = {}) => {
-    // True sequential lock: Each call waits for the previous one + gap
-    const currentCall = lastCallPromise.then(async () => {
-        await sleep(ENFORCE_GAP_MS);
-    });
-    lastCallPromise = currentCall;
-    await currentCall;
-
-    const url = `${EVOLINK_BASE_URL}${endpoint}`;
-    
-    // Ensure body is a string
-    const bodyString = options.body && typeof options.body === 'object' 
-        ? JSON.stringify(options.body) 
-        : options.body;
-
-    // THE TRUTH LOG: EXACTLY WHAT IS SENT TO THE WIRE
-    console.log('--- START EVOLINK RAW REQUEST ---');
-    console.log('URL:', url);
-    console.log('METHOD:', options.method || 'GET');
-    console.log('BODY:', bodyString);
-    console.log('--- END EVOLINK RAW REQUEST ---');
-
-    const response = await fetch(url, {
-        ...options,
-        body: bodyString,
-        headers: {
-            'Authorization': `Bearer ${getApiKey()}`,
-            'Content-Type': 'application/json',
-            ...options.headers,
-        },
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.text();
-        logger.error({ status: response.status, body: errorBody, endpoint }, 'EvoLink API error');
-        const err = new Error(`EvoLink API error (${response.status}): ${errorBody}`);
-        if (response.status >= 400 && response.status < 500) {
-            err.isPermanent = true;
+    // ENHANCED SERIAL QUEUE: Wait for previous to FINISH + 5s
+    const result = await (lastCallPromise = (async () => {
+        try {
+            await lastCallPromise;
+        } catch (e) {
+            // Ignore previous errors in the chain
         }
-        throw err;
-    }
+        
+        // Wait the mandatory gap
+        await sleep(ENFORCE_GAP_MS);
 
-    return response.json();
+        const url = `${EVOLINK_BASE_URL}${endpoint}`;
+        const bodyString = options.body && typeof options.body === 'object' 
+            ? JSON.stringify(options.body) 
+            : options.body;
+
+        console.log('--- START EVOLINK RAW REQUEST ---');
+        console.log('URL:', url);
+        console.log('METHOD:', options.method || 'GET');
+        console.log('BODY:', bodyString);
+        console.log('--- END EVOLINK RAW REQUEST ---');
+
+        const response = await fetch(url, {
+            ...options,
+            body: bodyString,
+            headers: {
+                'Authorization': `Bearer ${getApiKey()}`,
+                'Content-Type': 'application/json',
+                ...options.headers,
+            },
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            logger.error({ status: response.status, body: errorBody, endpoint }, 'EvoLink API error');
+            const err = new Error(`EvoLink API error (${response.status}): ${errorBody}`);
+            if (response.status >= 400 && response.status < 500) err.isPermanent = true;
+            throw err;
+        }
+
+        return response.json();
+    })());
+    
+    return result;
 };
 
 export const extractVideoUrl = (data) => {
@@ -153,8 +154,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         duration: Math.min(Math.max(duration, 5), 10),
         aspect_ratio: aspectRatio,
         quality: finalQuality.toUpperCase(),
-        sound: 'on',
-        trace_id: "2026-03-17-v6-VIDEO"
+        sound: 'on'
     };
 
     if (process.env.APP_URL) {
@@ -212,14 +212,6 @@ export const pollVideoTask = async (taskId, options = {}) => {
                 const errorMsg = data.result_data?.error_message || data.error?.message || data.result_data?.error || 'Unknown error';
                 logger.error({ taskId, error: errorMsg }, 'EvoLink task failed');
 
-                // Proactive connectivity diagnostic
-                if (errorMsg.toLowerCase().includes('image') || errorMsg.toLowerCase().includes('process')) {
-                    const isGcs = JSON.stringify(data).includes('storage.googleapis.com');
-                    if (isGcs) {
-                        logger.warn('⚠️ CONNECTIVITY WARNING: Your video task failed at "Image Processing". Kling models are hosted in China and are strictly BLOCKED from accessing Google Cloud Storage (storage.googleapis.com). You must use a CDN proxy or a different storage provider like R2 or Cloudflare to host your reference images.');
-                    }
-                }
-
                 const err = new Error(`EvoLink failed: ${errorMsg}`);
                 err.isPermanent = true;
                 throw err;
@@ -232,21 +224,22 @@ export const pollVideoTask = async (taskId, options = {}) => {
 };
 
 export const generateVideo = async (prompt, options = {}) => {
-    const { taskId, estimatedTime } = await submitVideoGeneration(prompt, options);
+    const { taskId } = await submitVideoGeneration(prompt, options);
     const { videoUrl } = await pollVideoTask(taskId, { intervalMs: 5000, maxAttempts: 100 });
     return { video_url: videoUrl, status: 'completed' };
 };
 
 /**
- * Create custom element — NESTED model_params
+ * Create custom element
  */
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name }, 'Executing STRICT Character Element Generation');
 
-    // Enhanced Sanitization (Final Boss Edition)
+    // Advanced Sanitization: removes story words, cleans double commas/spaces
     const scrub = (text) => (text || '')
         .replace(/\b(the unseen driver of|the driver of|the sports car|the girl|the biker|bicycle|danger|unaware|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car)\b[^,.]*/gi, '')
         .replace(/\b(the|a|an|of|in|with|and|is|was|were|on)\b/gi, ' ')
+        .replace(/,\s*,/g, ',')
         .replace(/\s+/g, ' ')
         .trim();
 
@@ -260,16 +253,15 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     const elementPayload = {
         model: 'kling-custom-element',
+        standard_model_name: 'kling-custom-element',
         model_params: {
             element_name: safeName,
             element_description: safeDescription,
             reference_type: 'image_refer',
             element_image_list: {
                 frontal_image: ensureCdnUrl(frontalImageUrl),
-            },
-            standard_model_name: 'kling-custom-element'
-        },
-        trace_id: "2026-03-17-v6-ELEMENT"
+            }
+        }
     };
 
     if (referImages && referImages.length > 0) {
@@ -280,8 +272,29 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     logger.info({ charName: safeName }, '🚀 Submitting Element Task to EvoLink');
     
-    return evolinkFetch('/videos/generations', {
+    // As per documentation, custom elements use /videos/generations
+    const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
         body: elementPayload,
     });
+
+    const taskId = data.id;
+    if (!taskId) {
+        throw new Error(`Failed to get taskId for element creation. Response: ${JSON.stringify(data)}`);
+    }
+
+    for (let i = 0; i < 40; i++) {
+        await sleep(3000);
+        const pollData = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
+        if (pollData.status === 'completed' || pollData.status === 'succeed') {
+            const elementId = extractElementId(pollData);
+            if (!elementId) throw new Error('Element ID missing from successful poll data');
+            return elementId;
+        }
+        if (pollData.status === 'failed' || pollData.status === 'error' || pollData.status === 'canceled') {
+            const errorMsg = pollData.error?.message || pollData.result_data?.error_message || pollData.result_data?.error || 'Unknown error';
+            throw new Error(`Element creation failed during polling: ${errorMsg}`);
+        }
+    }
+    throw new Error('Kling Custom Element creation timed out after 120s');
 };

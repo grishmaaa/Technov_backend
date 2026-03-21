@@ -54,6 +54,20 @@ const ensureCdnUrl = (url) => {
     return url;
 };
 
+/**
+ * Robust URL extraction: ensures we always get a CDN string whether input is
+ * a raw string, an object with .url, .image_url, or .image
+ */
+const safeUrl = (u) => {
+    if (!u) return '';
+    if (typeof u === 'string') return ensureCdnUrl(u);
+    if (typeof u === 'object') {
+        const raw = u.url || u.image_url || u.image || '';
+        return ensureCdnUrl(raw);
+    }
+    return '';
+};
+
 const evolinkFetch = async (endpoint, options = {}) => {
     // ENHANCED SERIAL QUEUE: Wait for previous to FINISH + 5s
     const result = await (lastCallPromise = (async () => {
@@ -164,7 +178,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
     // KLING V3 USES image_start NOT image_url
     if (imageUrl) {
-        const proxiedUrl = ensureCdnUrl(imageUrl);
+        const proxiedUrl = safeUrl(imageUrl);
         if (finalModel.includes('kling-v3')) {
             videoPayload.image_start = proxiedUrl;
         } else {
@@ -174,10 +188,13 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
     if (elementList && elementList.length > 0) videoPayload.element_list = elementList;
     if (referenceImages && referenceImages.length > 0) {
-        videoPayload.reference_images = referenceImages.map(r => ({
-            ...r,
-            url: ensureCdnUrl(r.url)
-        }));
+        videoPayload.reference_images = referenceImages.map(r => {
+            // Bulletproof: handles both strings (as url) and objects with .url
+            return {
+                ...(typeof r === 'object' ? r : {}),
+                url: safeUrl(r)
+            };
+        }).filter(item => item.url);
     }
 
     logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting Video Task to EvoLink');
@@ -225,7 +242,10 @@ export const pollVideoTask = async (taskId, options = {}) => {
 };
 
 export const generateVideo = async (prompt, options = {}) => {
-    const { taskId } = await submitVideoGeneration(prompt, options);
+    const response = await submitVideoGeneration(prompt, options);
+    // Safely extract the ID regardless of API response structure
+    const taskId = response.task_id || response.id || response.data?.task_id || response.data?.id;
+    
     const { videoUrl } = await pollVideoTask(taskId, { intervalMs: 5000, maxAttempts: 100 });
     return { video_url: videoUrl, status: 'completed' };
 };
@@ -238,7 +258,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     // Advanced Sanitization: removes story words, cleans double commas/spaces
     const scrub = (text) => (text || '')
-        .replace(/\b(the unseen driver of|the driver of|the sports car|the girl|the biker|bicycle|danger|unaware|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car)\b[^,.]*/gi, '')
+        .replace(/\b(the unseen driver of|the driver of|the sports car|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car|girl on a bicycle|the girl|the biker|rider|matte black|driver|driver of|sports car)\b[^,.]*/gi, '')
         .replace(/\b(the|a|an|of|in|with|and|is|was|were|on)\b/gi, ' ')
         .replace(/,\s*,/g, ',')
         .replace(/\s+/g, ' ')
@@ -260,15 +280,21 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             element_description: safeDescription,
             reference_type: 'image_refer',
             element_image_list: {
-                frontal_image: ensureCdnUrl(frontalImageUrl),
+                frontal_image: safeUrl(frontalImageUrl),
             }
-        }
+        },
+        // standard_model_name: 'kling-custom-element'
     };
 
     if (referImages && referImages.length > 0) {
-        elementPayload.model_params.element_image_list.refer_images = referImages.map(url => ({ 
-            image_url: ensureCdnUrl(url) 
-        }));
+        elementPayload.model_params.element_image_list.refer_images = referImages.map(img => {
+            const url = safeUrl(img);
+            return url ? { image_url: url } : null;
+        }).filter(Boolean);
+    }
+
+    if (process.env.APP_URL) {
+        elementPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
     }
 
     logger.info({ charName: safeName }, '🚀 Submitting Element Task to EvoLink');
@@ -279,7 +305,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         body: elementPayload,
     });
 
-    const taskId = data.id;
+    const taskId = data.task_id || data.id || data.data?.task_id || data.data?.id;
     if (!taskId) {
         throw new Error(`Failed to get taskId for element creation. Response: ${JSON.stringify(data)}`);
     }
@@ -299,3 +325,4 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
     }
     throw new Error('Kling Custom Element creation timed out after 120s');
 };
+

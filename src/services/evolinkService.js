@@ -13,7 +13,7 @@ const EVOLINK_BASE_URL = 'https://api.evolink.ai/v1';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Global lock to enforce 5s gap between completion of one call and start of next
+// Global lock to enforce 5s gap between ANY API call completion and next start
 let lastCallPromise = Promise.resolve();
 const ENFORCE_GAP_MS = 5000;
 
@@ -48,14 +48,14 @@ const ensureCdnUrl = (url) => {
             return `${base}/${path}`;
         }
     } catch (e) {
-        // Fallback or log if cdnUrl is invalid
+        // Fallback
     }
     
     return url;
 };
 
 const evolinkFetch = async (endpoint, options = {}) => {
-    // ENHANCED SERIAL QUEUE: Wait for previous to FINISH + 5s
+    // ENHANCED SERIAL QUEUE: Wait for previous to FINISH + gap
     const result = await (lastCallPromise = (async () => {
         try {
             await lastCallPromise;
@@ -63,7 +63,7 @@ const evolinkFetch = async (endpoint, options = {}) => {
             // Ignore previous errors in the chain
         }
         
-        // Wait the mandatory gap
+        // Wait mandatory gap
         await sleep(ENFORCE_GAP_MS);
 
         const url = `${EVOLINK_BASE_URL}${endpoint}`;
@@ -95,7 +95,14 @@ const evolinkFetch = async (endpoint, options = {}) => {
             throw err;
         }
 
-        return response.json();
+        const data = await response.json();
+        
+        // --- THE TRUTH LOG: EXACTLY WHAT WE GET FROM THE SERVER ---
+        console.log('--- START EVOLINK RAW RESPONSE ---');
+        console.log(JSON.stringify(data, null, 2));
+        console.log('--- END EVOLINK RAW RESPONSE ---');
+
+        return data;
     })());
     
     return result;
@@ -181,10 +188,13 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
 
     logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting Video Task to EvoLink');
     
-    return evolinkFetch('/videos/generations', {
+    const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
         body: videoPayload
     });
+
+    const taskId = data.id || data.task_id || data.taskId;
+    return { taskId, status: data.status };
 };
 
 export const pollVideoTask = async (taskId, options = {}) => {
@@ -239,8 +249,11 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
     const scrub = (text) => (text || '')
         .replace(/\b(the unseen driver of|the driver of|the sports car|the girl|the biker|bicycle|danger|unaware|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car)\b[^,.]*/gi, '')
         .replace(/\b(the|a|an|of|in|with|and|is|was|were|on)\b/gi, ' ')
+        // Remove trailing commas and extra spaces
         .replace(/,\s*,/g, ',')
         .replace(/\s+/g, ' ')
+        .replace(/^[\s,]+/, '')
+        .replace(/[\s,]+$/, '')
         .trim();
 
     const cleanDesc = scrub(description);
@@ -271,15 +284,15 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
 
     logger.info({ charName: safeName }, '🚀 Submitting Element Task to EvoLink');
     
-    // As per documentation, custom elements use /videos/generations
+    // CUSTOM ELEMENTS use /videos/generations but a specific model ID
     const data = await evolinkFetch('/videos/generations', {
         method: 'POST',
         body: elementPayload,
     });
 
-    const taskId = data.id;
+    const taskId = data.id || data.task_id || data.taskId;
     if (!taskId) {
-        throw new Error(`Failed to get taskId for element creation. Response: ${JSON.stringify(data)}`);
+        throw new Error(`Failed to extract taskId for element creation. RAW RESPONSE: ${JSON.stringify(data)}`);
     }
 
     for (let i = 0; i < 40; i++) {
@@ -292,7 +305,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }
         if (pollData.status === 'failed' || pollData.status === 'error' || pollData.status === 'canceled') {
             const errorMsg = pollData.error?.message || pollData.result_data?.error_message || pollData.result_data?.error || 'Unknown error';
-            throw new Error(`Element creation failed during polling: ${errorMsg}`);
+            throw new Error(`Element creation failed: ${errorMsg}`);
         }
     }
     throw new Error('Kling Custom Element creation timed out after 120s');

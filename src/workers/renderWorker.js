@@ -127,11 +127,25 @@ export const processGenerationJob = async (jobId, context = {}) => {
             for (const char of project.characters) {
                 if (!char.elementId && char.portraitUrl) {
                     try {
-                        logger.info({ charName: char.name }, 'Creating missing Kling Custom Element for character');
+                        // Extract all approved character reference images for this specific character
+                        const charRefs = project.assets
+                            .filter(a => {
+                                try {
+                                    const meta = JSON.parse(a.metadata || '{}');
+                                    return a.type === 'CHARACTER' && meta.characterId === char.id && a.url;
+                                } catch (e) {
+                                    return false;
+                                }
+                            })
+                            .map(a => a.url)
+                            .filter(url => url !== char.portraitUrl); // Don't repeat the frontal image as a reference
+
+                        logger.info({ charName: char.name, refCount: charRefs.length }, 'Creating missing Kling Custom Element for character (Mandatory Refs)');
                         const { elementId } = await createCharacterElement(
                             char.name,
                             char.description,
-                            char.portraitUrl
+                            char.portraitUrl,
+                            charRefs // PASSING THE REFERENCE IMAGES HERE
                         );
                         await prisma.character.update({
                             where: { id: char.id },

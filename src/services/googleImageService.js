@@ -92,7 +92,10 @@ export const generateImage = async (prompt, options = {}) => {
         const requestBody = {
             instances: [
                 {
-                    prompt: prompt
+                    prompt: prompt,
+                    ...(options.referenceImages && options.referenceImages.length > 0 
+                        ? { reference_images: options.referenceImages } 
+                        : {})
                 }
             ],
             parameters: {
@@ -131,7 +134,11 @@ export const generateImage = async (prompt, options = {}) => {
                 const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType: mimeType });
 
                 logger.info({ persistedUrl }, 'Imagen image persisted to storage');
-                return { url: persistedUrl, contentType: mimeType };
+                return { 
+                    url: persistedUrl, 
+                    contentType: mimeType,
+                    base64: options.returnBase64 ? base64Image : undefined // Optional return for chaining
+                };
             } catch (persistErr) {
                 logger.error({ err: persistErr }, 'Failed to persist Imagen image');
                 // We MUST upload to S3, returning data URI will break the Prisma character/scene db limits
@@ -139,7 +146,11 @@ export const generateImage = async (prompt, options = {}) => {
             }
         } else {
             logger.warn('Storage is NOT configured. Dropping back to returning raw base64 data URIs. This may exceed DB storage sizes.');
-            return { url: `data:${mimeType};base64,${base64Image}`, contentType: mimeType };
+            return { 
+                url: `data:${mimeType};base64,${base64Image}`, 
+                contentType: mimeType,
+                base64: base64Image
+            };
         }
 
     } catch (error) {
@@ -162,7 +173,57 @@ export const generateCharacterPortrait = async (description, style, options = {}
     return generateImage(prompt, {
         aspectRatio: '1:1',
         outputFormat: 'image/png',
+        ...options
     });
+};
+
+/**
+ * Generate a character portrait series (Frontal, Left Profile, Right Profile).
+ * Returns an array of shots: [{ url, type: 'front'|'left'|'right' }]
+ */
+export const generateCharacterPortraitSeries = async (description, style, options = {}, userPrompt = null) => {
+    logger.info({ charDescription: description }, '🎬 Executing Character Portrait Series Generation (3-shot sheet)');
+
+    // 1. Generate Frontal (Primary Reference)
+    const frontal = await generateCharacterPortrait(description, style, { ...options, returnBase64: true }, userPrompt);
+    const results = [{ url: frontal.url, view: 'front' }];
+
+    // 2. Prepare Reference Image for Consistency
+    const refImage = {
+        referenceId: 1,
+        referenceType: 'USER_REFERENCE_IMAGE_TYPE_CONSISTENT_FACIAL_CHARACTER',
+        image: {
+            bytesBase64Encoded: frontal.base64
+        }
+    };
+
+    // 3. Generate Left Profile
+    try {
+        logger.info('Generating Left Profile shot...');
+        const leftPrompt = `Left profile face shot of the same character: ${description}. Visual Style: ${style}. 90 degree side view, looking left, exact facial features, neutral expression, cinematic lighting, 8k resolution.`;
+        const left = await generateImage(leftPrompt, {
+            aspectRatio: '1:1',
+            referenceImages: [refImage]
+        });
+        results.push({ url: left.url, view: 'left' });
+    } catch (err) {
+        logger.warn({ err: err.message }, 'Failed to generate left profile shot');
+    }
+
+    // 4. Generate Right Profile
+    try {
+        logger.info('Generating Right Profile shot...');
+        const rightPrompt = `Right profile face shot of the same character: ${description}. Visual Style: ${style}. 90 degree side view, looking right, exact facial features, neutral expression, cinematic lighting, 8k resolution.`;
+        const right = await generateImage(rightPrompt, {
+            aspectRatio: '1:1',
+            referenceImages: [refImage]
+        });
+        results.push({ url: right.url, view: 'right' });
+    } catch (err) {
+        logger.warn({ err: err.message }, 'Failed to generate right profile shot');
+    }
+
+    return results;
 };
 
 /**

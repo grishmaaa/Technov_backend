@@ -10,7 +10,7 @@ import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getTierConfig, calculateCreditCost } from '../config/modelConfig.js';
 import { generateStructuredOutput, safetyCheck, editScene, developScript } from '../services/llmService.js';
-import { generateCharacterPortrait, generateIngredientImage } from '../services/falService.js';
+import { generateCharacterPortraitSeries, generateIngredientImage } from '../services/googleImageService.js';
 import { logger } from '../logger.js';
 
 // ============================================================
@@ -488,19 +488,42 @@ export const generateCharacters = async (req, res) => {
             return res.json({ characters: [], message: 'No characters found, skipping to world ingredients' });
         }
 
-        // Generate portraits in parallel — they're independent operations
+        // Generate portrait series (Frontal, Left, Right) in parallel for each character
         const visualStyle = project.metadata?.visual_style || 'cinematic';
 
         const portraitResults = await Promise.allSettled(
             existingCharacters.map(async (charRecord) => {
-                const portrait = await generateCharacterPortrait(
+                // Returns [{url, view: 'front'}, {url, view: 'left'}, {url, view: 'right'}]
+                const series = await generateCharacterPortraitSeries(
                     charRecord.description,
                     visualStyle,
                     tierConfig.image,
                 );
+
+                // 1. Find the frontal shot to update the main character record
+                const frontal = series.find(s => s.view === 'front') || series[0];
+
+                // 2. Persist all 3 views to the Asset table so the worker can find them
+                await Promise.all(series.map(shot => 
+                    prisma.asset.create({
+                        data: {
+                            projectId: id,
+                            type: 'CHARACTER',
+                            state: 'READY',
+                            url: shot.url,
+                            metadata: JSON.stringify({ 
+                                characterId: charRecord.id, 
+                                view: shot.view, 
+                                role: charRecord.role 
+                            })
+                        }
+                    })
+                ));
+
+                // 3. Update character record with frontal shot
                 return prisma.character.update({
                     where: { id: charRecord.id },
-                    data: { portraitUrl: portrait.url },
+                    data: { portraitUrl: frontal.url },
                 });
             })
         );
@@ -550,20 +573,52 @@ export const regenerateCharacter = async (req, res) => {
             return res.status(404).json({ error: 'Character not found' });
         }
 
-        const project = await prisma.project.findUnique({ where: { id } });
+        const project = await prisma.project.findUnique({ where: { id }, include: { assets: true } });
         const visualStyle = project?.metadata?.visual_style || 'cinematic';
 
-        const portrait = await generateCharacterPortrait(
+        // 1. Generate 3-shot series
+        const series = await generateCharacterPortraitSeries(
             character.description,
             visualStyle,
             tierConfig.image,
             userPrompt,
         );
 
+        const frontal = series.find(s => s.view === 'front') || series[0];
+
+        // 2. Cleanup old assets for this character to prevent "bloat" in reference lists
+        const oldAssets = project.assets.filter(a => {
+            try {
+                if (a.type !== 'CHARACTER') return false;
+                const meta = JSON.parse(a.metadata || '{}');
+                return meta.characterId === charId;
+            } catch (e) { return false; }
+        });
+        
+        if (oldAssets.length > 0) {
+            await prisma.asset.deleteMany({
+                where: { id: { in: oldAssets.map(a => a.id) } }
+            });
+        }
+
+        // 3. Create new assets for the 3 shots
+        await Promise.all(series.map(shot => 
+            prisma.asset.create({
+                data: {
+                    projectId: id,
+                    type: 'CHARACTER',
+                    state: 'READY',
+                    url: shot.url,
+                    metadata: JSON.stringify({ characterId: charId, view: shot.view, role: character.role })
+                }
+            })
+        ));
+
+        // 4. Update the character record with the frontal shot
         const updated = await prisma.character.update({
             where: { id: charId },
             data: {
-                portraitUrl: portrait.url,
+                portraitUrl: frontal.url,
                 approved: false, // Reset approval on regen
                 elementId: null, // Clear elementId so worker creates a new one for new portrait
             },
@@ -719,8 +774,7 @@ export const generateIngredients = async (req, res) => {
                 const image = await generateIngredientImage(
                     assetPrompt,
                     visualStyle,
-                    tierConfig.image,
-                    project.aspectRatio
+                    { ...tierConfig.image, aspectRatio: project.aspectRatio }
                 );
 
                 return prisma.asset.update({
@@ -792,8 +846,7 @@ export const regenerateIngredient = async (req, res) => {
         const frame = await generateIngredientImage(
             finalPrompt,
             visualStyle,
-            tierConfig.image,
-            project?.aspectRatio || '16:9',
+            { ...tierConfig.image, aspectRatio: project?.aspectRatio || '16:9' },
         );
 
         const updated = await prisma.asset.update({

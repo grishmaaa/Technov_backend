@@ -281,17 +281,14 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             reference_type: 'image_refer',
             element_image_list: {
                 frontal_image: safeUrl(frontalImageUrl),
+                refer_images: (referImages || []).map(img => {
+                    const url = safeUrl(img);
+                    return url ? { image_url: url } : null;
+                }).filter(Boolean)
             }
         },
         // standard_model_name: 'kling-custom-element'
     };
-
-    if (referImages && referImages.length > 0) {
-        elementPayload.model_params.element_image_list.refer_images = referImages.map(img => {
-            const url = safeUrl(img);
-            return url ? { image_url: url } : null;
-        }).filter(Boolean);
-    }
 
     // if (process.env.APP_URL) {
     //     elementPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
@@ -316,7 +313,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         if (pollData.status === 'completed' || pollData.status === 'succeed') {
             const elementId = extractElementId(pollData);
             if (!elementId) throw new Error('Element ID missing from successful poll data');
-            return elementId;
+            return { elementId };
         }
         if (pollData.status === 'failed' || pollData.status === 'error' || pollData.status === 'canceled') {
             const errorMsg = pollData.error?.message || pollData.result_data?.error_message || pollData.result_data?.error || 'Unknown error';

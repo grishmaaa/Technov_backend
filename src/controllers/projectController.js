@@ -2,7 +2,7 @@ import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
 import { getPresignedDownloadUrl, getStorageConfig, extractKeyFromUrl, isStorageConfigured } from '../services/storageService.js';
-import { generateCharacterPortrait } from '../services/googleImageService.js';
+import { generateCharacterPortrait, generateCharacterPortraitSeries } from '../services/googleImageService.js';
 
 // --- SHARED HELPERS ---
 
@@ -592,24 +592,31 @@ export const decideVisualIdentity = async (req, res) => {
                         const description = buildCharPrompt(char);
                         const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${char.role || "Character"} ` : description;
 
-                        const portraitUrl = await generateCharacterPortrait(finalPrompt, style);
+                        const portraitSeries = await generateCharacterPortraitSeries(finalPrompt, style);
+                        const frontal = portraitSeries.find(s => s.view === 'front') || portraitSeries[0];
 
-                        if (portraitUrl) {
-                            await prisma.asset.create({
-                                data: {
-                                    projectId: id,
-                                    type: 'CHARACTER',
-                                    state: 'READY',
-                                    url: portraitUrl,
-                                    metadata: JSON.stringify({
-                                        characterId: char.id,
-                                        role: char.role,
-                                        name: char.role,
-                                        description: description || "Auto Generated",
-                                        source: 'auto-initial-cast'
-                                    })
-                                }
-                            });
+                        if (portraitSeries && portraitSeries.length > 0) {
+                            await Promise.all(portraitSeries.map(async (shot) => {
+                                await prisma.asset.create({
+                                    data: {
+                                        projectId: id,
+                                        type: 'CHARACTER',
+                                        state: 'READY',
+                                        url: shot.url,
+                                        metadata: JSON.stringify({
+                                            characterId: char.id,
+                                            role: char.role,
+                                            name: char.role,
+                                            description: description || "Auto Generated",
+                                            source: 'auto-initial-cast',
+                                            view: shot.view
+                                        })
+                                    }
+                                });
+                            }));
+
+                            // Although we save assets, we might want a primary one for the Character summary UI?
+                            // Currently Character table is not updated here, but the Asset table is the source of truth for UI.
                         }
                     } catch (genErr) {
                         logger.error({ err: genErr, charId: char.id }, "Auto-generation of character failed");
@@ -805,25 +812,54 @@ export const generateProjectAssets = async (req, res) => {
             // If it's a fallback char w/o description, ensure we have a valid prompt
             const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${charDef.role} ` : description;
 
-            const portraitUrl = await generateCharacterPortrait(
+            const portraitSeries = await generateCharacterPortraitSeries(
                 finalPrompt,
                 style,
+                {}, // options
                 userPrompt
             );
 
-            const asset = await prisma.asset.create({
-                data: {
-                    projectId: id,
+            const frontal = portraitSeries.find(s => s.view === 'front') || portraitSeries[0];
+
+            // Cleanup old assets
+            const oldAssets = project.assets.filter(a => {
+                try {
+                    const meta = JSON.parse(a.metadata || '{}');
+                    return a.type === 'CHARACTER' && meta.characterId === charDef.id;
+                } catch(e) { return false; }
+            });
+
+            if (oldAssets.length > 0) {
+                await prisma.asset.deleteMany({
+                    where: { id: { in: oldAssets.map(a => a.id) } }
+                });
+            }
+
+            await Promise.all(portraitSeries.map(async (shot) => {
+                await prisma.asset.create({
+                    data: {
+                        projectId: id,
+                        type: 'CHARACTER',
+                        state: 'READY',
+                        url: shot.url,
+                        metadata: JSON.stringify({
+                            characterId: charDef.id,
+                            role: charDef.role,
+                            name: charDef.role,
+                            description: description || "AI Generated from Script ID",
+                            source: 'regen',
+                            view: shot.view
+                        })
+                    }
+                });
+            }));
+
+            // Return the frontal asset for the UI
+            const asset = await prisma.asset.findFirst({
+                where: { 
+                    projectId: id, 
                     type: 'CHARACTER',
-                    state: 'READY',
-                    url: portraitUrl,
-                    metadata: JSON.stringify({
-                        characterId: charDef.id,
-                        role: charDef.role,
-                        name: charDef.role,
-                        description: description || "AI Generated from Script ID",
-                        source: 'regen'
-                    })
+                    url: frontal.url
                 }
             });
 

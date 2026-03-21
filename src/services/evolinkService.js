@@ -242,6 +242,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         .replace(/\b(the|a|an|of|in|with|and|is|was|were|on)\b/gi, ' ')
         .replace(/,\s*,/g, ',')
         .replace(/\s+/g, ' ')
+        .replace(/[\s,\.]+$/g, '')
         .trim();
 
     const cleanDesc = scrub(description);
@@ -249,7 +250,7 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         ? `A detailed human portrait showing ${cleanDesc}`
         : "A clear human portrait, standard facial features, centered facial structure.";
 
-    const safeName = (name || 'Character').substring(0, 20);
+    const safeName = (name || 'Character').replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
     const safeDescription = finalDescription.substring(0, 100);
 
     const elementPayload = {

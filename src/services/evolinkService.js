@@ -293,9 +293,9 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         }).filter(Boolean);
     }
 
-    if (process.env.APP_URL) {
-        elementPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
-    }
+    // if (process.env.APP_URL) {
+    //     elementPayload.callback_url = `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/evolink`;
+    // }
 
     logger.info({ charName: safeName }, '🚀 Submitting Element Task to EvoLink');
     

@@ -316,8 +316,8 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
         throw new Error(`Failed to get taskId for element creation. Response: ${JSON.stringify(data)}`);
     }
 
-    for (let i = 0; i < 40; i++) {
-        await sleep(3000);
+    for (let i = 0; i < 120; i++) {
+        await sleep(5000);
         const pollData = await evolinkFetch(`/tasks/${taskId}`, { method: 'GET' });
         if (pollData.status === 'completed' || pollData.status === 'succeed') {
             const elementId = extractElementId(pollData);
@@ -329,6 +329,6 @@ export const createCharacterElement = async (name, description, frontalImageUrl,
             throw new Error(`Element creation failed during polling: ${errorMsg}`);
         }
     }
-    throw new Error('Kling Custom Element creation timed out after 120s');
+    throw new Error('Kling Custom Element creation timed out after 600s');
 };
 

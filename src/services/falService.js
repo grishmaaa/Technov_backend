@@ -162,7 +162,7 @@ export const generateIngredientImage = async (
                 input: {
                     prompt,
                     ip_adapters: characterPortraitUrls.map(url => ({
-                        path: 'XLabs-AI/flux-ip-adapter',
+                        path: 'XLabs-AI/flux-ip-adapter-v2',
                         image_encoder_path: 'google/siglip-so400m-patch14-384',
                         image_url: url,
                         scale: 0.8
@@ -171,7 +171,7 @@ export const generateIngredientImage = async (
                     num_images: 1,
                     output_format: 'jpeg',
                     enable_safety_checker: true,
-                    use_real_cfg: true, // Required for XLabs IP-Adapter v1
+                    use_real_cfg: false, // v2 works better with standard CFG
                 }
             });
 
@@ -252,7 +252,7 @@ export const generateCharacterPortraitSeries = async (description, style, option
                 prompt,
                 image_size: 'square', // 1:1 for portraits
                 ip_adapters: [{
-                    path: 'XLabs-AI/flux-ip-adapter',
+                    path: 'XLabs-AI/flux-ip-adapter-v2',
                     image_encoder_path: 'google/siglip-so400m-patch14-384',
                     image_url: frontal.url, // Use frontal as the DNA reference
                     scale: 0.8
@@ -261,7 +261,7 @@ export const generateCharacterPortraitSeries = async (description, style, option
                 num_images: 1,
                 output_format: 'jpeg',
                 enable_safety_checker: true,
-                use_real_cfg: true,
+                use_real_cfg: false,
             }
         });
 

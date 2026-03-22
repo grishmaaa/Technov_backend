@@ -24,7 +24,8 @@ import {
     regenerateIngredient,
     approveIngredient,
     approveAllIngredients,
-    editVideo
+    editVideo,
+    cancelProject
 } from '../controllers/pipelineController.js';
 
 const router = Router();
@@ -61,5 +62,8 @@ router.post('/projects/:id/generate-video', createGenerationJob);
 
 // --- Stage 6: Video Agent Loop ---
 router.post('/projects/:id/edit-video', editVideo);
+
+// --- KILL SWITCH ---
+router.post('/projects/:id/cancel', cancelProject);
 
 export default router;

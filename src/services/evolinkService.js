@@ -8,6 +8,7 @@
 import { logger } from '../logger.js';
 import { isStorageConfigured, uploadBufferToStorage, buildObjectKey } from './storageService.js';
 import prisma from '../config/database.js';
+import { connection as redis } from '../queue/connection.js';
 
 const EVOLINK_BASE_URL = 'https://api.evolink.ai/v1';
 
@@ -68,51 +69,59 @@ const safeUrl = (u) => {
     return '';
 };
 
+
 const evolinkFetch = async (endpoint, options = {}) => {
-    // ENHANCED SERIAL QUEUE: Wait for previous to FINISH + 5s
-    const result = await (lastCallPromise = (async () => {
-        try {
-            await lastCallPromise;
-        } catch (e) {
-            // Ignore previous errors in the chain
-        }
-        
-        // Wait the mandatory gap
-        await sleep(ENFORCE_GAP_MS);
-
-        const url = `${EVOLINK_BASE_URL}${endpoint}`;
-        const bodyString = options.body && typeof options.body === 'object' 
-            ? JSON.stringify(options.body) 
-            : options.body;
-
-        console.log('--- START EVOLINK RAW REQUEST ---');
-        console.log('URL:', url);
-        console.log('METHOD:', options.method || 'GET');
-        console.log('BODY:', bodyString);
-        console.log('--- END EVOLINK RAW REQUEST ---');
-
-        const response = await fetch(url, {
-            ...options,
-            body: bodyString,
-            headers: {
-                'Authorization': `Bearer ${getApiKey()}`,
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            logger.error({ status: response.status, body: errorBody, endpoint }, 'EvoLink API error');
-            const err = new Error(`EvoLink API error (${response.status}): ${errorBody}`);
-            if (response.status >= 400 && response.status < 500) err.isPermanent = true;
-            throw err;
-        }
-
-        return response.json();
-    })());
+    // 🌍 GLOBAL DISTRIBUTED LOCK & GAP:
+    // Synchronize 5s gap ACROSS ALL WORKERS using Redis.
+    // LUA script ensures atomic retrieval and update of the last call timestamp.
+    const gapMs = ENFORCE_GAP_MS;
+    const now = Date.now();
     
-    return result;
+    // Returns the exact milliseconds this worker needs to sleep to maintain the 5s global gap
+    const waitMs = await redis.eval(`
+        local last = redis.call('GET', KEYS[1]) or 0
+        local now = tonumber(ARGV[1])
+        local gap = tonumber(ARGV[2])
+        local wait = math.max(0, tonumber(last) + gap - now)
+        redis.call('SET', KEYS[1], now + wait)
+        return wait
+    `, 1, 'evolink:last_call_timestamp', now, gapMs);
+
+    if (waitMs > 0) {
+        logger.debug({ waitMs }, `Sleeping to maintain global EvoLink rate limit (${gapMs}ms gap)`);
+        await sleep(waitMs);
+    }
+
+    const url = `${EVOLINK_BASE_URL}${endpoint}`;
+    const bodyString = options.body && typeof options.body === 'object' 
+        ? JSON.stringify(options.body) 
+        : options.body;
+
+    console.log('--- START EVOLINK RAW REQUEST ---');
+    console.log('URL:', url);
+    console.log('METHOD:', options.method || 'GET');
+    console.log('BODY:', bodyString);
+    console.log('--- END EVOLINK RAW REQUEST ---');
+
+    const response = await fetch(url, {
+        ...options,
+        body: bodyString,
+        headers: {
+            'Authorization': `Bearer ${getApiKey()}`,
+            'Content-Type': 'application/json',
+            ...options.headers,
+        },
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        logger.error({ status: response.status, body: errorBody, endpoint }, 'EvoLink API error');
+        const err = new Error(`EvoLink API error (${response.status}): ${errorBody}`);
+        if (response.status >= 400 && response.status < 500) err.isPermanent = true;
+        throw err;
+    }
+
+    return response.json();
 };
 
 export const extractVideoUrl = (data) => {

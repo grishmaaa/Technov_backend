@@ -104,7 +104,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
             include: {
                 scenes: { orderBy: { orderIndex: 'asc' } },
                 characters: { where: { approved: true } },
-                assets: { where: { state: 'APPROVED' } }, // Include approved world ingredients
+                assets: { where: { state: { in: ['READY', 'GENERATED', 'APPROVED'] } } }, // Include character views (READY) and world ingredients (GENERATED/APPROVED)
                 user: true,
             },
         });
@@ -125,6 +125,13 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
         if (isKling) {
             for (const char of project.characters) {
+                // 🛑 KILL SWITCH CHECK
+                const freshProj = await prisma.project.findUnique({ where: { id: project.id }, select: { state: true } });
+                if (freshProj?.state === 'CANCELLED' || freshProj?.state === 'FAILED') {
+                    logger.warn({ charName: char.name }, 'Aborting character element creation: project is offline');
+                    throw new Error('Project generation aborted');
+                }
+
                 if (!char.elementId && char.portraitUrl) {
                     try {
                         // Extract all approved character reference images for this specific character
@@ -179,6 +186,16 @@ export const processGenerationJob = async (jobId, context = {}) => {
         for (let i = 0; i < project.scenes.length; i++) {
             const scene = project.scenes[i];
             const sceneNum = scene.orderIndex !== undefined ? scene.orderIndex + 1 : i + 1;
+
+            // 🛑 KILL SWITCH: Check if project was cancelled/failed mid-job to save credits
+            const freshProject = await prisma.project.findUnique({ 
+                where: { id: project.id }, 
+                select: { state: true } 
+            });
+            if (freshProject?.state === 'CANCELLED' || freshProject?.state === 'FAILED') {
+                logger.warn({ projectId: project.id, sceneNum }, '🛑 Generation aborted: project state is now offline');
+                throw new Error('Project generation aborted by user/system');
+            }
 
             logger.info({ sceneNum, totalScenes, sceneId: scene.id }, `Processing scene ${sceneNum}/${totalScenes}`);
 

@@ -224,25 +224,86 @@ export const generateCharacterPortraitSeries = async (description, style, option
     logger.info({ charDescription: description }, '🎬 Executing Character Portrait Series Generation (Fal.ai Flux 3-shot sheet)');
 
     // 1. Generate Frontal (Primary Reference)
+    // This uses the "Passport-style" wrapper inside generateCharacterPortrait
     const frontal = await generateCharacterPortrait(description, style, options, userPrompt);
     const results = [{ url: frontal.url, view: 'front' }];
 
-    // 2. Generate Left Profile using IP-Adapter
+    // 2. Setup the IP-Adapter parameters manually to avoid the "World Ingredient" prompt wrapper
+    // We want the profiles to use the SAME prompt style as the frontal shot.
+    const getProfileShot = async (view) => {
+        const side = view === 'left' ? 'Left' : 'Right';
+        const direction = view === 'left' ? 'left' : 'right';
+        
+        // Replicate the passport-style prompt but for profiles
+        const prompt = `
+            Passport-style portrait photograph. 
+            90 degree ${side} profile side view, character looking ${direction}.
+            Neutral expression, mouth closed.
+            Physical Details: ${description}.
+            ${userPrompt ? 'Additional Identity Markers: ' + userPrompt + '.' : ''}
+            Neutral grey background, even studio lighting.
+            Sharp focus on facial features. 8K, photorealistic.
+            Style: ${style}.
+        `.trim().replace(/\s+/g, ' ');
+
+        // Use the IP-Adapter model (flux-general) directly
+        const result = await fal.subscribe('fal-ai/flux-general', {
+            input: {
+                prompt,
+                image_size: 'square', // 1:1 for portraits
+                ip_adapters: [{
+                    path: 'XLabs-AI/flux-ip-adapter',
+                    image_encoder_path: 'google/siglip-so400m-patch14-384',
+                    image_url: frontal.url, // Use frontal as the DNA reference
+                    scale: 0.8
+                }],
+                num_inference_steps: options.steps || 28,
+                num_images: 1,
+                output_format: 'jpeg',
+                enable_safety_checker: true,
+                use_real_cfg: true,
+            }
+        });
+
+        if (!result.data?.images?.[0]?.url) {
+            throw new Error(`fal.ai returned no image for ${view} profile`);
+        }
+
+        const imageUrl = result.data.images[0].url;
+        
+        // Persist to storage (crucial for Kling to access it later)
+        if (isStorageConfigured()) {
+            try {
+                const imgRes = await fetch(imageUrl);
+                if (!imgRes.ok) throw new Error(`Failed to download ${view} profile: ${imgRes.status}`);
+                
+                const buffer = Buffer.from(await imgRes.arrayBuffer());
+                const key = buildObjectKey({ userId: 'fal-images', extension: 'jpg' });
+                const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType: 'image/jpeg' });
+                
+                logger.info({ persistedUrl, view }, `Fal profile ${view} persisted to storage`);
+                return persistedUrl;
+            } catch (persistErr) {
+                logger.warn({ err: persistErr, view }, `Failed to persist ${view} profile, using temp URL`);
+            }
+        }
+        return imageUrl;
+    };
+
+    // 3. Generate Left Profile
     try {
         logger.info('Generating Left Profile shot via Fal Flux IP-Adapter...');
-        const leftPrompt = `Left profile face shot of the same character: ${description}. Visual Style: ${style}. 90 degree side view, looking left, exact facial features, neutral expression, cinematic lighting, 8k resolution.`;
-        const left = await generateIngredientImage(leftPrompt, style, options, '1:1', [frontal.url]);
-        results.push({ url: left.url, view: 'left' });
+        const leftUrl = await getProfileShot('left');
+        results.push({ url: leftUrl, view: 'left' });
     } catch (err) {
         logger.warn({ err: err.message }, 'Failed to generate left profile shot');
     }
 
-    // 3. Generate Right Profile using IP-Adapter
+    // 4. Generate Right Profile
     try {
         logger.info('Generating Right Profile shot via Fal Flux IP-Adapter...');
-        const rightPrompt = `Right profile face shot of the same character: ${description}. Visual Style: ${style}. 90 degree side view, looking right, exact facial features, neutral expression, cinematic lighting, 8k resolution.`;
-        const right = await generateIngredientImage(rightPrompt, style, options, '1:1', [frontal.url]);
-        results.push({ url: right.url, view: 'right' });
+        const rightUrl = await getProfileShot('right');
+        results.push({ url: rightUrl, view: 'right' });
     } catch (err) {
         logger.warn({ err: err.message }, 'Failed to generate right profile shot');
     }

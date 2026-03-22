@@ -216,3 +216,36 @@ export const generateIngredientImage = async (
         outputFormat: 'jpeg',
     });
 };
+/**
+ * Generate a character portrait series (Frontal, Left Profile, Right Profile).
+ * Returns an array of shots: [{ url, view: 'front'|'left'|'right' }]
+ */
+export const generateCharacterPortraitSeries = async (description, style, options = {}, userPrompt = null) => {
+    logger.info({ charDescription: description }, '🎬 Executing Character Portrait Series Generation (Fal.ai Flux 3-shot sheet)');
+
+    // 1. Generate Frontal (Primary Reference)
+    const frontal = await generateCharacterPortrait(description, style, options, userPrompt);
+    const results = [{ url: frontal.url, view: 'front' }];
+
+    // 2. Generate Left Profile using IP-Adapter
+    try {
+        logger.info('Generating Left Profile shot via Fal Flux IP-Adapter...');
+        const leftPrompt = `Left profile face shot of the same character: ${description}. Visual Style: ${style}. 90 degree side view, looking left, exact facial features, neutral expression, cinematic lighting, 8k resolution.`;
+        const left = await generateIngredientImage(leftPrompt, style, options, '1:1', [frontal.url]);
+        results.push({ url: left.url, view: 'left' });
+    } catch (err) {
+        logger.warn({ err: err.message }, 'Failed to generate left profile shot');
+    }
+
+    // 3. Generate Right Profile using IP-Adapter
+    try {
+        logger.info('Generating Right Profile shot via Fal Flux IP-Adapter...');
+        const rightPrompt = `Right profile face shot of the same character: ${description}. Visual Style: ${style}. 90 degree side view, looking right, exact facial features, neutral expression, cinematic lighting, 8k resolution.`;
+        const right = await generateIngredientImage(rightPrompt, style, options, '1:1', [frontal.url]);
+        results.push({ url: right.url, view: 'right' });
+    } catch (err) {
+        logger.warn({ err: err.message }, 'Failed to generate right profile shot');
+    }
+
+    return results;
+};

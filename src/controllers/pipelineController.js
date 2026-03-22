@@ -10,7 +10,7 @@ import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { getTierConfig, calculateCreditCost } from '../config/modelConfig.js';
 import { generateStructuredOutput, safetyCheck, editScene, developScript } from '../services/llmService.js';
-import { generateCharacterPortraitSeries, generateIngredientImage } from '../services/googleImageService.js';
+import { generateCharacterPortraitSeries, generateIngredientImage } from '../services/falService.js';
 import { logger } from '../logger.js';
 
 // ============================================================

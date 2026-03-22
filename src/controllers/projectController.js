@@ -2,7 +2,7 @@ import prisma from '../config/database.js';
 import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
 import { getPresignedDownloadUrl, getStorageConfig, extractKeyFromUrl, isStorageConfigured } from '../services/storageService.js';
-import { generateCharacterPortrait, generateCharacterPortraitSeries } from '../services/googleImageService.js';
+import { generateCharacterPortrait, generateCharacterPortraitSeries } from '../services/falService.js';
 
 // --- SHARED HELPERS ---
 

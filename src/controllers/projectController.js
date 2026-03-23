@@ -891,14 +891,14 @@ export const generateProjectAssets = async (req, res) => {
 
             const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
             const description = buildCharPrompt(charDef);
-            const portraitUrl = await generateCharacterPortrait(description, style);
+            const portraitResult = await generateCharacterPortrait(description, style);
 
             const asset = await prisma.asset.create({
                 data: {
                     projectId: id,
                     type: 'CHARACTER',
                     state: 'READY',
-                    url: portraitUrl,
+                    url: portraitResult.url,
                     metadata: JSON.stringify({
                         characterId: charDef.id,
                         role: charDef.role,

@@ -155,23 +155,24 @@ export const generateIngredientImage = async (
     const prompt = `A world ingredient (Location or Prop): ${description}. Visual Style: ${style}. Single detailed reference image, high fidelity, cinematic lighting, photorealistic.`;
 
     if (characterPortraitUrls && characterPortraitUrls.length > 0) {
-        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating world ingredient image via Flux General (IP-Adapters)');
+        logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating world ingredient image via Flux General Image-to-Image');
 
         try {
-            const result = await fal.subscribe('fal-ai/flux-general', {
+            // 1. Map the aspect ratio for Fal
+            const imageSize = ASPECT_RATIO_MAP[aspectRatio] || 'landscape_16_9';
+
+            // 2. Use the CORRECT image-to-image endpoint and schema
+            const result = await fal.subscribe('fal-ai/flux-general/image-to-image', {
                 input: {
                     prompt,
-                    ip_adapters: characterPortraitUrls.map(url => ({
-                        path: 'XLabs-AI/flux-ip-adapter-v2',
-                        image_encoder_path: 'google/siglip-so400m-patch14-384',
-                        image_url: url,
-                        scale: 0.8
-                    })),
+                    // The I2I API only takes a single image_url string, so we pass the first character
+                    image_url: characterPortraitUrls[0], 
+                    strength: 0.85, // 0.0 to 1.0 (Higher = more imagination/prompt, Lower = closer to original image)
+                    image_size: imageSize,
                     num_inference_steps: options.steps || 28,
                     num_images: 1,
                     output_format: 'jpeg',
                     enable_safety_checker: true,
-                    use_real_cfg: false, // v2 works better with standard CFG
                 }
             });
 
@@ -180,7 +181,7 @@ export const generateIngredientImage = async (
             }
 
             const imageUrl = result.data.images[0].url;
-            const contentType = result.data.images[0].content_type || 'image/png';
+            const contentType = 'image/jpeg';
 
             // Persist to storage
             if (isStorageConfigured()) {
@@ -188,11 +189,11 @@ export const generateIngredientImage = async (
                     const imgRes = await fetch(imageUrl);
                     if (!imgRes.ok) throw new Error(`Failed to download: ${imgRes.status}`);
                     const buffer = Buffer.from(await imgRes.arrayBuffer());
-                    const key = buildObjectKey({ userId: 'fal-images', extension: 'png' });
+                    const key = buildObjectKey({ userId: 'fal-images', extension: 'jpg' });
                     const persistedUrl = await uploadBufferToStorage({ buffer, key, contentType });
                     return { url: persistedUrl, contentType };
                 } catch (persistErr) {
-                    logger.warn({ err: persistErr }, 'Failed to persist IP-Adapter image, using temp URL');
+                    logger.warn({ err: persistErr }, 'Failed to persist Image-to-Image result, using temp URL');
                     return { url: imageUrl, contentType };
                 }
             }
@@ -202,9 +203,7 @@ export const generateIngredientImage = async (
                 err: adapterErr,
                 description,
                 falError: adapterErr.data || adapterErr.message
-            }, 'IP-Adapter validation or generation failed for ingredient');
-            // We still have the fallback below to keep the pipeline moving, 
-            // but now we'll see exactly WHY it failed in the logs.
+            }, 'Image-to-Image generation failed for ingredient');
         }
     }
 
@@ -226,10 +225,16 @@ export const generateCharacterPortraitSeries = async (description, style, option
     // 1. Generate Frontal (Primary Reference)
     // This uses the "Passport-style" wrapper inside generateCharacterPortrait
     const frontal = await generateCharacterPortrait(description, style, options, userPrompt);
+    
+    // Safety check — fal temp URLs can expire before PuLID fetches them
+    if (frontal.url.includes('fal.media') || frontal.url.includes('fal.run')) {
+        logger.warn({ frontalUrl: frontal.url }, '⚠️ Frontal portrait is using a temporary Fal URL. PuLID generation may fail if storage is not configured.');
+    }
+
     const results = [{ url: frontal.url, view: 'front' }];
 
-    // 2. Setup the IP-Adapter parameters manually to avoid the "World Ingredient" prompt wrapper
-    // We want the profiles to use the SAME prompt style as the frontal shot.
+    // 2. Setup the profile generation function
+    // We use fal-ai/flux-pulid for superior face consistency
     const getProfileShot = async (view) => {
         const side = view === 'left' ? 'Left' : 'Right';
         const direction = view === 'left' ? 'left' : 'right';
@@ -246,22 +251,15 @@ export const generateCharacterPortraitSeries = async (description, style, option
             Style: ${style}.
         `.trim().replace(/\s+/g, ' ');
 
-        // Use the IP-Adapter model (flux-general) directly
-        const result = await fal.subscribe('fal-ai/flux-general', {
+        // Using flux-pulid specifically for face-consistent generation
+        const result = await fal.subscribe('fal-ai/flux-pulid', {
             input: {
                 prompt,
-                image_size: 'square', // 1:1 for portraits
-                ip_adapters: [{
-                    path: 'XLabs-AI/flux-ip-adapter-v2',
-                    image_encoder_path: 'google/siglip-so400m-patch14-384',
-                    image_url: frontal.url, // Use frontal as the DNA reference
-                    scale: 0.8
-                }],
-                num_inference_steps: options.steps || 28,
+                reference_image_url: frontal.url,
+                image_size: 'square_hd',
+                num_inference_steps: options.steps || 20,
                 num_images: 1,
                 output_format: 'jpeg',
-                enable_safety_checker: true,
-                use_real_cfg: false,
             }
         });
 
@@ -292,20 +290,25 @@ export const generateCharacterPortraitSeries = async (description, style, option
 
     // 3. Generate Left Profile
     try {
-        logger.info('Generating Left Profile shot via Fal Flux IP-Adapter...');
+        logger.info('Generating Left Profile shot via Fal Flux PuLID...');
         const leftUrl = await getProfileShot('left');
         results.push({ url: leftUrl, view: 'left' });
     } catch (err) {
-        logger.warn({ err: err.message }, 'Failed to generate left profile shot');
+        logger.error({ err: err.message }, 'Failed to generate left profile shot');
     }
 
     // 4. Generate Right Profile
     try {
-        logger.info('Generating Right Profile shot via Fal Flux IP-Adapter...');
+        logger.info('Generating Right Profile shot via Fal Flux PuLID...');
         const rightUrl = await getProfileShot('right');
         results.push({ url: rightUrl, view: 'right' });
     } catch (err) {
-        logger.warn({ err: err.message }, 'Failed to generate right profile shot');
+        logger.error({ err: err.message }, 'Failed to generate right profile shot');
+    }
+
+    // 5. Check for incomplete sets
+    if (results.length < 3) {
+        logger.warn({ resultCount: results.length, views: results.map(r => r.view) }, '⚠️ Character portrait series is incomplete — some shots failed to generate');
     }
 
     return results;

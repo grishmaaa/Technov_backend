@@ -531,7 +531,9 @@ export const decideVisualIdentity = async (req, res) => {
             const roleAndDesc = (c.role || '') + ' ' + (c.description || '');
             const isFacelessVibe = roleAndDesc.toLowerCase().includes('faceless') || 
                                  roleAndDesc.toLowerCase().includes('never seen') ||
-                                 roleAndDesc.toLowerCase().includes('helmeted');
+                                 roleAndDesc.toLowerCase().includes('helmeted') ||
+                                 roleAndDesc.toLowerCase().includes('obscured') ||
+                                 roleAndDesc.toLowerCase().includes('shadows');
             if (c.is_visual_lead === undefined && isFacelessVibe) return false;
             return true;
         };
@@ -589,18 +591,25 @@ export const decideVisualIdentity = async (req, res) => {
                 reason
             });
         } else {
-            // AUTO-GENERATE CAST: Ensure the user sees the full cast immediately
-            const charAssets = project.assets?.filter(a => a.type === 'CHARACTER' && a.state === 'READY') || [];
+            // AUTO-GENERATE CAST: Ensure every visual lead has a portrait
+            const style = assetSheet?.tone_and_style?.film_reference || "Cinematic";
+            
+            // Filter to only those that need portraits but don't have them yet
+            const leadsMissingAssets = bible.filter(c => {
+                if (!checkIsVisualLead(c)) return false;
+                const hasAsset = project.assets?.some(a => {
+                    try {
+                        const meta = JSON.parse(a.metadata || '{}');
+                        return meta.characterId === c.id && a.type === 'CHARACTER';
+                    } catch (e) { return false; }
+                });
+                return !hasAsset;
+            }).slice(0, 4); // Limit concurrency
 
-            if (charAssets.length === 0 && bible.length > 0) {
-                logger.info({ projectId: id, castCount: bible.length }, "🎬 Auto-generating full cast portraits...");
+            if (leadsMissingAssets.length > 0) {
+                logger.info({ projectId: id, missingCount: leadsMissingAssets.length }, "🎬 Filling in missing lead portraits...");
 
-                // Generate up to 4 characters automatically to keep it snappy
-                const castToGenerate = bible.slice(0, 4);
-                const style = assetSheet?.tone_and_style?.film_reference || "Cinematic";
-
-                // Generate in parallel to stay within request timeouts
-                await Promise.all(castToGenerate.map(async (char) => {
+                await Promise.all(leadsMissingAssets.map(async (char) => {
                     try {
                         const description = buildCharPrompt(char);
                         
@@ -704,12 +713,8 @@ export const decideVisualIdentity = async (req, res) => {
                 });
 
                 // 🟢 NEW: Hide IGNORED characters from the Casting/Portrait UI entirely
-                // Checks both the asset-level IGNORE and the script-level is_visual_lead flag
-                const isFacelessVibe = (c.role + (c.description || '')).toLowerCase().includes('faceless') || 
-                                     (c.role + (c.description || '')).toLowerCase().includes('never seen') ||
-                                     (c.role + (c.description || '')).toLowerCase().includes('helmeted');
-                
-                if (existingAsset?.state === 'IGNORED' || c.is_visual_lead === false || (c.is_visual_lead === undefined && isFacelessVibe)) {
+                // Checks the asset-level IGNORE, the script-level is_visual_lead flag, and the "Vibe Check"
+                if (existingAsset?.state === 'IGNORED' || !checkIsVisualLead(c)) {
                     return null;
                 }
 

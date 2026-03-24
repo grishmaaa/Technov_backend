@@ -531,9 +531,9 @@ export const decideVisualIdentity = async (req, res) => {
             const roleAndDesc = (c.role || '') + ' ' + (c.description || '');
             const isFacelessVibe = roleAndDesc.toLowerCase().includes('faceless') || 
                                  roleAndDesc.toLowerCase().includes('never seen') ||
-                                 roleAndDesc.toLowerCase().includes('helmeted') ||
-                                 roleAndDesc.toLowerCase().includes('obscured') ||
-                                 roleAndDesc.toLowerCase().includes('shadows');
+                                 roleAndDesc.toLowerCase().includes('helmet') ||
+                                 roleAndDesc.toLowerCase().includes('obscure') ||
+                                 roleAndDesc.toLowerCase().includes('shadow');
             if (c.is_visual_lead === undefined && isFacelessVibe) return false;
             return true;
         };

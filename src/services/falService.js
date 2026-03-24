@@ -105,30 +105,8 @@ export const generateImage = async (prompt, options = {}) => {
  * @param {string} [userPrompt] - Optional user override for regeneration
  * @returns {Promise<{url: string, contentType: string}>}
  */
-export const generateCharacterPortrait = async (description, style, options = {}, userPrompt = null) => {
-    // 1. Improved sanitizer: removes specific forbidden phrases without nuking important facial details
-    const sanitize = (text) => (text || '')
-        .replace(/\b(wearing a|in a|with a|races|riding|bike|motorcycle|car|suit|jacket|coat|scarf|helmet|mask|visor|action|running|pedaling)\b[^,.]*/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    const cleanDescription = sanitize(description);
-    const cleanUserPrompt = sanitize(userPrompt);
-
-    // 2. Passport-style prompt for perfect Kling biometric 'DNA' mapping
-    const prompt = `
-        Passport-style portrait photograph. 
-        Single human face, front-facing, looking directly at camera. 
-        Neutral expression, mouth closed, both eyes fully open and visible. 
-        No occlusion, no sunglasses, no hat, no hair covering face.
-        Physical Details: ${cleanDescription}.
-        ${cleanUserPrompt ? 'Additional Identity Markers: ' + cleanUserPrompt + '.' : ''}
-        Neutral grey background, even studio lighting, no shadows on face.
-        Sharp focus on facial features. 8K, photorealistic.
-        Style: ${style}.
-    `.trim().replace(/\s+/g, ' ');
-
-    return generateImage(prompt, {
+export const generateCharacterPortrait = async (optimizedPrompt, options = {}) => {
+    return generateImage(optimizedPrompt, {
         model: options.model || 'fal-ai/flux/dev',
         steps: options.steps || 28,
         aspectRatio: '1:1',
@@ -146,13 +124,12 @@ export const generateCharacterPortrait = async (description, style, options = {}
  * @returns {Promise<{url: string, contentType: string}>}
  */
 export const generateIngredientImage = async (
-    description,
-    style,
+    optimizedPrompt,
     options = {},
     aspectRatio = '16:9',
     characterPortraitUrls = []
 ) => {
-    const prompt = `A world ingredient (Location or Prop): ${description}. Visual Style: ${style}. Single detailed reference image, high fidelity, cinematic lighting, photorealistic.`;
+    const prompt = optimizedPrompt;
 
     if (characterPortraitUrls && characterPortraitUrls.length > 0) {
         logger.info({ characterCount: characterPortraitUrls.length, promptLength: prompt.length }, 'Generating world ingredient image via Flux General Image-to-Image');
@@ -223,33 +200,24 @@ export const generateCharacterPortraitSeries = async (description, style, option
     logger.info({ charDescription: description }, '🎬 Executing Character Portrait Series Generation (Fal.ai Flux 3-shot sheet)');
 
     // 1. Generate Frontal (Primary Reference)
-    // This uses the "Passport-style" wrapper inside generateCharacterPortrait
-    const frontal = await generateCharacterPortrait(description, style, options, userPrompt);
+    const frontal = await generateCharacterPortrait(description, options);
     
-    // Safety check — fal temp URLs can expire before PuLID fetches them
+    // Safety check
     if (frontal.url.includes('fal.media') || frontal.url.includes('fal.run')) {
-        logger.warn({ frontalUrl: frontal.url }, '⚠️ Frontal portrait is using a temporary Fal URL. PuLID generation may fail if storage is not configured.');
+        logger.warn({ frontalUrl: frontal.url }, '⚠️ Frontal portrait is using a temporary Fal URL.');
     }
 
     const results = [{ url: frontal.url, view: 'front' }];
 
     // 2. Setup the profile generation function
-    // We use fal-ai/flux-pulid for superior face consistency
     const getProfileShot = async (view) => {
         const side = view === 'left' ? 'Left' : 'Right';
         const direction = view === 'left' ? 'left' : 'right';
         
-        // Replicate the passport-style prompt but for profiles
-        const prompt = `
-            Passport-style portrait photograph. 
-            90 degree ${side} profile side view, character looking ${direction}.
-            Neutral expression, mouth closed.
-            Physical Details: ${description}.
-            ${userPrompt ? 'Additional Identity Markers: ' + userPrompt + '.' : ''}
-            Neutral grey background, even studio lighting.
-            Sharp focus on facial features. 8K, photorealistic.
-            Style: ${style}.
-        `.trim().replace(/\s+/g, ' ');
+        // This is STILL manual, because we are using PuLID which needs a specific prompt.
+        // However, we should probably pass the optimized description here too.
+        // For now, let's keep it simple or update the series signature.
+        const prompt = `Passport-style 90 degree ${side} profile side view photograph of the same person. ${description}. Style: ${style}.`;
 
         // Using flux-pulid specifically for face-consistent generation
         const result = await fal.subscribe('fal-ai/flux-pulid', {

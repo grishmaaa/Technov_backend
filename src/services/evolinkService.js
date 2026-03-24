@@ -265,22 +265,10 @@ export const generateVideo = async (prompt, options = {}) => {
 export const createCharacterElement = async (name, description, frontalImageUrl, referImages = []) => {
     logger.info({ name }, 'Executing STRICT Character Element Generation');
 
-    // Advanced Sanitization: removes story words, cleans double commas/spaces
-    const scrub = (text) => (text || '')
-        .replace(/\b(the unseen driver of|the driver of|the sports car|pursuer|mysterious|aggressive|relentless|unseen|motorcycle|helmet|racer|bikes|riding|wearing a|in a|with a|races|suit|jacket|coat|scarf|mask|visor|action|running|pedaling|driver of a|matte black sports car|girl on a bicycle|the girl|the biker|rider|matte black|driver|driver of|sports car)\b[^,.]*/gi, '')
-        .replace(/\b(the|a|an|of|in|with|and|is|was|were|on)\b/gi, ' ')
-        .replace(/,\s*,/g, ',')
-        .replace(/\s+/g, ' ')
-        .replace(/[\s,\.]+$/g, '')
-        .trim();
-
-    const cleanDesc = scrub(description);
-    const finalDescription = (cleanDesc.length > 3)
-        ? `A detailed human portrait showing ${cleanDesc}`
-        : "A clear human portrait, standard facial features, centered facial structure.";
+    const finalDescription = (description || "A clear human portrait, standard facial features, centered facial structure.").substring(0, 100);
 
     const safeName = (name || 'Character').replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
-    const safeDescription = finalDescription.substring(0, 100);
+    const safeDescription = finalDescription;
 
     const elementPayload = {
         model: 'kling-custom-element',

@@ -3,6 +3,7 @@ import { transitionProjectState } from '../services/projectStateService.js';
 import { logger } from '../logger.js';
 import { getPresignedDownloadUrl, getStorageConfig, extractKeyFromUrl, isStorageConfigured } from '../services/storageService.js';
 import { generateCharacterPortrait, generateCharacterPortraitSeries } from '../services/falService.js';
+import { generateVisualPrompt } from '../services/llmService.js';
 
 // --- SHARED HELPERS ---
 
@@ -590,9 +591,16 @@ export const decideVisualIdentity = async (req, res) => {
                 await Promise.all(castToGenerate.map(async (char) => {
                     try {
                         const description = buildCharPrompt(char);
-                        const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${char.role || "Character"} ` : description;
+                        
+                        // 1. Generate optimized prompt via LLM
+                        const visualPrompt = await generateVisualPrompt(
+                            'CHARACTER_PORTRAIT', 
+                            char, 
+                            style,
+                            'flux-dev'
+                        );
 
-                        const portraitSeries = await generateCharacterPortraitSeries(finalPrompt, style);
+                        const portraitSeries = await generateCharacterPortraitSeries(visualPrompt, style);
                         const frontal = portraitSeries.find(s => s.view === 'front') || portraitSeries[0];
 
                         if (portraitSeries && portraitSeries.length > 0) {
@@ -809,11 +817,16 @@ export const generateProjectAssets = async (req, res) => {
             // Pass userPrompt to influence generation
             const description = buildCharPrompt(charDef);
 
-            // If it's a fallback char w/o description, ensure we have a valid prompt
-            const finalPrompt = (description.length < 10) ? `A cinematic character portrait of ${charDef.role} ` : description;
+            // 1. Generate optimized prompt via LLM
+            const visualPrompt = await generateVisualPrompt(
+                'CHARACTER_PORTRAIT', 
+                { ...charDef, user_request: userPrompt }, 
+                style,
+                'flux-dev'
+            );
 
             const portraitSeries = await generateCharacterPortraitSeries(
-                finalPrompt,
+                visualPrompt,
                 style,
                 {}, // options
                 userPrompt
@@ -891,7 +904,16 @@ export const generateProjectAssets = async (req, res) => {
 
             const style = assetSheet.tone_and_style?.film_reference || "Cinematic";
             const description = buildCharPrompt(charDef);
-            const portraitResult = await generateCharacterPortrait(description, style);
+            
+            // 1. Generate optimized prompt via LLM
+            const visualPrompt = await generateVisualPrompt(
+                'CHARACTER_PORTRAIT', 
+                charDef, 
+                style,
+                'flux-dev'
+            );
+
+            const portraitResult = await generateCharacterPortrait(visualPrompt);
 
             const asset = await prisma.asset.create({
                 data: {

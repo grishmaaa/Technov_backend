@@ -9,7 +9,7 @@
     import prisma from '../config/database.js';
     import { transitionProjectState } from '../services/projectStateService.js';
     import { getTierConfig, calculateCreditCost } from '../config/modelConfig.js';
-    import { generateStructuredOutput, safetyCheck, editScene, developScript } from '../services/llmService.js';
+    import { generateStructuredOutput, safetyCheck, editScene, developScript, generateVisualPrompt } from '../services/llmService.js';
     import { generateCharacterPortraitSeries, generateIngredientImage } from '../services/falService.js';
     import { logger } from '../logger.js';
 
@@ -493,9 +493,17 @@
 
             const portraitResults = await Promise.allSettled(
                 existingCharacters.map(async (charRecord) => {
+                    // 1. Generate optimized prompt via LLM
+                    const visualPrompt = await generateVisualPrompt(
+                        'CHARACTER_PORTRAIT', 
+                        charRecord, 
+                        visualStyle,
+                        tierConfig.image?.model || 'flux-dev'
+                    );
+
                     // Returns [{url, view: 'front'}, {url, view: 'left'}, {url, view: 'right'}]
                     const series = await generateCharacterPortraitSeries(
-                        charRecord.description,
+                        visualPrompt,
                         visualStyle,
                         tierConfig.image,
                     );
@@ -576,9 +584,17 @@
             const project = await prisma.project.findUnique({ where: { id }, include: { assets: true } });
             const visualStyle = project?.metadata?.visual_style || 'cinematic';
 
+            // 1. Generate optimized prompt via LLM
+            const visualPrompt = await generateVisualPrompt(
+                'CHARACTER_PORTRAIT', 
+                { ...character, user_request: userPrompt }, 
+                visualStyle,
+                tierConfig.image?.model || 'flux-dev'
+            );
+
             // 1. Generate 3-shot series
             const series = await generateCharacterPortraitSeries(
-                character.description,
+                visualPrompt,
                 visualStyle,
                 tierConfig.image,
                 userPrompt,
@@ -795,12 +811,18 @@
             // Generate all ingredient images in parallel
             const assetResults = await Promise.allSettled(
                 project.assets.map(async (asset) => {
-                    // Combine worldLock with the specific ingredient description
                     const assetPrompt = `${worldLock} ${asset.metadata}`.trim();
 
-                    const image = await generateIngredientImage(
-                        assetPrompt,
+                    // 1. Generate optimized prompt via LLM
+                    const visualPrompt = await generateVisualPrompt(
+                        'WORLD_INGREDIENT', 
+                        { name: asset.type, description: assetPrompt }, 
                         visualStyle,
+                        tierConfig.image?.model || 'flux-dev'
+                    );
+
+                    const image = await generateIngredientImage(
+                        visualPrompt,
                         { ...tierConfig.image, aspectRatio: project.aspectRatio }
                     );
 
@@ -867,12 +889,18 @@
             }
 
             const visualStyle = project.metadata?.visual_style || 'cinematic';
-            const worldLock = project.metadata?.worldLock || '';
             let finalPrompt = `${worldLock} ${asset.metadata}`.trim();
 
-            const frame = await generateIngredientImage(
-                finalPrompt,
+            // 1. Generate optimized prompt via LLM
+            const visualPrompt = await generateVisualPrompt(
+                'WORLD_INGREDIENT', 
+                { name: asset.type, description: finalPrompt }, 
                 visualStyle,
+                tierConfig.image?.model || 'flux-dev'
+            );
+
+            const frame = await generateIngredientImage(
+                visualPrompt,
                 { ...tierConfig.image, aspectRatio: project?.aspectRatio || '16:9' },
             );
 

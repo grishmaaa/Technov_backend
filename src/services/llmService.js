@@ -385,3 +385,29 @@ The edited prompt should describe what the audience FEELS, not just what the cam
         changesMade: parsed.changes_made,
     };
 };
+
+/**
+ * Generates a model-optimized visual prompt using the LLM.
+ * This replaces your regex-based scrubbing.
+ */
+export const generateVisualPrompt = async (targetType, entity, style, targetModel) => {
+    const systemPrompt = `You are a world-class AI prompt engineer. 
+Your goal is to write a highly optimized prompt for an image generation model (${targetModel}).
+
+RULES:
+1. TARGET TYPE: ${targetType} (Portrait, Ingredient, or Scene)
+2. ENTITY DATA: ${JSON.stringify(entity)}
+3. VISUAL STYLE: ${style}
+4. FORBIDDEN: Do not include narrative context like "driving a car", "running away", or "in a story" unless it is essential for the scene's movement. For portraits, only visual, physical, static descriptors.
+5. FORMAT: Describe the visual composition, lighting, camera angle, and style. For scenes, describe the motion and action clearly.
+6. NO CODE: Return only the prompt string, nothing else.`;
+
+    const result = await generateStructuredOutput(
+        systemPrompt,
+        `Generate the prompt for this ${targetType}.`,
+        null, // No schema, just string
+        { model: 'gemini-2.5-flash', temperature: 0.3 }
+    );
+    
+    return result.text;
+};

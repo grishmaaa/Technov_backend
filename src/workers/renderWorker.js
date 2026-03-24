@@ -22,6 +22,7 @@ import { logger } from '../logger.js';
 import { sendVideoReadyEmail } from '../services/emailService.js';
 import { initSentry, captureException } from '../config/sentry.js';
 import { connection as redis } from '../queue/connection.js';
+import { generateVisualPrompt } from '../services/llmService.js';
 
 // Initialize Sentry for worker process
 initSentry();
@@ -94,17 +95,18 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
     logger.info({ jobId }, '🎬 Starting video generation job (v2 — EvoLink + Storyboard)');
 
+    let project = null;
     try {
         // 1. Fetch job and project data
         const job = await prisma.generationJob.findUnique({ where: { id: jobId } });
         if (!job) throw new Error(`Job ${jobId} not found`);
 
-        const project = await prisma.project.findUnique({
+        project = await prisma.project.findUnique({
             where: { id: job.projectId },
             include: {
                 scenes: { orderBy: { orderIndex: 'asc' } },
                 characters: { where: { approved: true } },
-                assets: { where: { state: { in: ['READY', 'GENERATED', 'APPROVED'] } } }, // Include character views (READY) and world ingredients (GENERATED/APPROVED)
+                assets: { where: { state: { in: ['READY', 'GENERATED', 'APPROVED'] } } },
                 user: true,
             },
         });
@@ -148,9 +150,18 @@ export const processGenerationJob = async (jobId, context = {}) => {
                             .filter(url => url !== char.portraitUrl); // Don't repeat the frontal image as a reference
 
                         logger.info({ charName: char.name, refCount: charRefs.length }, 'Creating missing Kling Custom Element for character (Mandatory Refs)');
+                        
+                        // 1. Generate optimized prompt via LLM
+                        const visualPrompt = await generateVisualPrompt(
+                            'CHARACTER_PORTRAIT', 
+                            char, 
+                            'Cinematic', // Style
+                            'kling-custom-element'
+                        );
+
                         const { elementId } = await createCharacterElement(
                             char.name,
-                            char.description,
+                            visualPrompt,
                             char.portraitUrl,
                             charRefs // PASSING THE REFERENCE IMAGES HERE
                         );
@@ -230,15 +241,14 @@ export const processGenerationJob = async (jobId, context = {}) => {
             }
 
             try {
-                // Build video prompt from scene
-                // Clean prompt for Kling (remove [cut], (V.O.), and audio directives)
-                let visualPrompt = (scene.promptText || '')
-                    .replace(/\[cut\]/gi, ' ')
-                    .replace(/NARRATOR\s*\(V\.O\.\):/gi, '')
-                    .replace(/\+.*$/gm, '') // Remove everything after + (audio directives)
-                    .replace(/Narrator:.*$/gm, '')
-                    .replace(/\s+/g, ' ')
-                    .trim();
+                // 1. Generate optimized visual prompt via LLM
+                const visualStyle = project.metadata?.visual_style || 'Cinematic';
+                const visualPrompt = await generateVisualPrompt(
+                    'SCENE', 
+                    scene, 
+                    visualStyle,
+                    tierConfig.video.model
+                );
 
                 // Prepend continuity locked strings
                 let lockedStrings = '';
@@ -520,7 +530,11 @@ export const processGenerationJob = async (jobId, context = {}) => {
         return { status: 'completed', outputUrl: finalVideoUrl };
 
     } catch (error) {
-        logger.error({ err: error, jobId }, '❌ Video generation job failed');
+        if (project) {
+            logger.error({ err: error, projectId: project.id, jobId }, '❌ Video generation job failed');
+        } else {
+            logger.error({ err: error, jobId }, '❌ Video generation job failed (could not load project)');
+        }
         captureException(error, { jobId });
 
         try {

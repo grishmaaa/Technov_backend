@@ -692,7 +692,14 @@ export const decideVisualIdentity = async (req, res) => {
                 });
 
                 // 🟢 NEW: Hide IGNORED characters from the Casting/Portrait UI entirely
-                if (existingAsset?.state === 'IGNORED') return null;
+                // Checks both the asset-level IGNORE and the script-level is_visual_lead flag
+                const isFacelessVibe = (c.role + (c.description || '')).toLowerCase().includes('faceless') || 
+                                     (c.role + (c.description || '')).toLowerCase().includes('never seen') ||
+                                     (c.role + (c.description || '')).toLowerCase().includes('helmeted');
+                
+                if (existingAsset?.state === 'IGNORED' || c.is_visual_lead === false || (c.is_visual_lead === undefined && isFacelessVibe)) {
+                    return null;
+                }
 
                 // Build description from physical_description object
                 let description = "No description available";
@@ -917,6 +924,12 @@ export const generateProjectAssets = async (req, res) => {
         const targetChars = characters.slice(0, maxChars);
 
         for (const charDef of targetChars) {
+            // 🟢 Skip generation for background characters immediately
+            if (charDef.is_visual_lead === false) {
+                logger.info({ charId: charDef.id }, 'Skipping background character in generation loop');
+                continue;
+            }
+
             // Check if asset exists
             const existing = project.assets.find(a => {
                 try {

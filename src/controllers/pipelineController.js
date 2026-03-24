@@ -197,8 +197,9 @@
                                 name: { type: 'STRING' },
                                 role: { type: 'STRING' },
                                 description: { type: 'STRING' },
+                                is_visual_lead: { type: 'BOOLEAN', description: 'True if character needs a face/portrait. False if faceless, background, or never seen.' }
                             },
-                            required: ['name', 'role', 'description'],
+                            required: ['name', 'role', 'description', 'is_visual_lead'],
                         },
                     },
                 },
@@ -236,8 +237,8 @@
             // Create characters in DB
             if (parsed.characters?.length > 0) {
                 await Promise.all(
-                    parsed.characters.map(char =>
-                        prisma.character.create({
+                    parsed.characters.map(async (char) => {
+                        const character = await prisma.character.create({
                             data: {
                                 projectId: id,
                                 name: char.name,
@@ -245,8 +246,25 @@
                                 description: char.description,
                                 approved: false,
                             },
-                        })
-                    )
+                        });
+
+                        // If not a visual lead (faceless/background), create an IGNORED asset record immediately
+                        if (char.is_visual_lead === false) {
+                            await prisma.asset.create({
+                                data: {
+                                    projectId: id,
+                                    type: 'CHARACTER',
+                                    state: 'IGNORED',
+                                    metadata: JSON.stringify({
+                                        characterId: character.id,
+                                        role: char.role,
+                                        name: char.name,
+                                        source: 'script-analyzer'
+                                    })
+                                }
+                            });
+                        }
+                    })
                 );
             }
 
@@ -279,6 +297,7 @@
                         visual_style: visualStyleFinal,
                         safety_check: safety,
                         llm_usage: usage,
+                        character_bible: parsed.characters,  // Storing the bible with is_visual_lead flags
                         chatHistory: [{ role: 'user', text: story }] // Initialize chat history with the prompt
                     },
                 },

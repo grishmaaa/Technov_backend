@@ -600,6 +600,12 @@ export const decideVisualIdentity = async (req, res) => {
                             'flux-dev'
                         );
 
+                        // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+                        if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
+                            logger.info({ charId: char.id }, 'Skipping character generation (Faceless/Background)');
+                            return;
+                        }
+
                         const portraitSeries = await generateCharacterPortraitSeries(visualPrompt, style);
                         const frontal = portraitSeries.find(s => s.view === 'front') || portraitSeries[0];
 
@@ -825,6 +831,12 @@ export const generateProjectAssets = async (req, res) => {
                 'flux-dev'
             );
 
+            // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+            if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
+                logger.info({ charId: charDef.id }, 'Skipping character regeneration (Faceless/Background)');
+                return res.status(422).json({ error: 'Character is faceless/obscured and cannot be visually generated.' });
+            }
+
             const portraitSeries = await generateCharacterPortraitSeries(
                 visualPrompt,
                 style,
@@ -912,6 +924,12 @@ export const generateProjectAssets = async (req, res) => {
                 style,
                 'flux-dev'
             );
+
+            // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+            if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
+                logger.info({ charId: charDef.id }, 'Skipping character generation (Faceless/Background)');
+                continue; // Move to the next character
+            }
 
             const portraitResult = await generateCharacterPortrait(visualPrompt);
 

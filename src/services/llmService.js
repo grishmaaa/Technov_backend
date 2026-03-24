@@ -391,22 +391,43 @@ The edited prompt should describe what the audience FEELS, not just what the cam
  * This replaces your regex-based scrubbing.
  */
 export const generateVisualPrompt = async (targetType, entity, style, targetModel) => {
-    const systemPrompt = `You are a world-class AI prompt engineer. 
-Your goal is to write a highly optimized prompt for an image generation model (${targetModel}).
+    // This prompt is now strictly enforced to be biometric
+    let systemPrompt = '';
+    
+    if (targetType === 'CHARACTER_PORTRAIT') {
+        systemPrompt = `You are a biometric facial extraction AI. 
+Convert the entity data provided into a strict portrait prompt for: ${targetModel}.
 
 RULES:
-1. TARGET TYPE: ${targetType} (Portrait, Ingredient, or Scene)
-2. ENTITY DATA: ${JSON.stringify(entity)}
-3. VISUAL STYLE: ${style}
-4. FORBIDDEN: Do not include narrative context like "driving a car", "running away", or "in a story" unless it is essential for the scene's movement. For portraits, only visual, physical, static descriptors.
-5. FORMAT: Describe the visual composition, lighting, camera angle, and style. For scenes, describe the motion and action clearly.
-6. NO CODE: Return only the prompt string, nothing else.`;
+1. BIOMETRIC ONLY: Extract ONLY: age, race, skin tone, hair, eyes, and distinctive facial features (scars, freckles, etc).
+2. FORBIDDEN: ABSOLUTELY NO props, vehicles, clothes, hats, helmets, or occupational gear (no cars, no sports gear, no racing leathers).
+3. STYLE: "High-resolution studio portrait, neutral grey background, professional headshot lighting, sharp focus on eyes, 8k resolution, photorealistic."
+4. If a character is "faceless" or identity is "obscured," ignore them—return "IGNORE".
+
+TASK:
+Entity Data: ${JSON.stringify(entity)}
+Return the photographic prompt or "IGNORE".`;
+    } else {
+        // Fallback for WORLD_INGREDIENT or SCENE
+        systemPrompt = `You are a professional AI Prompt Engineer for a cinematic studio.
+Your goal is to convert user-provided descriptions into an optimized prompt for: ${targetModel}.
+
+RULES:
+1. FOCUS: For ingredients, focus on visual details, lighting, and composition. For scenes, describe motion and cinematic action.
+2. STYLE: Use cinematic terminology. High contrast, photorealistic, 8k.
+3. Keep it concise.
+
+TASK:
+Entity Data: ${JSON.stringify(entity)}
+Style: ${style}
+Generate a prompt of roughly 30-50 words.`;
+    }
 
     const result = await generateStructuredOutput(
         systemPrompt,
         `Generate the prompt for this ${targetType}.`,
-        null, // No schema, just string
-        { model: 'gemini-2.5-flash', temperature: 0.3 }
+        null,
+        { model: 'gemini-2.5-pro', temperature: 0.1 } // Very low temp for strict adherence
     );
     
     return result.text;

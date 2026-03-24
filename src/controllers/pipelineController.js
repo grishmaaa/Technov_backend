@@ -501,6 +501,12 @@
                         tierConfig.image?.model || 'flux-dev'
                     );
 
+                    // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+                    if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
+                        logger.info({ charId: charRecord.id }, 'Skipping character generation (Faceless/Background)');
+                        return null; // Return null so we can filter it out of results
+                    }
+
                     // Returns [{url, view: 'front'}, {url, view: 'left'}, {url, view: 'right'}]
                     const series = await generateCharacterPortraitSeries(
                         visualPrompt,
@@ -537,10 +543,12 @@
             );
 
             const characters = portraitResults.map((result, i) => {
-                if (result.status === 'fulfilled') {
+                if (result.status === 'fulfilled' && result.value !== null) {
                     return result.value;
                 } else {
-                    logger.error({ err: result.reason, character: existingCharacters[i].name }, 'Character portrait generation failed');
+                    if (result.value !== null) {
+                        logger.error({ err: result.reason, character: existingCharacters[i].name }, 'Character portrait generation failed');
+                    }
                     return existingCharacters[i]; // Keep record as-is
                 }
             });
@@ -591,6 +599,12 @@
                 visualStyle,
                 tierConfig.image?.model || 'flux-dev'
             );
+
+            // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+            if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
+                logger.info({ charId: charId }, 'Skipping character regeneration (Faceless/Background)');
+                return res.status(422).json({ error: 'Character is faceless/obscured and cannot be visually generated.' });
+            }
 
             // 1. Generate 3-shot series
             const series = await generateCharacterPortraitSeries(

@@ -159,6 +159,12 @@ export const processGenerationJob = async (jobId, context = {}) => {
                             'kling-custom-element'
                         );
 
+                        // 2. CHECK: If the AI decided to "IGNORE" the character, skip element creation
+                        if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
+                            logger.info({ charId: char.id }, 'Skipping character element creation (Faceless/Background)');
+                            continue; // Skip this character
+                        }
+
                         const { elementId } = await createCharacterElement(
                             char.name,
                             visualPrompt,

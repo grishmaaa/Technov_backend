@@ -600,9 +600,22 @@ export const decideVisualIdentity = async (req, res) => {
                             'flux-dev'
                         );
 
-                        // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+                        // 2. CHECK: If the AI decided to "IGNORE" the character, mark it so it doesn't show in UX
                         if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
-                            logger.info({ charId: char.id }, 'Skipping character generation (Faceless/Background)');
+                            logger.info({ charId: char.id }, 'Marking character as IGNORED (Faceless/Background)');
+                            await prisma.asset.create({
+                                data: {
+                                    projectId: id,
+                                    type: 'CHARACTER',
+                                    state: 'IGNORED',
+                                    metadata: JSON.stringify({
+                                        characterId: char.id,
+                                        role: char.role,
+                                        name: char.role,
+                                        source: 'auto-initial-cast'
+                                    })
+                                }
+                            });
                             return;
                         }
 
@@ -667,16 +680,19 @@ export const decideVisualIdentity = async (req, res) => {
             }
 
             // ✅ FIX: Correct mapping for character_bible structure
-            characters = await Promise.all(rawCharacters.map(async (c, index) => {
+            characters = (await Promise.all(rawCharacters.map(async (c, index) => {
                 // Check if an image already exists for this character
                 const existingAsset = project.assets?.find(a => {
                     try {
                         const meta = JSON.parse(a.metadata || '{}');
-                        return meta.characterId === c.id && a.type === 'CHARACTER' && a.state === 'READY';
+                        return meta.characterId === c.id && a.type === 'CHARACTER';
                     } catch (e) {
                         return false;
                     }
                 });
+
+                // 🟢 NEW: Hide IGNORED characters from the Casting/Portrait UI entirely
+                if (existingAsset?.state === 'IGNORED') return null;
 
                 // Build description from physical_description object
                 let description = "No description available";
@@ -711,10 +727,10 @@ export const decideVisualIdentity = async (req, res) => {
                     name: c.role || c.name || "Unknown Character",
                     description: description,
                     imageUrl: imageUrl,
-                    approved: !!existingAsset,
+                    approved: !!(existingAsset && existingAsset.state === 'READY'),
                     role: c.role
                 };
-            }));
+            }))).filter(Boolean); // Filter out the nulls (ignored characters)
 
             // SCENE SCRAPING FALLBACK: If bible and objects fail, check scene consistency data
             if (characters.length === 0) {
@@ -925,9 +941,22 @@ export const generateProjectAssets = async (req, res) => {
                 'flux-dev'
             );
 
-            // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+            // 2. CHECK: If the AI decided to "IGNORE" the character, mark and skip
             if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
-                logger.info({ charId: charDef.id }, 'Skipping character generation (Faceless/Background)');
+                logger.info({ charId: charDef.id }, 'Marking character as IGNORED (Faceless/Background)');
+                await prisma.asset.create({
+                    data: {
+                        projectId: id,
+                        type: 'CHARACTER',
+                        state: 'IGNORED',
+                        metadata: JSON.stringify({
+                            characterId: charDef.id,
+                            role: charDef.role,
+                            name: charDef.id,
+                            source: 'initial'
+                        })
+                    }
+                });
                 continue; // Move to the next character
             }
 

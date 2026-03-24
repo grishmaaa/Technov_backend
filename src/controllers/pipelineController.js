@@ -501,9 +501,22 @@
                         tierConfig.image?.model || 'flux-dev'
                     );
 
-                    // 2. CHECK: If the AI decided to "IGNORE" the character, skip generation
+                    // 2. CHECK: If the AI decided to "IGNORE" the character, mark and skip
                     if (visualPrompt.trim().toUpperCase() === 'IGNORE') {
-                        logger.info({ charId: charRecord.id }, 'Skipping character generation (Faceless/Background)');
+                        logger.info({ charId: charRecord.id }, 'Marking character as IGNORED (Faceless/Background)');
+                        await prisma.asset.create({
+                            data: {
+                                projectId: id,
+                                type: 'CHARACTER',
+                                state: 'IGNORED',
+                                metadata: JSON.stringify({ 
+                                    characterId: charRecord.id, 
+                                    view: 'front', 
+                                    role: charRecord.role,
+                                    source: 'auto-pipeline'
+                                })
+                            }
+                        });
                         return null; // Return null so we can filter it out of results
                     }
 

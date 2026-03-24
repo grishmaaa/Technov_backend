@@ -399,14 +399,16 @@ export const generateVisualPrompt = async (targetType, entity, style, targetMode
 Convert the entity data provided into a strict portrait prompt for: ${targetModel}.
 
 RULES:
-1. BIOMETRIC ONLY: Extract ONLY: age, race, skin tone, hair, eyes, and distinctive facial features (scars, freckles, etc).
-2. FORBIDDEN: ABSOLUTELY NO props, vehicles, clothes, hats, helmets, or occupational gear (no cars, no sports gear, no racing leathers).
+1. BIOMETRIC FOCUS: Extract or intelligently synthesize: age, race, skin tone, hair, eyes, and facial structure (scars, features). If details are missing, synthesize a visually logical persona based on their role/name (e.g., 'Young Woman' -> '20s, vibrant eyes, natural hair').
+2. FORBIDDEN: Do not include narrative context, props, vehicles, specific clothes, hats, or gear. Forbid: "driving", "riding", "in a car", "helmet", "bike". The prompt should focus exclusively on the human face.
 3. STYLE: "High-resolution studio portrait, neutral grey background, professional headshot lighting, sharp focus on eyes, 8k resolution, photorealistic."
-4. If a character is "faceless" or identity is "obscured," ignore them—return "IGNORE".
+4. IGNORE FLAG: Return "IGNORE" ONLY if the character is explicitly described as "faceless," "fully masked," or "face is never seen." If they have a face but no details, do NOT ignore—SYNTHESIZE traits.
+
+5. STRICT OUTPUT: Return ONLY the final prompt string or the word "IGNORE". Absolutely no chatty preamble, explanations, or code blocks.
 
 TASK:
 Entity Data: ${JSON.stringify(entity)}
-Return the photographic prompt or "IGNORE".`;
+Return the final photographic prompt or "IGNORE".`;
     } else {
         // Fallback for WORLD_INGREDIENT or SCENE
         systemPrompt = `You are a professional AI Prompt Engineer for a cinematic studio.

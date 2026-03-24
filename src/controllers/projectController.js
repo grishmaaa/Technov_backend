@@ -525,10 +525,22 @@ export const decideVisualIdentity = async (req, res) => {
         }, "🔍 Visual Identity Decision Debug");
 
         // 1. Check Character Bible
-        let needsHero = Array.isArray(bible) && bible.length > 0;
+        const checkIsVisualLead = (c) => {
+            if (c.is_visual_lead === false) return false;
+            // Vibe Check fallback for legacy or missing flags
+            const roleAndDesc = (c.role || '') + ' ' + (c.description || '');
+            const isFacelessVibe = roleAndDesc.toLowerCase().includes('faceless') || 
+                                 roleAndDesc.toLowerCase().includes('never seen') ||
+                                 roleAndDesc.toLowerCase().includes('helmeted');
+            if (c.is_visual_lead === undefined && isFacelessVibe) return false;
+            return true;
+        };
+
+        const visualLeadCount = Array.isArray(bible) ? bible.filter(checkIsVisualLead).length : 0;
+        let needsHero = visualLeadCount > 0;
         let reason = needsHero
-            ? `Identified ${bible.length} characters in the Bible.`
-            : 'No characters in Bible.';
+            ? `Identified ${visualLeadCount} visual lead characters in the Bible.`
+            : 'No visual lead characters found (all faceless or background).';
 
         // 2. Check Object Bible for "Living" things (Aliens, Robots, etc.)
         if (!needsHero && Array.isArray(objects) && objects.length > 0) {

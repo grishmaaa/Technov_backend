@@ -236,11 +236,14 @@
                 )
             );
 
-            // Create characters in DB
+            // Create ONLY visual lead characters in DB — background/faceless characters are never stored
             if (parsed.characters?.length > 0) {
+                const visualLeads = parsed.characters.filter(c => c.is_visual_lead !== false);
+                logger.info({ total: parsed.characters.length, leads: visualLeads.length }, '🎭 Only creating visual lead characters');
+
                 await Promise.all(
-                    parsed.characters.map(async (char) => {
-                        const character = await prisma.character.create({
+                    visualLeads.map(async (char) => {
+                        await prisma.character.create({
                             data: {
                                 projectId: id,
                                 name: char.name,
@@ -249,23 +252,6 @@
                                 approved: false,
                             },
                         });
-
-                        // If not a visual lead (faceless/background), create an IGNORED asset record immediately
-                        if (char.is_visual_lead === false) {
-                            await prisma.asset.create({
-                                data: {
-                                    projectId: id,
-                                    type: 'CHARACTER',
-                                    state: 'IGNORED',
-                                    metadata: JSON.stringify({
-                                        characterId: character.id,
-                                        role: char.role,
-                                        name: char.name,
-                                        source: 'script-analyzer'
-                                    })
-                                }
-                            });
-                        }
                     })
                 );
             }
@@ -800,6 +786,10 @@
         try {
             const { id } = req.params;
 
+            const project = await prisma.project.findUnique({
+                where: { id },
+            });
+
             const characters = await prisma.character.findMany({
                 where: { projectId: id },
             });
@@ -807,7 +797,7 @@
             // Check all have portraits
             // 🟢 FIX: Ignore background/faceless characters when checking for missing portraits
             const checkIsVisualLead = (c) => {
-                const bible = project.metadata?.character_bible || [];
+                const bible = project?.metadata?.character_bible || [];
                 const bibleEntry = bible.find(b => b.id === c.id || b.name === c.name);
                 if (bibleEntry && bibleEntry.is_visual_lead === false) return false;
                 

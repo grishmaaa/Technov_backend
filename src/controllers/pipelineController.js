@@ -785,10 +785,28 @@
             });
 
             // Check all have portraits
-            const missingPortraits = characters.filter(c => !c.portraitUrl);
+            // 🟢 FIX: Ignore background/faceless characters when checking for missing portraits
+            const checkIsVisualLead = (c) => {
+                const bible = project.metadata?.character_bible || [];
+                const bibleEntry = bible.find(b => b.id === c.id || b.name === c.name);
+                if (bibleEntry && bibleEntry.is_visual_lead === false) return false;
+                
+                // Vibe Check fallback
+                const roleAndDesc = (c.role || '') + ' ' + (c.description || '');
+                const isFacelessVibe = roleAndDesc.toLowerCase().includes('faceless') || 
+                                     roleAndDesc.toLowerCase().includes('never seen') ||
+                                     roleAndDesc.toLowerCase().includes('helmet') ||
+                                     roleAndDesc.toLowerCase().includes('obscure') ||
+                                     roleAndDesc.toLowerCase().includes('shadow');
+                return !isFacelessVibe;
+            };
+
+            const visualLeads = characters.filter(checkIsVisualLead);
+            const missingPortraits = visualLeads.filter(c => !c.portraitUrl);
+
             if (missingPortraits.length > 0) {
                 return res.status(400).json({
-                    error: 'All characters must have portraits before approval',
+                    error: 'All lead characters must have portraits before approval',
                     missing: missingPortraits.map(c => c.name),
                 });
             }

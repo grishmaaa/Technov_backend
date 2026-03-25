@@ -953,6 +953,7 @@
             }
 
             const visualStyle = project.metadata?.visual_style || 'cinematic';
+            const worldLock = project.metadata?.worldLock || '';
             let finalPrompt = `${worldLock} ${asset.metadata}`.trim();
 
             // 1. Generate optimized prompt via LLM
@@ -976,7 +977,7 @@
                 },
             });
 
-            res.json(updated);
+            res.json({ asset: updated });
         } catch (error) {
             logger.error({ err: error }, 'Ingredient regeneration failed');
             res.status(500).json({ error: error.message || 'Failed to regenerate ingredient' });

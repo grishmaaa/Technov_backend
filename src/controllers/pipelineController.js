@@ -141,7 +141,9 @@
 
     ═══ PRODUCTION INSTRUCTIONS ═══
     1. VISUAL IDENTITY: Define 'characterLock' (visual descriptions of characters) and 'worldLock' (primary setting aesthetic).
-    2. INGREDIENTS: Identify the key world assets (Locations and Props) that need visual consistency. 
+    2. INGREDIENTS: Identify ONLY the 5 most critical visual assets (Key Locations and Main Props).
+       - DO NOT include minor background objects, vague items, or atmospheric elements.
+       - If an asset is not essential for visual storytelling, exclude it.
     3. CLIPS: Break the story into continuous cinematic clips based on your judgement. Each clip prompt must follow the 4-line structure.
 
     ═══ OUTPUT FORMAT ═══
@@ -169,7 +171,7 @@
                             },
                             required: ['name', 'type', 'description']
                         },
-                        description: 'Up to 6 visual ingredients (Locations or Props)'
+                        description: 'Exactly 5 essential visual ingredients (Key Locations or Main Props). Omit minor background items.'
                     },
                     clips: {
                         type: 'ARRAY',
@@ -268,10 +270,28 @@
                 );
             }
 
-            // Create World Ingredients (Assets)
+            // Create World Ingredients (Assets) — GUARDRAILED
             if (parsed.ingredients?.length > 0) {
+                // 1. Deduplicate by name (case-insensitive)
+                const seen = new Set();
+                const uniqueIngredients = parsed.ingredients.filter(ing => {
+                    const key = (ing.name || '').toLowerCase().trim();
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+
+                // 2. Hard cap at 5 essential ingredients
+                const MAX_INGREDIENTS = 5;
+                const essentialIngredients = uniqueIngredients.slice(0, MAX_INGREDIENTS);
+                logger.info({ 
+                    total: parsed.ingredients.length, 
+                    unique: uniqueIngredients.length, 
+                    saved: essentialIngredients.length 
+                }, '🧪 Ingredient guardrail applied');
+
                 await Promise.all(
-                    parsed.ingredients.map(ing =>
+                    essentialIngredients.map(ing =>
                         prisma.asset.create({
                             data: {
                                 projectId: id,
@@ -872,9 +892,23 @@
             const visualStyle = project.metadata?.visual_style || 'cinematic';
             const worldLock = project.metadata?.worldLock || '';
 
-            // Generate all ingredient images in parallel
+            // 🟢 GUARDRAIL: Hard-limit to 7 ingredients to prevent credit bloat
+            const MAX_INGREDIENTS = 7;
+            const assetsToGenerate = project.assets.slice(0, MAX_INGREDIENTS);
+
+            // Mark discarded assets as IGNORED so they don't reappear as DRAFT
+            const discardableAssets = project.assets.slice(MAX_INGREDIENTS);
+            if (discardableAssets.length > 0) {
+                logger.info({ discardedCount: discardableAssets.length }, '🗑️ Discarding excess ingredients beyond limit');
+                await prisma.asset.updateMany({
+                    where: { id: { in: discardableAssets.map(a => a.id) } },
+                    data: { state: 'IGNORED' }
+                });
+            }
+
+            // Generate only the essential ingredient images in parallel
             const assetResults = await Promise.allSettled(
-                project.assets.map(async (asset) => {
+                assetsToGenerate.map(async (asset) => {
                     const assetPrompt = `${worldLock} ${asset.metadata}`.trim();
 
                     // 1. Generate optimized prompt via LLM
@@ -904,8 +938,8 @@
                 if (result.status === 'fulfilled') {
                     return result.value;
                 } else {
-                    logger.error({ err: result.reason, assetId: project.assets[i].id }, 'Ingredient image generation failed');
-                    return project.assets[i];
+                    logger.error({ err: result.reason, assetId: assetsToGenerate[i].id }, 'Ingredient image generation failed');
+                    return assetsToGenerate[i];
                 }
             });
 

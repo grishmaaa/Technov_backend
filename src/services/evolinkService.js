@@ -148,6 +148,7 @@ const extractElementId = (data) => {
 
 /**
  * Submit a video — ROOT level params
+ * Kling 3.0 optimized: supports negative_prompt to suppress artifacts
  */
 export const submitVideoGeneration = async (prompt, options = {}) => {
     const {
@@ -158,6 +159,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         duration = 5,
         aspectRatio = '16:9',
         quality = 'standard',
+        negativePrompt = null,
     } = options;
 
     let finalModel = model;
@@ -171,10 +173,14 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         if (finalQuality === 'professional') finalQuality = '1080p';
     }
 
+    // Default negative prompt for Kling 3.0 — always suppress common artifacts
+    const DEFAULT_NEGATIVE = 'blur, flicker, distorted faces, warped limbs, morphing textures, extra fingers, mutation, disfigured, low quality, artifacts, glitch, deformed hands, unrealistic proportions';
+
     // 100% CLEAN ISOLATED OBJECT CONSTRUCTION
     const videoPayload = {
         model: finalModel,
         prompt: prompt,
+        negative_prompt: negativePrompt || DEFAULT_NEGATIVE,
         duration: Math.min(Math.max(duration, 5), 10),
         aspect_ratio: aspectRatio,
         quality: finalQuality.toUpperCase(),
@@ -206,7 +212,7 @@ export const submitVideoGeneration = async (prompt, options = {}) => {
         }).filter(item => item.url);
     }
 
-    logger.info({ model: videoPayload.model, type: 'VIDEO_GENERATION' }, '📡 Submitting Video Task to EvoLink');
+    logger.info({ model: videoPayload.model, hasNegativePrompt: !!videoPayload.negative_prompt, type: 'VIDEO_GENERATION' }, '📡 Submitting Video Task to EvoLink');
     
     return evolinkFetch('/videos/generations', {
         method: 'POST',

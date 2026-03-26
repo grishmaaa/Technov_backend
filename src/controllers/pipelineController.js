@@ -128,8 +128,13 @@
             const maxScenes = tierConfig.maxScenes;
             const visualStyleFinal = visualStyle || 'cinematic';
 
-            // Generate production-ready video API prompts
-            const systemPrompt = `You are an elite cinematic director and producer. Your task is to analyze a story and determine the most effective way to break it down into cinematic clips.
+            // Generate production-ready video API prompts — Kling 3.0 optimized
+            const systemPrompt = `You are an elite cinematic director and producer. Your task is to analyze a story and break it into cinematic clips optimized for Kling 3.0 video generation.
+
+    ═══ KLING 3.0 CORE PRINCIPLE ═══
+    You are a DIRECTOR, not a descriptor. Kling 3.0 understands time and space natively.
+    It knows what "action scene" or "car drifting" looks like cinematically.
+    Write with narrative intent — every camera move serves a story goal.
 
     ═══ AI DIRECTORSHIP & JUDGEMENT ═══
     1. SCENE COUNT: You are the judge of pacing. 
@@ -137,20 +142,42 @@
     - If the story has emotional beats, transitions, or progress, break it into the MINIMUM number of scenes required to tell it effectively (typically 1 to 5 scenes).
     - Only use the maximum of ${maxScenes} scenes for truly complex, epic narratives.
     - Do not stretch a short story into multiple scenes. Quality over quantity.
-    2. DURATION JUDGEMENT: For each scene, decide if it needs 4, 6, or 8 seconds to land the emotional beat.
+    2. DURATION JUDGEMENT: For each scene, decide if it needs 5, 8, or 10 seconds to land the emotional beat.
+       Kling 3.0 supports up to 10 seconds per clip. Longer durations work best when prompts describe progression over time.
 
     ═══ PRODUCTION INSTRUCTIONS ═══
     1. VISUAL IDENTITY: Define 'characterLock' (visual descriptions of characters) and 'worldLock' (primary setting aesthetic).
     2. INGREDIENTS: Identify ONLY the 5 most critical visual assets (Key Locations and Main Props).
        - DO NOT include minor background objects, vague items, or atmospheric elements.
        - If an asset is not essential for visual storytelling, exclude it.
-    3. CLIPS: Break the story into continuous cinematic clips based on your judgement. Each clip prompt must follow the 4-line structure.
+    3. CLIPS: Break the story into continuous cinematic clips. Each clip prompt MUST follow the 5-Layer Formula.
 
-    ═══ OUTPUT FORMAT ═══
-    Line 1: Plain English wide shot. What is physically happening. Maximum 20 words.
-    Line 2: [cut] The close-up that carries emotional weight. Maximum 20 words.
-    Line 3: [cut] The specific detail from the script. Maximum 20 words.
-    Line 4: Audio only — music type or 'no music' + dialogue/ambient details.
+    ═══ 5-LAYER PROMPT FORMULA (PER CLIP) ═══
+    Write each clip prompt as a flowing paragraph in this EXACT order:
+
+    LAYER 1 — SCENE: Ground the model. Location, time of day, lighting, atmosphere.
+    LAYER 2 — CHARACTERS: Assign clear roles (woman, man, child, vendor). Reference by name. No vague pronouns.
+    LAYER 3 — ACTION: Describe action SEQUENTIALLY using the timeline method.
+      "She slows her pace, looks back briefly, then continues walking forward."
+      For clips ≥ 6s, use time-coded sequences: "First sequence (0-3s): [action]. Second sequence (3-8s): [progression]."
+    LAYER 4 — CAMERA: Camera direction is MANDATORY. Pick specific moves:
+      dolly push, tracking shot, crane shot, handheld, rack focus, speed ramp, lateral pass, crash push, pull back, slow zoom, POV.
+      Connect every camera move to the narrative beat.
+    LAYER 5 — AUDIO: Dialogue with character labels and voice tone, SFX notation, ambient sound.
+      Example: "[Character A, raspy voice]: 'We're not leaving.' SFX: Distant thunder rolls."
+
+    ═══ CAMERA_MOTION FIELD ═══
+    Separately provide the dominant camera motion as a short technical tag.
+    Examples: "slow dolly push", "tracking shot left to right", "crane up reveal", "handheld with quick pans", "static wide".
+
+    ═══ AUDIO_DIRECTION FIELD ═══
+    Separately provide a concise audio/SFX direction string.
+    Examples: "Tense orchestral swell, SFX: glass shattering", "Ambient rain, quiet dialogue".
+
+    ═══ NEGATIVE PROMPT FIELD ═══
+    Provide a negative_prompt string per clip to suppress common Kling artifacts.
+    Always include: "blur, flicker, distorted faces, warped limbs, morphing textures, extra fingers, mutation, disfigured, low quality, artifacts, glitch"
+    Add scene-specific negatives (e.g., "circular camera motion" if you want linear, "shaky" if you want stable).
 
     Zero lens/DOF specs. Output must include \`characterLock\`, \`worldLock\`, \`ingredients\`, and \`clips\`.`;
 
@@ -179,16 +206,19 @@
                             type: 'OBJECT',
                             properties: {
                                 clip_number: { type: 'INTEGER' },
-                                prompt: { type: 'STRING', description: 'Line 1: Wide, Line 2: [cut] Close-up, Line 3: [cut] Detail, Line 4: Audio' },
+                                prompt: { type: 'STRING', description: '5-layer flowing paragraph: Scene → Characters → Action (time-coded if ≥6s) → Camera → Audio' },
+                                camera_motion: { type: 'STRING', description: 'Dominant camera motion tag: e.g. "slow dolly push", "tracking shot", "crane up reveal", "handheld"' },
+                                audio_direction: { type: 'STRING', description: 'Audio/SFX/dialogue direction: e.g. "Tense score, SFX: glass shatter"' },
+                                negative_prompt: { type: 'STRING', description: 'Kling negative tokens to suppress artifacts. Always include base: blur, flicker, distorted faces, warped limbs, morphing, extra fingers' },
                                 continuity_hook: { type: 'STRING', description: 'How this clip ends to set up the next' },
-                                duration: { type: 'INTEGER', description: 'Must be 4, 6, or 8' },
+                                duration: { type: 'INTEGER', description: 'Must be 5, 8, or 10' },
                                 characters_present: {
                                     type: 'ARRAY',
                                     items: { type: 'STRING' },
                                     description: 'Names of characters present'
                                 }
                             },
-                            required: ['clip_number', 'prompt', 'continuity_hook', 'duration', 'characters_present'],
+                            required: ['clip_number', 'prompt', 'camera_motion', 'audio_direction', 'negative_prompt', 'continuity_hook', 'duration', 'characters_present'],
                         },
                     },
                     characters: {
@@ -220,6 +250,10 @@
             }
 
             // Save scenes (clips) to DB
+            // Persist Kling 3.0 fields:
+            //   audioDirective   → clip.audio_direction
+            //   storyboardPrompt → clip.camera_motion (reusing unused field at generation time)
+            //   actionDescription → JSON with continuity_hook + negative_prompt
             const scenes = await Promise.all(
                 parsed.clips.map((clip, index) =>
                     prisma.scene.create({
@@ -227,7 +261,12 @@
                             projectId: id,
                             orderIndex: clip.clip_number !== undefined ? clip.clip_number - 1 : index,
                             promptText: clip.prompt,
-                            actionDescription: clip.continuity_hook,
+                            actionDescription: JSON.stringify({
+                                continuity_hook: clip.continuity_hook || '',
+                                negative_prompt: clip.negative_prompt || 'blur, flicker, distorted faces, warped limbs, morphing textures, extra fingers, mutation, disfigured, low quality, artifacts, glitch',
+                            }),
+                            audioDirective: clip.audio_direction || null,
+                            storyboardPrompt: clip.camera_motion || null,
                             duration: clip.duration || 8,
                             charactersPresent: clip.characters_present || [],
                             state: 'DRAFT',
@@ -321,16 +360,30 @@
                 title: parsed.title,
                 worldLock: parsed.worldLock,
                 characterLock: parsed.characterLock,
-                scenes: scenes.map((s, i) => ({
-                    id: s.id,
-                    sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1, // Expose sceneNumber for frontend mapping
-                    title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
-                    description: s.actionDescription, // Mapped to continuity_hook
-                    prompt: s.promptText,       // Mapped to 5-part formula
-                    directorsNote: s.directorsNote,
-                    duration: s.duration,
-                    approved: false,
-                })),
+                scenes: scenes.map((s, i) => {
+                    // Parse actionDescription JSON (contains continuity_hook + negative_prompt)
+                    let desc = s.actionDescription;
+                    let negativePrompt = null;
+                    try {
+                        const parsed = JSON.parse(s.actionDescription);
+                        desc = parsed.continuity_hook || s.actionDescription;
+                        negativePrompt = parsed.negative_prompt || null;
+                    } catch (e) { /* legacy string format — keep as-is */ }
+
+                    return {
+                        id: s.id,
+                        sceneNumber: s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1,
+                        title: `Clip ${s.orderIndex !== undefined ? s.orderIndex + 1 : i + 1}`,
+                        description: desc,
+                        prompt: s.promptText,
+                        camera_motion: s.storyboardPrompt || null,
+                        audio_direction: s.audioDirective || null,
+                        negative_prompt: negativePrompt,
+                        directorsNote: s.directorsNote,
+                        duration: s.duration,
+                        approved: false,
+                    };
+                }),
                 characters: parsed.characters || [],
                 usage,
             });

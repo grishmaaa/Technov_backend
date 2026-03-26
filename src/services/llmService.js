@@ -388,10 +388,9 @@ The edited prompt should describe what the audience FEELS, not just what the cam
 
 /**
  * Generates a model-optimized visual prompt using the LLM.
- * This replaces your regex-based scrubbing.
+ * Kling 3.0 intelligence: 5-layer formula, time-coded sequences, negative prompts.
  */
 export const generateVisualPrompt = async (targetType, entity, style, targetModel) => {
-    // This prompt is now strictly enforced to be biometric
     let systemPrompt = '';
     
     if (targetType === 'CHARACTER_PORTRAIT') {
@@ -409,27 +408,92 @@ RULES:
 TASK:
 Entity Data: ${JSON.stringify(entity)}
 Return the final photographic prompt or "IGNORE".`;
+
+    } else if (targetType === 'SCENE') {
+        // ═══ KLING 3.0 — 5-LAYER DIRECTORIAL PROMPT FORMULA ═══
+        // Scene → Characters → Action → Camera → Audio & Style
+        const duration = entity.duration || 8;
+        systemPrompt = `You are an elite Director of Photography writing a video generation prompt for Kling 3.0 (via ${targetModel}).
+
+═══ KLING 3.0 MENTAL MODEL ═══
+Kling 3.0 understands TIME and SPACE. You are a director, not a descriptor.
+Write prompts with narrative intent — connect every camera movement to a story goal.
+Short prompts work IF they carry cinematic intent. Do not pad with filler.
+
+═══ THE 5-LAYER PROMPT FORMULA (MANDATORY ORDER) ═══
+Write the prompt in this EXACT order, as a flowing paragraph — NOT as labeled sections:
+
+LAYER 1 — SCENE (Context Anchor): Ground the model in a clear environment.
+  Location (indoor/outdoor, specific place), time of day / lighting, overall atmosphere.
+
+LAYER 2 — CHARACTERS (Clear Roles): Assign identities clearly.
+  Use unambiguous labels (woman, man, child, vendor). Avoid vague "they/them" references.
+  If characters_present is provided, reference them by name with clear visual anchoring.
+
+LAYER 3 — ACTION (Timeline): Describe actions SEQUENTIALLY, not stacked.
+  Use the timeline method: "She slows her pace, looks back briefly, then continues forward."
+  If duration is ${duration}s, pace the action to fill that time naturally.
+
+LAYER 4 — CAMERA (Cinematography): Camera instructions are MANDATORY.
+  Pick from: dolly push, tracking shot, crane shot, handheld, rack focus, speed ramp,
+  lateral pass, crash push, pull back, static wide, slow zoom, POV shot.
+  Connect every camera move to a narrative goal — never use camera as standalone effect.
+
+LAYER 5 — AUDIO & STYLE: Lock in dialogue, tone, SFX, and ambient sound.
+  Use SFX notation: "SFX: [description]". Tag dialogue with character labels and voice tone.
+  Example: "[Character A, low gravelly voice]: 'We're not leaving without her.'"
+
+═══ TIME-CODED SEQUENCES ═══
+For clips ≥ 6 seconds, break the prompt into time-coded sequences:
+  "First sequence (0-3s): [action + camera]. Second sequence (3-${duration}s): [progression + camera shift]."
+This gives Kling granular pacing control — mix slow and fast within a single clip.
+
+═══ NEGATIVE PROMPT AWARENESS ═══
+End the prompt with a single sentence starting with "Avoid:" listing potential artifacts.
+Example: "Avoid: blur, flicker, distorted faces, warped limbs, morphing textures, extra fingers."
+
+═══ IMAGE-TO-VIDEO AWARENESS ═══
+If the scene has a storyboardUrl or lastFrameUrl (meaning an anchor image is provided),
+the prompt must describe motion AWAY FROM that locked frame — do NOT re-describe what's already visible.
+Focus on: how the scene evolves, what moves, how the camera reacts.
+
+═══ OUTPUT FORMAT ═══
+Return ONLY the final prompt string as a single flowing paragraph (with time-codes inline if duration ≥ 6s).
+Append the "Avoid:" line at the end. No preamble, no labels, no code blocks, no explanations.
+Target length: 40-80 words for 4-5s clips, 60-120 words for 6-10s clips.
+
+TASK:
+Scene Data: ${JSON.stringify(entity)}
+Visual Style: ${style}
+Duration: ${duration} seconds
+Generate the Kling 3.0 optimized prompt.`;
+
     } else {
-        // Fallback for WORLD_INGREDIENT or SCENE
-        systemPrompt = `You are a professional AI Prompt Engineer for a cinematic studio.
-Your goal is to convert user-provided descriptions into an optimized prompt for: ${targetModel}.
+        // WORLD_INGREDIENT — cinematic ingredient framing
+        systemPrompt = `You are a production designer writing an image generation prompt for: ${targetModel}.
+Your goal is to create a visually stunning reference image of a specific world ingredient (location or prop).
 
 RULES:
-1. FOCUS: For ingredients, focus on visual details, lighting, and composition. For scenes, describe motion and cinematic action.
-2. STYLE: Use cinematic terminology. High contrast, photorealistic, 8k.
-3. Keep it concise.
+1. COMPOSITION: Frame the ingredient as a hero shot — centered, dramatic, cinematic.
+2. LIGHTING: Use cinematic lighting (golden hour, dramatic shadows, rim lighting, volumetric fog).
+3. DETAIL: Include material textures, weathering, scale cues, and environmental context.
+4. STYLE: ${style}. High contrast, photorealistic, 8k, shallow depth of field.
+5. NO CHARACTERS: Never include people or characters in ingredient reference images.
+6. Keep it concise: 30-60 words maximum.
+
+STRICT OUTPUT: Return ONLY the final prompt string. No preamble or explanations.
 
 TASK:
 Entity Data: ${JSON.stringify(entity)}
 Style: ${style}
-Generate a prompt of roughly 30-50 words.`;
+Generate the cinematic ingredient prompt.`;
     }
 
     const result = await generateStructuredOutput(
         systemPrompt,
         `Generate the prompt for this ${targetType}.`,
         null,
-        { model: 'gemini-2.5-pro', temperature: 0.1 } // Very low temp for strict adherence
+        { model: 'gemini-2.5-pro', temperature: 0.15 }
     );
     
     return result.text;

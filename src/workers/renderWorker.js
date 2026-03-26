@@ -247,7 +247,17 @@ export const processGenerationJob = async (jobId, context = {}) => {
             }
 
             try {
-                // 1. Generate optimized visual prompt via LLM
+                // 1. Extract Kling 3.0 metadata from scene record
+                let sceneNegativePrompt = null;
+                try {
+                    const actionMeta = JSON.parse(scene.actionDescription || '{}');
+                    sceneNegativePrompt = actionMeta.negative_prompt || null;
+                } catch (e) { /* legacy string format — no negative prompt */ }
+
+                const cameraMotion = scene.storyboardPrompt || null; // Stored camera_motion tag
+                const audioDirection = scene.audioDirective || null; // Stored audio_direction
+
+                // 2. Generate optimized visual prompt via LLM (now uses 5-layer Kling 3.0 formula)
                 const visualStyle = project.metadata?.visual_style || 'Cinematic';
                 const visualPrompt = await generateVisualPrompt(
                     'SCENE', 
@@ -256,7 +266,7 @@ export const processGenerationJob = async (jobId, context = {}) => {
                     tierConfig.video.model
                 );
 
-                // Prepend continuity locked strings
+                // 3. Prepend continuity locked strings
                 let lockedStrings = '';
                 if (project.metadata?.worldLock) {
                     lockedStrings += `[WORLD: ${project.metadata.worldLock}] `;
@@ -267,26 +277,59 @@ export const processGenerationJob = async (jobId, context = {}) => {
 
                 let prompt = `${lockedStrings}${visualPrompt}`.trim();
 
-                // Add character/prop mapping context to prompt for Kling's @Image/@Element system
+                // 4. Strip the "Avoid:" suffix from the visual prompt (already captured in negative_prompt)
+                // The LLM adds "Avoid: ..." at the end — extract it to avoid duplication
+                const avoidMatch = prompt.match(/\s*Avoid:\s*(.+)$/i);
+                if (avoidMatch) {
+                    // Merge LLM-generated avoid tokens with stored negative prompt
+                    const llmNegatives = avoidMatch[1].trim();
+                    if (!sceneNegativePrompt) {
+                        sceneNegativePrompt = llmNegatives;
+                    } else if (!sceneNegativePrompt.includes(llmNegatives.substring(0, 20))) {
+                        sceneNegativePrompt = `${sceneNegativePrompt}, ${llmNegatives}`;
+                    }
+                    // Remove the "Avoid:" line from the main prompt
+                    prompt = prompt.replace(/\s*Avoid:\s*.+$/i, '').trim();
+                }
+
+                // 5. Append camera motion tag if available (explicit Kling 3.0 camera control)
+                if (cameraMotion) {
+                    prompt += ` Camera: ${cameraMotion}.`;
+                }
+
+                // 6. Append audio direction for native Kling 3.0 audio generation
+                if (audioDirection) {
+                    prompt += ` Audio: ${audioDirection}.`;
+                }
+
+                // 7. Add character/prop mapping context for Kling's @Image/@Element system
                 if (referenceImages.length > 0) {
                     const refs = referenceImages.map(r => `@${r.label}`).join(', ');
                     prompt += ` Use references: ${refs}`;
                 }
 
-                // Determine Start Frame for Continuity Chaining
-                // 1. If we have a lastFrameUrl from the PREVIOUS clip, use it to ensure perfect continuity.
-                // 2. Otherwise (Clip 1), fall back to the generated Ingredient reference image.
+                // 8. Determine Start Frame for Continuity Chaining
+                // If we have a lastFrameUrl from the PREVIOUS clip, use it for image-to-video continuity.
+                // Otherwise (Clip 1), fall back to the generated Ingredient reference image.
                 const previousClipIndex = i - 1;
                 const previousLastFrameUrl = previousClipIndex >= 0 ? project.scenes[previousClipIndex].lastFrameUrl : null;
                 const startingImageUrl = previousLastFrameUrl || scene.storyboardUrl || undefined;
 
-                // Generate video via EvoLink
+                // 9. IMAGE-TO-VIDEO AWARENESS: When anchor image is provided,
+                // Kling 3.0 excels at preserving the source image identity.
+                // The prompt should describe motion AWAY from the locked frame, not re-describe it.
+                if (startingImageUrl) {
+                    prompt = `[Continuing from previous frame] ${prompt}`;
+                }
+
+                // Generate video via EvoLink — now with negative_prompt
                 const videoResult = await generateVideo(prompt, {
                     sceneId: scene.id,
                     model: tierConfig.video.model,
                     imageUrl: startingImageUrl,
                     elementList: elementList, // Kling character consistency
                     referenceImages: referenceImages, // World ingredients
+                    negativePrompt: sceneNegativePrompt, // Kling 3.0 artifact suppression
                     duration: Math.min(scene.duration || 8, 10),
                     aspectRatio: project.aspectRatio || '16:9',
                     quality: tierConfig.video.quality,
